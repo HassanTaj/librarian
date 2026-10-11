@@ -1,0 +1,13 @@
+**
+!app/
+!app/**
+!lib/
+!lib/**
+!public/
+!public/**
+!mdx-components.tsx
+!next.config.mjs
+!package.json
+!package-lock.json
+!postcss.config.mjs
+!tsconfig.json

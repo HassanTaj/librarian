@@ -1,0 +1,111 @@
+name: Build and publish Librarian
+
+on:
+  push:
+    branches:
+      - deploy/feed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: librarian-deploy-feed
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      # Disposable CI database for integration tests; production uses the existing MongoDB service.
+      mongodb:
+        image: mongo:8.0@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'quit(db.runCommand({ping: 1}).ok ? 0 : 1)'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build the production app
+        run: npm run build
+
+      - name: Validate generated feature artifacts
+        run: npm run validate:artifacts
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run unit and integration tests
+        run: |
+          npm run test:unit
+          npm run test:integration
+
+      - name: Measure and enforce coverage
+        run: |
+          npm run test:coverage
+          npm run coverage:check
+
+      - name: Install browser engines
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Run browser tests
+        run: npm run test:e2e
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY_URL: ${{ vars.REGISTRY_URL }}
+    steps:
+      - name: Validate registry configuration
+        shell: bash
+        run: |
+          if [[ -z "$REGISTRY_URL" || "$REGISTRY_URL" == *"://"* || "$REGISTRY_URL" == */* ]]; then
+            echo "::error::Set repository variable REGISTRY_URL to a registry host without a scheme or path."
+            exit 1
+          fi
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Gitea registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY_URL }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and publish versioned and watched images
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          provenance: false
+          sbom: false
+          outputs: type=image,push=true,oci-mediatypes=false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ${{ env.REGISTRY_URL }}/perspective-v/librarian:latest
+            ${{ env.REGISTRY_URL }}/perspective-v/librarian:${{ github.sha }}
+            ${{ env.REGISTRY_URL }}/perspective-v/librarian:v1.0.${{ github.run_number }}
