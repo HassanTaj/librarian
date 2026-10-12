@@ -1,0 +1,21 @@
+// Fixed v1 policies from the adopted implementation plan; callers enforce their own boundaries.
+export const LIMITS = {
+  maxCatalogs: 20, maxFiles: 1000, maxPages: 500, maxSnapshotBytes: 50 * 1024 ** 2,
+  maxMarkdownBytes: 256 * 1024, maxMetadataBytes: 16 * 1024, maxAssetBytes: 5 * 1024 ** 2, maxGitHubTreeBytes: 7_000_000,
+  maxPathBytes: 1024, maxPathSegments: 32, maxMetadataDepth: 8, maxAstNodes: 50_000,
+  maxHighlightedLanguages: 16, maxWebhookBytes: 1024 ** 2, maxControlRepositories: 1000, maxAdminBytes: 32 * 1024, maxPublicApprovalBytes: 64 * 1024,
+  maxSearchQueryBytes: 256, maxSearchResults: 20, maxOAuthResponseBytes: 64 * 1024, maxRoleResponseBytes: 512 * 1024, requestTimeoutMs: 30_000,
+  ingestionConcurrency: 1, fetchConcurrency: 2, upstreamTimeoutMs: 15_000, attemptTimeoutMs: 120_000,
+  leaseMs: 30_000, heartbeatMs: 10_000, recoveryDeadlineMs: 45_000,
+  idlePollMs: 5000, activePollMs: 1000, maxAttempts: 5, retryDelaysMs: [5000, 20_000, 60_000, 180_000],
+  maxRetryAfterMs: 60 * 60 * 1000, maxAdmissionReservations: 100_000,
+  terminalDetailMs: 14 * 24 * 60 * 60 * 1000, admissionRate: 60, admissionWindowMs: 60_000,
+  maxCommittedGenerations: 3, maxRetainedGenerations: 2, maxStagingGenerations: 1,
+  retainedGraceMs: 5 * 60 * 1000, maxRetainedAgeMs: 24 * 60 * 60 * 1000,
+  maxReadPins: 64, readPinMs: 60_000, maxCacheEntries: 4, maxCacheBytes: 96 * 1024 ** 2,
+  cacheIdleMs: 5 * 60 * 1000, maxCatalogPayloadBytes: 200 * 1024 ** 2, maxPortalPayloadBytes: 4 * 1024 ** 3,
+  sessionAbsoluteMs: 8 * 60 * 60 * 1000, roleFreshMs: 15 * 60 * 1000,
+  roleQueryTimeoutMs: 5000, maxRolePages: 10, rolePageSize: 100, roleLeaseMs: 10_000, roleContenderMs: 2000,
+} as const;
+
+export const HIGHLIGHT_LANGUAGES = ['bash', 'csharp', 'css', 'dockerfile', 'html', 'java', 'javascript', 'json', 'jsx', 'markdown', 'powershell', 'python', 'sql', 'tsx', 'typescript', 'yaml'] as const;

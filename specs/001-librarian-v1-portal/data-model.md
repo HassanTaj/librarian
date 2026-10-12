@@ -21,7 +21,7 @@ One small document owns each catalog's configuration, ingestion lease and public
 | configRevision / authEpoch | Monotonic integers; changes to source/branch/folder/slug/role/visibility invalidate incompatible publication and delivery |
 | published | Nullable complete generation pointer: generationId, commitSha, jobId, fence, configRevision, manifestDigest, publishedAt |
 | publicationRevision | Monotonic conditional-update counter; distinguishes pointer races |
-| retained | Up to two previous selectable generations valid for current config, within plan's grace/age/slot rules |
+| retained | Up to two previous selectable generation pointers, each with server-set retiredAt, valid for current config; grace and maximum retained age run from retiredAt |
 | lease | Nullable owner UUID, fence, expiresAt, heartbeatAt; catalog's leaseFence monotonically increases on claim |
 | readPins | Bounded requestId/generationId/expiresAt entries; select/pin and retention eligibility update in this aggregate |
 | admissionReservations | Monotonic lifetime count <=100,000; reserves a slot before inserting a durable job; safe overcount is acceptable, undercount is not |
@@ -40,7 +40,16 @@ Source identity, slug, reader role or visibility changes increment configRevisio
 old workers, remove selectable pointers and require compatible resync/review. Old immutable files
 remain for in-flight cleanup/recovery, never under incompatible new settings. Disablement immediately
 blocks serving and invalidates lease; reenabling after access loss requires successful access validation.
-No catalog deletion UI/API is part of v1.
+### Catalog Removal
+
+`DELETE /api/admin/repos/{id}` requires the same verified administrator, exact Origin, session-bound
+CSRF token, and current `updatedAt` If-Match version as other mutations. The catalog document is
+removed atomically only when `lease` is null and there is no unexpired `readPins` entry. Then its
+server-UUID-scoped content directory is removed after root-containment checks. Repeating the request
+for an already-removed catalog retries orphan snapshot cleanup. A failed cleanup is surfaced so an
+administrator can retry. Outstanding queued jobs are cancelled by the worker when it observes the
+missing catalog. Permanent `syncJobs` and `controlReceipts` replay/history records and the monotonic
+catalog-creation quota reservation are retained; they do not contain editable catalog settings.
 
 ## Public Approval: Owner-Controlled Manifest
 
@@ -48,6 +57,20 @@ A read-only operator-mounted approval manifest, separate from mutable admin cata
 approval ID/version, owner approval date/reference, repository ID, branch, docsPath, slug, reviewed
 commit and candidate manifest digest, and explicit approval of future Git-authored updates within
 that same reviewed source scope. No secret or private body is recorded.
+
+The optional `PUBLIC_CATALOG_APPROVALS_FILE` points to this JSON file outside `public/` and
+`CONTENT_ROOT`; it is limited to 64 KiB and 20 unique approval IDs. Its shape is
+`{"formatVersion":1,"approvals":[...]}`. Each strict approval record contains
+`approvalId`, positive `version`, ISO `approvedAt`, safe `ownerReference`, positive
+`repositoryId`, `branch`, `docsPath`, `slug`, 40-character `reviewedCommit`, 64-character
+`candidateManifestDigest`, and `allowFutureUpdates`.
+
+The candidate digest is SHA-256 over UTF-8 JSON for
+`{"formatVersion":1,"files":[...]}`. Each entry contains `path`, `mode`, byte `size`, and
+SHA-256 of exact file bytes; entries are sorted by path using ordinal string order. The first
+public publication and any new approval scope must match both the reviewed commit and digest.
+Later commits are allowed only when `allowFutureUpdates` is true and repository ID, branch,
+documentation folder, and route slug still match the approval.
 
 Admin chooses an existing approvalRef; the server validates its exact scope before public enablement.
 A client Boolean claiming approval or librarian-admin role is insufficient. Initial candidate is
@@ -83,6 +106,10 @@ even for already disabled catalogs or exhausted work-admission quota/rate. Persi
 receipt before acknowledging; if storage/quota prevents it, return failure with serving still blocked
 where the catalog update succeeded. Retry/reconcile partial disable even when a receipt already exists.
 No content fetch occurs in that request.
+
+The separate `controlReceipts` collection stores `_id`, catalogId, installationId, repositoryId,
+event/action, the original payload digest, and completion time. Its unique replay id is never TTL-deleted;
+control records are permanent and do not reserve a work-admission sequence.
 
 Push/manual admission: validate raw-body size/signature and source match; check existing ID/digest; atomically
 reserve catalog quota/rate/sequence under enabled/current config; insert unique queued job with
@@ -156,6 +183,14 @@ A manifest has formatVersion, catalogId/configRevision, generationId, commitSha/
 complete timestamp, normalized byte count, and per-document/asset path, SHA-256, size and allowed type.
 Document records include canonical route, safe parsed title/description, headings/links and asset
 mapping; this metadata remains protected along with bodies. JSON attachments are not navigation JSON.
+
+The implemented v1 manifest uses `formatVersion: 1`, `complete: true`, ISO `completedAt`,
+`normalizedBytes` including manifest overhead, and `documents`, `assets`, `metadata` arrays.
+Document entries contain path/route/title/description, heading id/title/depth, link href/image,
+sha256 and size. Assets contain path/sha256/size/mime/inline; metadata entries contain
+path/sha256/size and name only approved meta.json files. The catalog's manifestDigest covers
+the exact manifest bytes. Opening a manifest checks all generation-directory ancestors from
+CONTENT_ROOT, not merely paths relative to a potentially replaced generation directory.
 
 Generation/path identifiers are server generated; realpath checks and no-follow opening defend
 filesystem boundaries even after Git-mode checks. Relative links resolve POSIX paths under the docs

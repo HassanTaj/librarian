@@ -1,0 +1,31 @@
+import { expect, test } from '@playwright/test';
+
+test('keyboard search and project switching stay within the selected generation and repository', async ({ page }) => {
+  await page.goto('/public-project');
+  const trigger = page.getByRole('button', { name: 'Search this project' });
+  await trigger.focus();
+  await page.keyboard.press('Enter');
+  const search = page.getByRole('searchbox', { name: 'Search this project' });
+  await expect(search).toBeFocused();
+  await search.fill('setup');
+  const result = page.locator('#project-search-panel a').first();
+  await expect(result).toBeVisible();
+  const href = await result.getAttribute('href');
+  expect(href).toMatch(/^\/public-project\/guides\/setup\?g=[0-9a-f-]{36}$/i);
+  await result.click();
+  await expect(page.getByRole('heading', { name: 'Setup' })).toBeVisible();
+  const projectMenu = page.locator('summary[aria-label^="Select project"]').filter({ visible: true }).first();
+  await projectMenu.focus();
+  await expect(projectMenu).toBeFocused();
+  await page.keyboard.press('Enter');
+  await page.locator('details[open] a[href="/other-project"]').click({ timeout: 5000 });
+  await expect(page).toHaveURL(/\/other-project$/);
+  await expect(page.getByRole('heading', { name: 'Other Project', exact: true })).toBeVisible();
+  expect(await page.locator('body').innerText()).toContain('telescope');
+  expect(await page.locator('body').innerText()).not.toContain('Setup fixture content.');
+  const restrictedMenu = page.locator('summary[aria-label^="Select project"]').filter({ visible: true }).first();
+  await restrictedMenu.click({ timeout: 5000 });
+  await page.locator('details[open] a[href="/private-one"]').click({ timeout: 5000 });
+  await expect(page.getByRole('heading', { name: 'Restricted project' })).toBeVisible();
+  expect(await page.locator('body').innerText()).not.toContain('SYNTHETIC_PRIVATE_BROWSER_SENTINEL');
+});

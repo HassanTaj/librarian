@@ -251,12 +251,39 @@ Stage 1's mandatory executable spike must prove:
 - Missing maps/process output, parsing failure, generated-only application identities or missing scope
   files fail; exact covered * 100 >= total * 95 determines the gate, before rounding.
 
-Faithful mapping/merging has not been executed here. A failure requires correcting collection or
+Initial planning had not executed faithful mapping/merging. A failure requires correcting collection or
 using compatible instrumented collection for affected paths; it cannot weaken coverage requirements.
 V8's default-argument/post-throw limits also require behavioral assertions, not reliance on percentages.
 Playwright Chromium V8 coverage may supplement client measurements, captured per navigation;
 Firefox/WebKit still supply behavior tests. Do not assume coverage survives navigation.
 [Playwright coverage](https://playwright.dev/docs/api/class-coverage).
+
+### Implementation collection decision (2026-10-12)
+
+The raw-V8 converter preserves original-source hits but produces incompatible function ranges
+between Vitest, Next server and browser output. The strict merge rejected those reports.
+The compatible instrumentation fallback uses @vitest/coverage-istanbul5.0.3,
+@vitest/istanbul-lib-instrument1.0.0's public programVisitor, Babel core7.29.7 and
+@jridgewell/remapping2.3.5. These are exact development pins, not production runtime dependencies.
+
+The shared instrumenter runs before either compiler. Macro initializer counters are moved
+immediately before the original declaration without removing hits. A coverage-only adapter
+composes Fumadocs' macro map with the incoming instrumentation map; the installed macro loader
+otherwise discards that incoming map. Original embedded content, SHA256 hashes and exact
+statement/function/branch maps remain mandatory. Full file URLs preserve Windows source identity.
+Coverage ignore comments fail instead of silently excluding runtime code.
+
+The synthetic real-Next/Chromium/Node conformance test verifies async metadata, denied/admin
+responses, browser interaction, uncalled/untaken/untouched code and a strict single-denominator merge.
+It validates collection, not Librarian authentication. The inherited scaffold additionally retains
+the raw-V8 original-source spike and verifies the compatible instrumented counters.
+Explicit zero-hit inventory maps preserve files omitted by Vitest. A separate real instrumented
+Node process tests executable configuration that Vitest itself excludes. All captures stay ignored.
+
+The instrumenter's transitive Babel8 packages require Node22.18 or Node24.11. The current
+system Node22.17 was left unchanged; an official Node22.18 Windows archive was checksum-verified
+and extracted under ignored .local for validation. The declared engines now reflect the minimum.
+Collection proof does not imply that global or C1-C6 coverage has passed; tasks.md records results.
 
 ## Executable Research Evidence and Remaining Gates
 

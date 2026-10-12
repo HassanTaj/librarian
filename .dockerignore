@@ -1,13 +1,35 @@
+# Only application source and build inputs may enter the image.
 **
 !app/
 !app/**
 !lib/
 !lib/**
-!public/
-!public/**
+!components/
+!components/**
+!auth.ts
+!instrumentation.ts
 !mdx-components.tsx
 !next.config.mjs
 !package.json
 !package-lock.json
 !postcss.config.mjs
 !tsconfig.json
+!public/
+!public/favicon.dark.ico
+!public/favicon.light.ico
+!public/logos/
+!public/logos/dark.svg
+!public/logos/light.svg
+
+# Deny sensitive or generated files even inside an allowed source directory.
+**/.env*
+**/*.pem
+**/*.key
+**/*.log
+**/node_modules/**
+**/.next/**
+**/.local/**
+**/snapshots/**
+**/coverage/**
+**/test-results/**
+**/playwright-report/**

@@ -1,9 +1,9 @@
 # HTTP and Reader Contract: Librarian v1
 
-**Status**: Design only; no handlers generated.
+**Status**: Contract for the local implementation; it does not claim live provider verification.
 **References**: [specification](../spec.md), [plan](../plan.md), [data model](../data-model.md).
-Paths retain the agreed brief. The catalog item PATCH route completes administration's update contract;
-it is not a new feature. No source-writing, catalog-delete, global-search, or static-index endpoint.
+Paths retain the agreed brief. Catalog updates and removal use the existing item route; removal never
+writes to a source repository or exposes a static index.
 
 ## Cross-Cutting Rules
 
@@ -86,24 +86,36 @@ provider tokens, physical volume paths or private document bodies.
 
 Require admin, CSRF/origin and JSON <=32 KiB. Allowed fields:
 github {owner, name, branch, docsPath, installationId}, slug, title, publicDescription,
-visibility, readerRole, enabled, and public-only publicationApprovalRef. Stable repositoryId is
+visibility, readerRole, enabled, and public-only approvalRef. Stable repositoryId is
 verified server-side against the selected App installation. Unknown fields/unsafe identifiers fail.
 If source lookup is temporarily unavailable, do not claim validated ready/public status.
 
-Default private when source is private; public request requires real applicable owner approval,
-not a client approval Boolean. Optional readerRole defaults docs:{slug}:reader. Source scope and route
+Default private. Public request requires an existing owner approval whose repository, branch,
+docsPath, slug, reviewed commit, and candidate digest match; a client Boolean is never accepted.
+Optional readerRole defaults docs:{slug}:reader. Source scope and route
 constraints are validated; unique collisions or reserved slugs return 409/400 without partial change.
 Return 201 {catalog: summary, revision}; saving does not falsely report successful ingestion.
 Administrator then invokes Sync now for initial work.
 
 ### PATCH /api/admin/repos/{id}
 
-Same guards and field validation. Require If-Match with existing config revision. A missing precondition
-is 400; stale revision is 409; rejected mutation preserves existing state. Return 200 summary/new revision.
-Metadata-only updates preserve compatible publication. Source/branch/folder/slug/role/visibility change
+Same guards and field validation, including `approvalRef` when public. Require If-Match with the
+current updatedAt ETag. A missing or malformed precondition is 400; stale ETag is 409; rejected
+mutation preserves existing state. Return 200 summary/config revision and a new ETag.
+Metadata-only updates preserve compatible publication and config revision. Source/branch/folder/slug/role/visibility change
 invalidates incompatible serving/leases and requires compatible resync. Disabled catalogs stop all
 delivery and leave administration/status available. Public activation requires matching owner approval.
 Approval records are owner-mounted read-only input; administrators cannot create them through this API.
+
+### DELETE /api/admin/repos/{id}
+
+Require the same verified admin, exact Origin/session-bound CSRF, UUID, and current `updatedAt`
+If-Match version. Missing/malformed version is 400, stale version is 409, and an active worker lease
+or unexpired reader pin is 409 with a retryable message. On success, atomically remove the catalog
+configuration, then remove only its UUID-scoped snapshot directory after realpath containment checks;
+return 204 with `Cache-Control: private, no-store`. If the catalog is already absent, retry snapshot
+cleanup idempotently and return 204. Keep permanent sync/replay receipts and lifetime catalog quota
+reservations. Never delete files while a reader pin or worker lease remains active.
 
 ### POST /api/admin/repos/{id}/sync
 

@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-11
 
-**Status**: Specification validated; ready for planning; implementation not started
+**Status**: Specification validated. The home sync-status follow-up adds accessible status-only badges to directory cards with amber pending, green running, app-primary succeeded, and red failed states. A later auth investigation confirmed the configured `librarian-admin` role remained assigned; access failed when the 15-minute role cache required a fresh Zitadel request and the existing saved access token received HTTP 401. Refresh Token is now enabled in the configured OIDC app, and the local Auth.js adapter now saves encrypted tokens from later sign-ins for an already-linked account. A fresh login stored a refresh token and `/admin` rendered the administration form. The home page shows the Contabo card's red Failed badge; sync remains blocked by unsupported or oversized documentation content. The adapter regression, targeted auth/admin tests, typecheck, lint, and a production build are recorded in [tasks.md](tasks.md); full coverage and three-engine browser acceptance remain open. Aggregate completion also remains open for source-content provenance, measured resource workload, recovery, publication, and deployment evidence.
 
 **Input**: Create one specification for the complete agreed Librarian v1 portal, with
 prioritized discovery, authorization, project-scoped reading, synchronization, and
@@ -40,8 +40,10 @@ directory metadata only.
 **Acceptance Scenarios**:
 
 1. **Given** enabled public and private catalogs, **When** a reader opens the homepage,
-   **Then** cards show configured safe titles, descriptions, routes, and Public/Restricted badges;
-   the header identifies Perspective V / Docs, offers theme and sign-in/account controls, and the
+   **Then** cards show configured safe titles, descriptions, routes, Public/Restricted badges, and a
+   text-labelled pending/running/succeeded/failed synchronization status when available, without error details;
+   the header identifies Perspective V / Docs, offers theme controls, shows an in-place Zitadel
+   sign-in control to signed-out visitors or a sign-out control to authenticated visitors, and the
    directory is headed Project documentation.
 2. **Given** multiple cards, **When** a reader filters by project name, **Then** matching directory
    entries remain; the filter does not search articles or expose private titles from source content.
@@ -209,7 +211,8 @@ manual resync without granting the administrator private reader permission.
    **Then** durable work is queued subject to the same validation, authorization, concurrency,
    and publication rules as automatic synchronization.
 6. **Given** pending/running/succeeded/failed work, **When** the table is inspected,
-   **Then** those states are distinct, with published commit, last successful sync, and sanitized
+   **Then** those states have visible text labels and distinct color cues (amber for pending,
+   green for running, app primary for success, red for failure), with published commit, last successful sync, and sanitized
    actionable errors; administration does not expose private document bodies to a non-reader.
 7. **Given** a catalog with published content, **When** it is disabled,
    **Then** it stops serving overview, articles, navigation, search, metadata, and assets,
@@ -217,6 +220,17 @@ manual resync without granting the administrator private reader permission.
 8. **Given** a configuration or visibility change, **When** it becomes effective,
    **Then** source identity, authorization, publication, and caches cannot be combined into an
    unauthorized or mismatched view; private-to-public changes still require owner approval.
+9. **Given** an authenticated administrator on the console, **When** returning to the directory or
+   ending the session, **Then** a clearly labelled home link and sign-out control are available.
+10. **Given** a catalog is disabled or its GitHub access is not ready, **When** Sync now is disabled,
+    **Then** the console explains the enablement and GitHub-access prerequisites.
+11. **Given** an administrator reviews configured repositories, **When** the card is first shown,
+    **Then** its settings are collapsed; Edit expands the settings form, and Repository type offers
+    exactly Private and Public.
+12. **Given** an administrator confirms removal of a configured repository with its current version,
+    **When** no worker lease or live reader pin is active, **Then** the catalog configuration and its
+    UUID-scoped snapshot are removed; an active lease/pin or stale version is rejected without
+    partial deletion, and durable sync/replay history remains available.
 
 ### Edge Cases
 
@@ -240,6 +254,7 @@ manual resync without granting the administrator private reader permission.
 | Private source becomes public upstream; public catalog becomes private | No automatic publication; enforce future delivery/cache authorization after change | US2.7; FR-013 |
 | Malicious login return target or forged admin origin | Safe local return or rejection; no unauthorized mutation | US2.8, US5.2; FR-006, FR-028 |
 | Reconfiguration points to a different source or required role | No serving old content under incompatible new source/authorization | US5.8; FR-030 |
+| Delete races with a worker lease or live reader pin, or uses a stale edit version | Reject without removing the catalog; retry with the current version after work/read completion | US5.12; FR-029 |
 
 ## Requirements *(mandatory)*
 
@@ -325,6 +340,10 @@ and measurable outcomes define acceptance together.
 - **FR-029**: Administrators MUST configure source, branch, folder, slug, display title/public
   description, visibility, reader role, and enablement; slugs MUST be unique and avoid reserved
   application routes. The table/form MUST expose those fields without exposing credentials.
+  Configured catalogs MUST be editable from a collapsed summary and removable through a confirmed,
+  current-version-checked action that removes the settings document and its UUID-scoped snapshot.
+  Removal MUST wait for no active worker lease or live reader pin and MUST retain permanent sync and
+  replay receipts.
 - **FR-030**: Catalog changes MUST preserve coherent source identity, visibility, reader permission,
   and publication. A snapshot from an incompatible previous configuration MUST NOT be served as
   current documentation; affected delivery/caches MUST obey the new valid configuration.
@@ -400,8 +419,8 @@ US references use story/scenario numbers, for example US2.4 means Story 2, scena
 | ST-07 | Concurrent/reordered notifications, multiple/overlapping workers, lost lease, restart before/during publication | No stale overwrite or partial generation; former lease holder cannot publish; abandoned accepted work recovers (US4.5-6; FR-023-025) |
 | ST-08 | Invalid/empty/missing content, GitHub outage/rate limiting, worker error/restart, full/unavailable storage; retry/manual resync | Last valid generation retained; first-sync failure unavailable; admin error actionable; successful retry restores valid publication (US4.4, US5.4-6; FR-024, FR-031-032) |
 | ST-09 | Confirmed App removal/access loss versus transient failure; catalog disable/reenable | Loss/disable blocks all delivery; transient error preserves permitted last-good reads; restoration requires resolved access/current configuration (US4.7, US5.7; FR-026) |
-| ST-10 | Invalid catalog fields, duplicate/reserved slug, reader-only admin, wrong-project admin, forged origin/CSRF, malicious login return target | No unauthorized mutation, partial configuration, external redirect, or implicit admin reader access (US2.3,8, US5.1-3,8; FR-006, FR-008, FR-028-030) |
-| ST-11 | Publication during reading/search/assets; active/in-flight snapshot cleanup; content/file/time/type limits at and beyond bounds | Coherent responses, safe retention, bounded work, and safe failure without destroying valid state (US3.6, US4.8; FR-018-019, FR-027, FR-036) |
+| ST-10 | Invalid catalog fields, duplicate/reserved slug, reader-only admin, wrong-project admin, forged origin/CSRF, malicious login return target, unauthorized/stale deletion | No unauthorized mutation, partial configuration, external redirect, or implicit admin reader access (US2.3,8, US5.1-3,8,12; FR-006, FR-008, FR-028-030) |
+| ST-11 | Publication during reading/search/assets; active/in-flight snapshot cleanup and catalog removal; content/file/time/type limits at and beyond bounds | Coherent responses, safe retention, bounded work, and safe failure without destroying valid state (US3.6, US4.8, US5.12; FR-018-019, FR-027, FR-029, FR-036) |
 | ST-12 | Directory filter/empty states, Markdown/nav/link/anchor/code-copy journeys, mobile/keyboard/focus/themes, denied/error admin states | All required reader/admin journeys usable without protected metadata/body exposure (US1, US3, US5; FR-003-004, FR-014-016, FR-033) |
 | ST-13 | Secrets/private-body sentinel checks in records, user errors, responses, logs, public exports/bundles/search indexes; health output | No secrets/private bodies escape; operational health/errors remain actionable and non-sensitive (FR-011, FR-032, FR-034-035) |
 | ST-14 | Separate live DEV integration, resource measurement, consistent backup/recovery, health and previous-version rollback | Required production evidence recorded separately from CI fixtures; only approved scoped operations proceed (FR-036-038; QG-006-007) |
@@ -492,7 +511,7 @@ live environments. Planning defines workload and operational bounds as required 
   preserved and accepted work remains recoverable; a subsequent successful manual sync publishes
   valid content. Confirmed access loss or disablement yields zero content deliveries on all paths
   until resolved (US4, US5; ST-07-09).
-- **SC-009**: Every required administration task completes for administrators and is denied for
+- **SC-009**: Every required administration task, including safe repository removal, completes for administrators and is denied for
   reader-only/anonymous/wrong-project identities; table status distinguishes all four work states,
   publishes the correct commit/time, and rejected mutations preserve valid configuration (US5; ST-10).
 - **SC-010**: 100% of private-to-public acceptance cases require explicit owner approval; upstream

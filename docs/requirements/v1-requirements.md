@@ -61,6 +61,7 @@ At `/admin`, provide a compact repository table and configuration form:
 - Display title and public description.
 - Public/private setting and required Zitadel reader role.
 - Enable/disable control.
+- Collapsed repository summaries with an Edit action and a confirmed Delete action.
 - Last successful sync, published commit, current status, and readable error.
 - **Sync now** action.
 
@@ -144,6 +145,7 @@ The homepage exposes only explicitly configured directory metadata for private r
 | `/api/webhooks/github` | Signed GitHub event intake |
 | `/api/auth/[...nextauth]` | Zitadel authentication |
 | `/admin` and `/api/admin/repos` | Authorized catalog configuration |
+| `/api/admin/repos/{id}` | Optimistic settings update or confirmed catalog removal |
 | `/api/admin/repos/{id}/sync` | Queue manual resync |
 | `/api/health` | Container health without sensitive details |
 
@@ -185,5 +187,5 @@ The implementation is ready for production only when these checks pass:
 
 **Defaults:** GitHub sources only; one configured branch and docs folder per catalog; Markdown authoring; repository-scoped search; explicit public publication; no web editor, AI Q&A, page-level ACL, or automatic GitHub-contributor-to-Zitadel mapping.
 
-**Not checked:** live Zitadel/GitHub integration, ingestion performance, and production resource usage; no application or deployment changes were made.  
+**Not checked:** full live Zitadel/GitHub acceptance, ingestion performance, production resource usage, and deployment. Local application implementation and verification exist in the feature worktree; nothing was deployed or published.
 **Main risk:** private-content leakage through an unguarded delivery or cache path; production rollout depends on proving that boundary.

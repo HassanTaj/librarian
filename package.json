@@ -3,25 +3,62 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack",
-    "start": "next start --hostname 0.0.0.0"
+    "dev": "node node_modules/next/dist/bin/next dev --webpack",
+    "build": "node node_modules/next/dist/bin/next build --webpack",
+    "start": "node node_modules/next/dist/bin/next start --hostname 0.0.0.0",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
+    "lint": "node node_modules/eslint/bin/eslint.js .",
+    "test:unit": "node node_modules/vitest/vitest.mjs run --project unit",
+    "test:integration": "node node_modules/vitest/vitest.mjs run --project integration",
+    "test:container": "node node_modules/vitest/vitest.mjs run --project container",
+    "test:coverage": "node scripts/collect-coverage.mjs",
+    "coverage:check": "node scripts/check-coverage.mjs",
+    "test:e2e": "node node_modules/@playwright/test/cli.js test",
+    "validate:artifacts": "node scripts/validate-artifacts.mjs",
+    "measure:workload": "node scripts/measure-workload.mjs"
   },
   "dependencies": {
+    "@auth/mongodb-adapter": "3.11.3",
+    "@fumadocs/local-md": "0.3.5",
     "fumadocs-core": "16.15.18",
-    "fumadocs-mdx": "15.4.3",
     "fumadocs-ui": "16.15.18",
+    "mongodb": "6.21.0",
     "next": "16.4.0",
+    "next-auth": "5.0.0-beta.32",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "remark-mdx": "3.1.1",
+    "remark-parse": "11.0.0",
+    "shiki": "4.5.0",
+    "unified": "11.0.5",
+    "yaml": "2.9.1",
+    "zod": "4.3.6"
   },
   "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@jridgewell/remapping": "2.3.5",
+    "@playwright/test": "1.64.0",
     "@tailwindcss/postcss": "4.3.3",
     "@types/mdx": "2.0.13",
     "@types/node": "22.19.0",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
+    "@vitest/browser": "5.0.3",
+    "@vitest/browser-playwright": "5.0.3",
+    "@vitest/coverage-istanbul": "5.0.3",
+    "@vitest/coverage-v8": "5.0.3",
+    "@vitest/istanbul-lib-coverage": "1.0.2",
+    "@vitest/istanbul-lib-instrument": "1.0.0",
+    "ast-v8-to-istanbul": "1.0.5",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.0",
     "tailwindcss": "4.3.3",
-    "typescript": "5.9.3"
-  }
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  },
+  "engines": {
+    "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
+  },
+  "type": "module"
 }

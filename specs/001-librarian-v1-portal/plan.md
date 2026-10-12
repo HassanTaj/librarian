@@ -5,7 +5,14 @@
 **Input**: Complete v1 specification; [AGENTS.md](../../AGENTS.md),
 [constitution v1.0.0](../../.specify/memory/constitution.md),
 [agreed brief](../../docs/requirements/v1-requirements.md).
-**Status**: Phase 0 research and Phase 1 design complete. Application implementation has not started.
+**Status**: Phase 0 research and Phase 1 design are complete. Prior local implementation and synthetic
+acceptance results are recorded in [tasks.md](tasks.md). The 2026-10-12 home sync-status update assigns
+the shared badge to C1 and C5. Subsequent admin/auth changes invalidate that prior full-coverage snapshot.
+The latest auth regression passes, as do targeted auth/admin unit tests, typecheck, lint, and the
+production build. The live Zitadel app now has Refresh Token enabled; after reauthentication, the linked
+account stored a refresh token and `/admin` rendered successfully. T022/T027/T050/T068/T069/T072/T075/
+T079/T087/T092 and full three-engine browser acceptance remain open. Aggregate completion also remains
+open for source-content provenance, measured resource workload, recovery, publication, and deployment.
 
 ## Summary
 
@@ -15,9 +22,9 @@ with authorized per-repository immutable runtime generations. MongoDB stores cat
 leases, and server identity/session state. A worker in the application container performs bounded
 read-only GitHub ingestion. No additional queue/search service or dedicated worker deployment.
 
-This turn produces design artifacts only. Existing source files, documents, dependencies, Dockerfile,
-specification, and quality checklist are preserved. No task list, branch, commit, publication,
-provisioning, or deployment is created.
+The design artifacts define the implementation tracked in [tasks.md](tasks.md). Local application and
+test files have since been implemented and validated; no branch, commit, image publication,
+credential provisioning, sibling-repository edit, or deployment is included in that local evidence.
 
 ## Technical Context
 
@@ -35,7 +42,12 @@ updates carry authoritative publication and lease state; no replica-set transact
 Existing infrastructure manifest uses mongo:latest, so deployed version/topology remains a live
 revalidation prerequisite. Selected query features require server >=5.0 and driver-supported version.
 
-**Testing**: Vitest 5.0.3 + coverage-v8 5.0.3, Vite 8.3.4; Playwright 1.64.0 across Chromium,
+**Testing**: Vitest 5.0.3 + coverage-istanbul 5.0.3, shared original-source instrumentation
+through @vitest/istanbul-lib-instrument 1.0.0 and Babel core 7.29.7; Vite 8.3.4.
+Coverage-v8 5.0.3 and the raw-V8 converter remain for the retained mapping spike.
+The instrumenter's Babel 8 dependency raises local test minimums to Node22.18 / Node24.11;
+an ignored, checksum-verified portable Node22.18 runtime was used without upgrading system Node.
+Playwright 1.64.0 across Chromium,
 Firefox, WebKit; actual isolated MongoDB and filesystem integration tests. DOM tests use the
 browser provider specified in research. Provider fixtures in CI plus separately recorded live DEV proof.
 
@@ -224,13 +236,13 @@ and changed only with documented workload evidence. No dynamic tuning UI is adde
 | Individual inputs | Markdown <=256 KiB; frontmatter/meta.json <=16 KiB each; asset <=5 MiB; decoded path <=1,024 UTF-8 bytes and <=32 segments |
 | Syntax structure | YAML/navigation nesting <=8; AST <=50,000 nodes/page; no aliases/anchors/tags; at most 16 allowlisted highlighted code languages, otherwise plain text |
 | Asset types | PNG/JPEG/GIF/WebP inline; PDF/TXT/CSV/JSON attachment only with safe MIME and nosniff. Reject SVG/HTML/JS/MDX, symlinks/submodules, executable source and unsupported files |
-| Delivery inputs | Webhook <=1 MiB raw body; admin JSON <=32 KiB; search query <=256 UTF-8 bytes, <=20 results; asset/read request timeout <=30 s |
-| Work | One ingestion at a time per instance and one lease holder per catalog; GitHub fetch concurrency 2; upstream call timeout 15 s; complete attempt deadline 120 s |
+| Delivery inputs | Webhook <=1 MiB raw body; installation removal event <=1,000 repository references; admin JSON <=32 KiB; search query <=256 UTF-8 bytes, <=20 results; OAuth token response <=64 KiB and role page <=512 KiB; asset/read request timeout <=30 s |
+| Work | One ingestion at a time per instance and one lease holder per catalog; GitHub fetch concurrency 2; recursive Git tree response <=7,000,000 bytes; upstream call timeout 15 s; complete attempt deadline 120 s |
 | Lease/recovery | Catalog lease 30 s, heartbeat 10 s, server-time expiry and fence; queue discovery idle 5 s / active 1 s; crashed work recoverable <=45 s after last heartbeat with healthy storage |
 | Retry | At most 5 attempts, delays 5/20/60/180 s; rate-limit Retry-After respected up to 1 h, otherwise terminal readable failure requiring manual resync |
 | Durable receipt quota | <=100,000 admission reservations per catalog lifetime; unique job/receipt ID never evicted automatically. Terminal details compact after 14 days into replay tombstones; quota exhaustion rejects new work without purging dedupe evidence |
 | Admission rate | <=60 valid work-admission attempts/minute/catalog; invalid signatures never consume durable jobs; duplicate IDs return their stored outcome |
-| Snapshot retention | At most 3 committed snapshot slots + 1 staging slot/catalog. Keep active and up to two previous; previous grace 5 min, max age 24 h; never remove pinned snapshots |
+| Snapshot retention | At most 3 committed snapshot slots + 1 staging slot/catalog. Keep active and up to two previous; previous grace 5 min and max age 24 h measured from server-set retiredAt; never remove pinned snapshots |
 | Retention pressure | If no reclaimable slot, delay/retry then fail safely; never delete active/in-flight content or publish without a slot. Abandoned staging cleaned after fenced lease expiry |
 | Read pins | <=64 concurrent request pins/catalog; pin lifetime 60 s; requests end within 30 s. New pin requires selectable current/retained generation and current config |
 | Loader/search cache | Combined maximum 4 repository/generation entries, <=96 MiB measured serialized input/index budget, LRU idle expiry 5 min; no auth/session cache shared across users |
@@ -279,11 +291,11 @@ and lines (not averages of file percentages).
 
 | Scope | Implementation file set | Acceptance evidence |
 |---|---|---|
-| C1 Discovery/reader | app/page.tsx, app/[repoSlug]/**/*.tsx, app/layout.tsx, components/directory.tsx, components/project-selector.tsx, lib/layout.shared.tsx, lib/catalog.ts, lib/content/source.ts | US1; ST-12; SC-001-002 |
+| C1 Discovery/reader | app/page.tsx, app/[repoSlug]/**/*.tsx, app/layout.tsx, components/directory.tsx, components/project-selector.tsx, components/project-search.tsx, components/sync-status-badge.tsx, lib/layout.shared.tsx, lib/catalog.ts, lib/content/source.ts | US1; ST-12; SC-001-002 |
 | C2 Authorization | auth.ts, app/api/auth/**/*.ts, lib/auth/**/*.ts, components/private-content-guard.tsx, lib/catalog.ts, all protected app/[repoSlug] handlers/functions | US2; ST-01-03,10,13; SC-003-004,010 |
-| C3 Navigation/search/assets | lib/content/**/*.ts, app/api/search/**/*.ts, app/api/assets/**/*.ts, repo reader files, project selector | US3; ST-04-05,11-12; SC-005 |
-| C4 Synchronization/recovery | lib/sync/**/*.ts, lib/content/{validate,paths,generations}.ts, lib/{mongo,catalog,limits}.ts, instrumentation.ts, app/api/webhooks/**/*.ts | US4; ST-05-09,11,13; SC-006-008 |
-| C5 Administration | app/admin/**/*.tsx, app/api/admin/**/*.ts, components/{catalog-form,sync-status}.tsx, lib/catalog.ts, lib/auth/**/*.ts, lib/sync/jobs.ts | US5; ST-09-10,12-13; SC-009-010 |
+| C3 Navigation/search/assets | lib/content/**/*.ts, app/api/search/**/*.ts, app/api/assets/**/*.ts, repo reader files, project selector and project search | US3; ST-04-05,11-12; SC-005 |
+| C4 Synchronization/recovery | lib/sync/**/*.ts, lib/content/{validate,paths,generations}.ts, lib/{mongo,catalog,limits,public-approvals}.ts, instrumentation.ts, app/api/webhooks/**/*.ts | US4; ST-05-09,11,13; SC-006-008 |
+| C5 Administration | app/admin/**/*.tsx, app/api/admin/**/*.ts, components/{catalog-form,sync-status,admin-console}.tsx, components/sync-status-badge.tsx, lib/{admin,catalog,public-approvals}.ts, lib/auth/**/*.ts, lib/sync/jobs.ts, lib/content/generations.ts | US5; ST-09-11,12-13; SC-009-010 |
 | C6 Packaging/operations/tooling | lib/operations/**/*.ts, app/api/health/**/*.ts, instrumentation.ts, next.config.mjs, mdx-components.tsx if retained, executable test/lint config, scripts/*.mjs, shared startup/config code | ST-11,13-14; SC-012-014 |
 
 CI independently requires **>=95% statements, >=95% branches, >=95% functions, >=95% lines**
@@ -291,6 +303,24 @@ globally AND for C1-C6 as each scope gains executable files. Missing instrumenta
 source membership or an empty suite fails. A truly zero-denominator metric may be not applicable
 only with an explicit recorded reason. Establish scope enforcement with the first executable feature,
 not after the complete portal. The checker itself receives nontrivial unit/self-check tests.
+
+### Administration Removal Follow-up
+
+The repository card is collapsed by default. Edit expands the current settings form; Repository type
+is Private or Public. Delete requires a browser confirmation and sends the catalog's `updatedAt` as
+If-Match through the existing admin/CSRF boundary. MongoDB atomically removes the catalog only when
+its worker lease is null and no reader pin is live; the subsequent UUID-bound content cleanup checks
+realpath containment. A repeated delete can finish cleanup after the catalog row has already gone.
+The permanent `syncJobs`/`controlReceipts` and monotonic create-quota records remain; a worker cancels
+queued jobs whose catalog no longer exists. Stale versions or active operations return a retryable
+409 without removing configuration. If cleanup fails after row removal, retrying the same ID is the
+recovery path; recreation is possible from the GitHub source after approval/validation.
+
+Affected implementation files belong to C5, with `lib/content/generations.ts` also retained in its
+existing C3/C4 scopes and coverage-checker changes in C6. Validate admin integration plus client/browser
+editor behavior, the C3-C6 and global four-metric coverage gates, typecheck, lint, production build, and
+artifact/link validation.
+No remote database or deployment action is part of this local feature change.
 
 Required planned scripts and executable validation procedures are in [quickstart.md](quickstart.md).
 No commands absent from current package.json are represented as already runnable today.
@@ -336,7 +366,10 @@ security/recovery requirements. No generic framework, extra service, new provide
 All product/planning choices are recorded; no unresolved design placeholder remains. Manifest peers and
 the synthetic runtime probe are verified. Phase 1 re-check passes at design level.
 
-Still required during implementation/release: full Next standalone build/externalization, faithful actual-server coverage/remapping/merge, complete safe
-parser/link conformance, current Zitadel authorization API and role-removal proof, actual Mongo/server
-durability, browser lifecycle isolation, exact workload/resource/retention evidence, and live recovery/
-rollback. These are unexecuted evidence gates, not permission to weaken scope or governance.
+Still required for aggregate completion/release: inspect actual source-content provenance, run the
+planned 15-minute resource/workload and retention-pressure test, and verify current Zitadel roles,
+live access removal, and recovery/rollback in separately approved DEV. The local Linux standalone
+image build and container artifact/runtime acceptance passed; only the direct Windows `npm run build`
+path retains its trace-assembly `EPERM`. The private path matrix and intake-to-runtime proof are
+covered by automated browser/integration tests. These remaining evidence gates do not weaken the
+project's scope or governance.
