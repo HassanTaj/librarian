@@ -4,6 +4,7 @@ import type { Catalog } from '../catalog';
 import { LIMITS } from '../limits';
 import { requirePublicApproval } from '../public-approvals';
 import { prepareGenerationRoom, publishGeneration, stageGeneration } from '../content/generations';
+import { createBlobCache, trimBlobCache } from '../content/blob-cache';
 import { GitHubError, createGitHubClient } from './github';
 import { claimNextSyncJob, completeSyncJob, failSyncJob, heartbeatSyncJob, reconcilePublishedSyncJobs, setSyncTargetCommit } from './jobs';
 
@@ -13,7 +14,7 @@ type WorkerOptions = {
   contentRoot: string;
   owner?: string;
   signal?: AbortSignal;
-  readCandidate?: (catalog: Catalog, signal: AbortSignal) => Promise<Candidate>;
+  readCandidate?: (catalog: Catalog, signal: AbortSignal, cache?: import('./github').BlobCache) => Promise<Candidate>;
   github?: { githubAppId: string; githubPrivateKey: string; fetcher?: typeof fetch };
   publicCatalogApprovalsFile?: string;
 };
@@ -71,7 +72,21 @@ export async function processNextSyncJob(options: WorkerOptions): Promise<SyncWo
   const signal = AbortSignal.any([leaseLoss.signal, stopped.signal, timeout]);
   try {
     signal.throwIfAborted();
-    const candidate = await readCandidate(claim.catalog, signal);
+    let cache;
+    if (client && !options.readCandidate) {
+      const used = await prepareGenerationRoom(options.db, options.contentRoot, {
+        catalogId: claim.catalogId, configRevision: claim.configRevision, owner: claim.owner, fence: claim.fence,
+      });
+      const cached = await trimBlobCache(options.contentRoot, claim.catalogId, claim.configRevision, LIMITS.maxSnapshotBytes, signal);
+      cache = createBlobCache(options.contentRoot, claim.catalogId, claim.configRevision,
+        LIMITS.maxCatalogPayloadBytes - (used - cached) - LIMITS.maxSnapshotBytes, signal,
+        async () => Boolean(await options.db.collection<Catalog>('catalogs').findOne({
+          _id: claim.catalogId, enabled: true, accessState: 'ready', configRevision: claim.configRevision,
+          leaseFence: claim.fence, 'lease.owner': claim.owner, 'lease.fence': claim.fence,
+          $expr: { $gt: ['$lease.expiresAt', '$$NOW'] },
+        }, { projection: { _id: 1 } })));
+    }
+    const candidate = cache ? await readCandidate(claim.catalog, signal, cache) : await readCandidate(claim.catalog, signal);
     signal.throwIfAborted();
     if (claim.catalog.visibility === 'public') await requirePublicApproval({
       filePath: options.publicCatalogApprovalsFile, approvalRef: claim.catalog.approvalRef,
@@ -123,10 +138,7 @@ export function startSyncWorker(options: Omit<WorkerOptions, 'signal' | 'owner' 
       currentStatus = { enabled: true, healthy, active };
     }
   }
-  const client = options.github && createGitHubClient({ githubAppId: options.github.githubAppId,
-    githubPrivateKey: options.github.githubPrivateKey }, options.github.fetcher);
-  const readCandidate = options.readCandidate ?? client?.readCandidate.bind(client);
-  if (!readCandidate) throw new Error('sync_provider_unavailable');
+  if (!options.readCandidate && !options.github) throw new Error('sync_provider_unavailable');
 
   async function pause(ms: number) {
     if (controller.signal.aborted) return;
@@ -145,7 +157,7 @@ export function startSyncWorker(options: Omit<WorkerOptions, 'signal' | 'owner' 
       let result: SyncWorkResult;
       try {
         active = true;
-        result = await processNextSyncJob({ ...options, owner, readCandidate, signal: controller.signal });
+        result = await processNextSyncJob({ ...options, owner, signal: controller.signal });
         healthy = true;
       } catch {
         healthy = false;

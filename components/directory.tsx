@@ -213,6 +213,10 @@ export function Directory({ cards, unavailable = false, showSignIn = false, show
                   ? 'text-amber-800 dark:text-amber-300'
                   : status === 'running' ? 'text-green-800 dark:text-green-300'
                     : status === 'failed' ? 'text-red-800 dark:text-red-300' : 'text-primary';
+                const title = <>
+                  <h2 className="min-w-0 flex-1 truncate text-lg font-semibold" title={card.title}>{card.title}</h2>
+                  <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">{card.visibility === 'public' ? 'Public' : 'Private'}</span>
+                </>;
                 return <li key={card.id}>
                   <article className="flex h-full flex-col rounded-lg border bg-card p-5 transition-colors hover:bg-muted/30">
                     <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
@@ -232,20 +236,22 @@ export function Directory({ cards, unavailable = false, showSignIn = false, show
                             <path d="m3 8 3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         </label> : null}
-                        <a href={card.url} title={card.title} className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                          <h2 className="min-w-0 flex-1 truncate text-lg font-semibold" title={card.title}>{card.title}</h2>
-                          <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-medium">{card.visibility === 'public' ? 'Public' : 'Private'}</span>
-                        </a>
+                        {card.canOpen
+                          ? <a href={card.url} title={card.title} className="flex min-h-9 min-w-0 flex-1 items-center gap-2 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">{title}</a>
+                          : <div className="flex min-h-9 min-w-0 flex-1 items-center gap-2">{title}</div>}
                       </div>
                       {canSync ? <button type="button" aria-label={`Sync ${card.title}`} title={`Sync ${card.title}`} disabled={syncing || active}
                         onClick={() => void requestSync([card.id])} className="inline-flex size-8 flex-none items-center justify-center rounded-full p-0 hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         <SyncIcon className={iconColor} spinning={active || starting} />
                       </button> : null}
                     </div>
-                    <a href={card.url} className="flex min-w-0 flex-col rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                      {!card.canOpen ? <p className="sr-only">Documentation is unavailable until a successful sync.</p> : null}
-                      {card.publicDescription ? <p className="mt-2 line-clamp-3 text-sm text-muted-foreground" title={card.publicDescription}>{card.publicDescription}</p> : null}
-                    </a>
+                    {!card.canOpen ? <p className="sr-only">Documentation is unavailable until a successful sync.</p> : null}
+                    {card.publicDescription ? card.canOpen
+                      ? <a href={card.url} className="flex min-w-0 flex-col rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                        <p className="mt-2 line-clamp-3 text-sm text-muted-foreground" title={card.publicDescription}>{card.publicDescription}</p>
+                      </a>
+                      : <div className="flex min-w-0 flex-col"><p className="mt-2 line-clamp-3 text-sm text-muted-foreground" title={card.publicDescription}>{card.publicDescription}</p></div>
+                      : null}
                     {error ? <details className="relative z-10 mt-4 overflow-hidden rounded-md border border-red-300 bg-red-50 text-sm dark:border-red-800 dark:bg-red-950/40">
                       <summary className="cursor-pointer px-3 py-2 font-medium text-red-800 dark:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Sync issue · read and report</summary>
                       <div role="alert" className="border-t border-red-300 px-3 py-3 text-foreground dark:border-red-800">
@@ -253,7 +259,7 @@ export function Directory({ cards, unavailable = false, showSignIn = false, show
                         <p className="mt-2 text-xs text-muted-foreground">Issue code: <code>{error}</code>. Share this code when reporting the issue.</p>
                       </div>
                     </details> : null}
-                    <div className="mt-auto flex justify-start pt-3" style={{ marginTop: 'auto' }}><SyncStatusBadge status={status} /></div>
+                    <div className="mt-auto pt-3" style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end' }}><SyncStatusBadge status={status} /></div>
                   </article>
                 </li>;
               })}

@@ -186,9 +186,10 @@ it('maps raw actual-Next execution back to original application sources', async 
       await page.locator('#project-filter').fill('not found');
       await page.getByRole('status').waitFor();
       await page.goto(`${server.origin}/public-project`);
-      await page.getByRole('button', { name: 'Search this project' }).click();
-      await page.locator('#project-search').fill('Fixture content');
-      await page.locator('#project-search-panel a').first().waitFor({ state: 'visible' });
+      await page.locator('#nd-sidebar').getByRole('button', { name: /^Search/ }).click();
+      const search = page.getByRole('dialog').getByRole('combobox', { name: 'Search' });
+      await search.fill('Fixture content');
+      await page.getByRole('option').first().waitFor({ state: 'visible' });
       await captureBrowser();
       await page.goto(`${server.origin}/broken-project`);
       await page.getByRole('heading', { name: 'Documentation unavailable' }).waitFor({ state: 'visible' });

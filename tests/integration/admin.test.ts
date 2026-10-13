@@ -1,11 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { Collection, ObjectId } from 'mongodb';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { adminCsrfToken } from '../../lib/auth/admin';
 import { candidateManifestDigest } from '../../lib/public-approvals';
 import { ensureCatalogStorage, newCatalogRecord, type Catalog } from '../../lib/catalog';
+import { LIMITS } from '../../lib/limits';
 import { claimNextSyncJob, ensureSyncJobStorage, type SyncJob } from '../../lib/sync/jobs';
 import { GET as csrf } from '../../app/api/admin/csrf/route';
 import { GET as list, POST as create } from '../../app/api/admin/repos/route';
@@ -78,8 +79,12 @@ beforeEach(async () => {
 
 afterEach(async () => { await storage.close(); });
 
-it('issues a session-bound CSRF token and lists bounded sanitized catalog status', async () => {
+it('issues a session-bound CSRF token and lists sanitized status without private content or storage paths', async () => {
   const catalog = await seedCatalog();
+  const privateDocumentBody = 'SYNTHETIC_PRIVATE_DOCUMENT_BODY_8d1b6d';
+  const generationDir = join(storage.contentRoot, catalog._id, 'generations', 'synthetic-generation');
+  await mkdir(generationDir, { recursive: true });
+  await writeFile(join(generationDir, 'private.md'), privateDocumentBody);
   const tokenResponse = await csrf(request('/api/admin/csrf'));
   expect(tokenResponse.status).toBe(200);
   expect(tokenResponse.headers.get('cache-control')).toBe('private, no-store');
@@ -90,7 +95,11 @@ it('issues a session-bound CSRF token and lists bounded sanitized catalog status
   expect(response.headers.get('cache-control')).toBe('private, no-store');
   const result = await response.json();
   expect(result).toMatchObject({ catalogs: [{ id: catalog._id, title: 'Admin fixture', status: 'pending', accessState: 'ready' }] });
-  expect(JSON.stringify(result)).not.toContain(authSecret);
+  const serialized = JSON.stringify(result);
+  expect(serialized).not.toContain(authSecret);
+  expect(serialized).not.toContain(privateDocumentBody);
+  expect(serialized).not.toContain(generationDir);
+  expect(serialized).not.toContain(storage.contentRoot);
 });
 
 it('fails closed when the session, storage, linked account, or current administrator cannot be verified', async () => {
@@ -124,10 +133,25 @@ it('requires a secure session cookie, a matching mutation origin, and a constant
 
   const body = { github: { owner: 'synthetic', name: 'docs', branch: 'main', docsPath: 'docs', installationId: 61 },
     slug: 'no-csrf', title: 'No CSRF' };
+  const wrongOrigin = await create(request('/api/admin/repos', { method: 'POST', headers: {
+    origin: 'https://attacker.synthetic.invalid', 'content-type': 'application/json',
+    'x-csrf-token': adminCsrfToken(authSecret, sessionToken),
+  }, body: JSON.stringify(body) }));
+  expect(wrongOrigin.status).toBe(403);
+  expect(await wrongOrigin.json()).toMatchObject({ error: { code: 'admin_origin' } });
+
+  const wrongToken = await create(request('/api/admin/repos', { method: 'POST', headers: {
+    origin: config.authUrl, 'content-type': 'application/json', 'x-csrf-token': 'invalid-token',
+  }, body: JSON.stringify(body) }));
+  expect(wrongToken.status).toBe(403);
+  expect(await wrongToken.json()).toMatchObject({ error: { code: 'admin_csrf' } });
+
   const missingToken = await create(request('/api/admin/repos', { method: 'POST', headers: {
     origin: config.authUrl, 'content-type': 'application/json',
   }, body: JSON.stringify(body) }));
   expect(missingToken.status).toBe(403);
+  expect(state.verifyRepository).not.toHaveBeenCalled();
+  expect(await storage.db.collection('catalogs').countDocuments()).toBe(0);
 });
 
 it('registers App-verified private sources and requires an exact owner approval for public registration', async () => {
@@ -175,6 +199,39 @@ it('rejects malformed or unsafe catalog creation and sanitizes GitHub verificati
   expect(await storage.db.collection('catalogs').countDocuments()).toBe(1);
 });
 
+it('accepts a request at the JSON byte limit and rejects the next byte before provider access', async () => {
+  const input = { github: { owner: 'synthetic', name: 'docs', branch: 'main', docsPath: 'docs', installationId: 61 },
+    slug: 'bounded-body', title: 'Bounded body' };
+  const json = JSON.stringify(input);
+  const atLimit = json + ' '.repeat(LIMITS.maxAdminBytes - Buffer.byteLength(json));
+  expect(Buffer.byteLength(atLimit)).toBe(LIMITS.maxAdminBytes);
+
+  const accepted = await create(request('/api/admin/repos', { method: 'POST', csrf: true,
+    headers: { 'content-type': 'application/json' }, body: atLimit }));
+  expect(accepted.status, await accepted.clone().text()).toBe(201);
+
+  const oversized = await create(request('/api/admin/repos', { method: 'POST', csrf: true,
+    headers: { 'content-type': 'application/json' }, body: atLimit + ' ' }));
+  expect(oversized.status).toBe(413);
+  expect(await oversized.json()).toMatchObject({ error: { code: 'admin_too_large' } });
+  expect(state.verifyRepository).toHaveBeenCalledTimes(1);
+  expect(await storage.db.collection('catalogs').countDocuments()).toBe(1);
+});
+
+it('rejects a catalog when the bounded lifetime creation reservation is exhausted', async () => {
+  const quotas = storage.db.collection<{ _id: string; reservations: number }>('quotas');
+  await quotas.updateOne({ _id: 'catalogs' }, { $set: { reservations: LIMITS.maxCatalogs } }, { upsert: true });
+  const response = await create(request('/api/admin/repos', { method: 'POST', csrf: true,
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      github: { owner: 'synthetic', name: 'docs', branch: 'main', docsPath: 'docs', installationId: 61 },
+      slug: 'quota-exhausted', title: 'Quota exhausted',
+    }) }));
+  expect(response.status).toBe(503);
+  expect(await response.json()).toMatchObject({ error: { code: 'admin_unavailable' } });
+  expect(await quotas.findOne({ _id: 'catalogs' })).toMatchObject({ reservations: LIMITS.maxCatalogs });
+  expect(await storage.db.collection('catalogs').countDocuments()).toBe(0);
+});
+
 it('rejects values that pass the request shape but fail the persisted catalog schema', async () => {
   const response = await create(request('/api/admin/repos', { method: 'POST', csrf: true,
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({
@@ -183,6 +240,14 @@ it('rejects values that pass the request shape but fail the persisted catalog sc
     }) }));
   expect(response.status).toBe(400);
   expect(await response.json()).toMatchObject({ error: { code: 'admin_invalid_request' } });
+
+  const unsafePath = await create(request('/api/admin/repos', { method: 'POST', csrf: true,
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      github: { owner: 'synthetic', name: 'docs', branch: 'main', docsPath: '../outside', installationId: 61 },
+      slug: 'unsafe-source-path', title: 'Unsafe source path',
+    }) }));
+  expect(unsafePath.status).toBe(400);
+  expect(await unsafePath.json()).toMatchObject({ error: { code: 'admin_invalid_request' } });
   expect(await storage.db.collection('catalogs').countDocuments()).toBe(0);
 });
 
@@ -273,9 +338,14 @@ it('rejects malformed, missing, and private-approval catalog updates before repl
   expect((await patch(catalog._id, valid, '{}')).status).toBe(400);
   expect((await patch(catalog._id, valid, '{')).status).toBe(400);
   expect((await patch(catalog._id, valid, JSON.stringify({ approvalRef: 'not-for-private' }))).status).toBe(400);
+  const unknownField = await patch(catalog._id, valid, JSON.stringify({ title: 'Must not partially apply', unexpected: 'synthetic' }));
+  expect(unknownField.status).toBe(400);
+  expect(await unknownField.json()).toMatchObject({ error: { code: 'admin_invalid_request' } });
   const missingId = randomUUID();
   expect((await patch(missingId, valid, JSON.stringify({ title: 'Absent' }))).status).toBe(404);
-  expect((await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id }))?.title).toBe('Admin fixture');
+  expect(await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id })).toMatchObject({
+    title: 'Admin fixture', slug: 'admin-fixture', visibility: 'private', configRevision: catalog.configRevision, updatedAt: catalog.updatedAt,
+  });
 });
 
 it('removes the configured repository and snapshot, preserves replay history, and cancels orphaned jobs', async () => {
@@ -300,6 +370,25 @@ it('removes the configured repository and snapshot, preserves replay history, an
   expect(await storage.db.collection<SyncJob>('syncJobs').findOne({ catalogId: catalog._id })).toMatchObject({ state: 'cancelled' });
   const repeatedDelete = await removeRequest();
   expect(repeatedDelete.status, await repeatedDelete.clone().text()).toBe(204);
+});
+
+it('allows an idempotent delete retry after snapshot cleanup fails', async () => {
+  const catalog = await seedCatalog();
+  const snapshotPath = join(storage.contentRoot, catalog._id);
+  await writeFile(snapshotPath, 'synthetic cleanup blocker');
+  const removeRequest = () => remove(request(`/api/admin/repos/${catalog._id}`, { method: 'DELETE', csrf: true,
+    headers: { 'if-match': `"${catalog.updatedAt.toISOString()}"` } }), { params: Promise.resolve({ id: catalog._id }) });
+
+  const first = await removeRequest();
+  expect(first.status).toBe(503);
+  expect(await first.json()).toMatchObject({ error: { code: 'admin_unavailable' } });
+  expect(await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id })).toBeNull();
+  expect(await readFile(snapshotPath, 'utf8')).toBe('synthetic cleanup blocker');
+
+  await unlink(snapshotPath);
+  const retry = await removeRequest();
+  expect(retry.status).toBe(204);
+  await expect(access(snapshotPath)).rejects.toThrow();
 });
 
 it('requires a current version and refuses repository deletion while a lease or reader pin is active', async () => {

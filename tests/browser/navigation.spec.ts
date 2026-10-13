@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('generation-pinned active page expands its sidebar folder and stays highlighted', async ({ page }) => {
+test('generation-pinned active page stays highlighted in its selected section', async ({ page }) => {
   await page.goto('/public-project');
   const guide = page.getByRole('link', { name: 'setup guide', exact: true });
   const href = await guide.getAttribute('href');
@@ -8,8 +8,7 @@ test('generation-pinned active page expands its sidebar folder and stays highlig
   await guide.click();
 
   const sidebar = page.locator('#nd-sidebar');
-  const folder = sidebar.getByRole('button', { name: 'Guides' });
-  await expect(folder).toHaveAttribute('aria-expanded', 'true');
+  await expect(sidebar.locator('button[aria-haspopup="dialog"]')).toContainText('Guides');
   const activePage = sidebar.getByRole('link', { name: 'Setup', exact: true });
   await expect(activePage).toHaveAttribute('data-active', 'true');
   await expect(activePage).toHaveAttribute('href', /\?g=[0-9a-f-]{36}$/i);
@@ -19,17 +18,22 @@ test('generation-pinned active page expands its sidebar folder and stays highlig
 
 test('keyboard search and directory-based project switching stay within the selected generation and repository', async ({ page }) => {
   await page.goto('/public-project');
-  const trigger = page.getByRole('button', { name: 'Search this project' });
+  const trigger = page.locator('#nd-sidebar').getByRole('button', { name: /^Search/ });
   await trigger.focus();
   await page.keyboard.press('Enter');
-  const search = page.getByRole('searchbox', { name: 'Search this project' });
+  const search = page.getByRole('combobox', { name: 'Search' });
   await expect(search).toBeFocused();
+  const searchResponse = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === '/api/search/public-project' && url.searchParams.get('query') === 'setup';
+  });
   await search.fill('setup');
-  const result = page.locator('#project-search-panel a').first();
+  expect((await searchResponse).status()).toBe(200);
+  const result = page.getByRole('option').first();
   await expect(result).toBeVisible();
-  const href = await result.getAttribute('href');
-  expect(href).toMatch(/^\/public-project\/guides\/setup\?g=[0-9a-f-]{36}$/i);
+  await expect(result).toContainText(/setup/i);
   await result.click();
+  await expect(page).toHaveURL(/\/public-project\/guides\/setup\?g=[0-9a-f-]{36}$/i);
   await expect(page.getByRole('heading', { name: 'Setup' })).toBeVisible();
   await expect(page.locator('#nd-sidebar summary[aria-label^="Select project"]')).toHaveCount(0);
   await page.getByRole('link', { name: 'Home', exact: true }).click();
@@ -44,15 +48,19 @@ test('keyboard search and directory-based project switching stay within the sele
   expect(await page.locator('body').innerText()).not.toContain('SYNTHETIC_PRIVATE_BROWSER_SENTINEL');
 });
 
-test('the project search input stays visible inside the mobile sidebar when opened', async ({ page }) => {
+test('mobile sidebar search opens a focused dialog within the viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 850 });
   await page.goto('/public-project');
   await page.getByRole('button', { name: 'Open Sidebar' }).click();
 
   const drawer = page.locator('#nd-sidebar-mobile');
-  await drawer.getByRole('button', { name: 'Search this project' }).click();
-  const input = drawer.getByRole('searchbox', { name: 'Search this project' });
+  await drawer.getByRole('button', { name: 'Close Sidebar' }).click();
+  await page.getByRole('button', { name: 'Open Search' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const input = dialog.getByRole('combobox', { name: 'Search' });
   await expect(input).toBeVisible();
+  await expect(input).toBeFocused();
   const bounds = await input.evaluate(element => {
     const { left, right, top, bottom } = element.getBoundingClientRect();
     return { left, right, top, bottom, width: window.innerWidth, height: window.innerHeight };

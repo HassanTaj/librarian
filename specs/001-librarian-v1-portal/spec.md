@@ -1,5 +1,19 @@
 # Feature Specification: Librarian v1 Git-connected Documentation Portal
 
+## Approved sync optimization — 2026-10-13
+
+Synchronization may reuse original Git blob bytes scoped to the same catalog and configuration
+revision. It must still fetch the current authorized source tree, verify blob sizes and SHAs,
+validate the complete current candidate, recheck branch head, enforce public approval and fenced
+publication, and produce a complete immutable generation. This is download reuse, not a no-op
+publication shortcut. Deleted files are excluded by the new tree; renamed unchanged blobs may be
+reused. Normalized delivery files must not substitute for original Git blobs.
+
+The private cache is disposable, capped at 50 MiB and 1,000 blobs per catalog, counted within existing
+storage budgets, and subordinate to published snapshots and reader pins. Missing/corrupt/unavailable
+cache entries trigger upstream downloads; unsafe filesystem entries fail closed. Synthetic regression
+and acceptance tests and the existing global/feature four-metric 95% gates are mandatory.
+
 **Feature Directory**: `specs/001-librarian-v1-portal`
 
 **Created**: 2026-10-11

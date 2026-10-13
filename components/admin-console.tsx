@@ -68,7 +68,7 @@ const circleButtonStyle = { width: 32, height: 32, minWidth: 32, minHeight: 32, 
 
 export function AdminSkeletonCards() {
   return <div className="grid gap-4">
-    {[0, 1].map(item => <article key={item} aria-hidden="true" className="rounded-xl border p-5">
+    {[0, 1, 2].map(item => <article key={item} aria-hidden="true" className="rounded-xl border p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <Skeleton height={28} width={240} />
@@ -85,11 +85,7 @@ export function AdminSkeletonCards() {
           <Skeleton width={160} />
         </div>)}
       </div>
-      {item === 0 ? <div className="mt-4 rounded-md border p-3">
-        <Skeleton width="95%" />
-        <div className="mt-2"><Skeleton width="70%" /></div>
-      </div> : null}
-      <div className="mt-4 flex justify-start"><Skeleton width={96} height={26} pill /></div>
+      <div className="mt-4" style={{ display: 'flex', justifyContent: 'flex-start' }}><Skeleton width={96} height={26} pill /></div>
     </article>)}
   </div>;
 }
@@ -387,7 +383,7 @@ export function AdminConsole() {
             {!catalog.enabled || catalog.accessState !== 'ready' ? <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3" role="note">Sync requires this repository to be enabled and GitHub App access to be ready.</p> : null}
           </form> : null}
           </div>
-          <div className="mt-4 flex justify-start"><SyncStatusBadge status={catalog.status} /></div>
+          <div className="mt-4" style={{ display: 'flex', justifyContent: 'flex-end' }}><SyncStatusBadge status={catalog.status} /></div>
         </article>;
         })}
       </div>

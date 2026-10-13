@@ -3,13 +3,91 @@ import { mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { newCatalogRecord, type Catalog } from '../../lib/catalog';
-import { ManifestSchema, publishGeneration, stageGeneration } from '../../lib/content/generations';
+import { ManifestSchema, prepareGenerationRoom, publishGeneration, stageGeneration } from '../../lib/content/generations';
+import { createBlobCache } from '../../lib/content/blob-cache';
+import { blobSha } from '../../lib/sync/github';
 import { generationRoot } from '../../lib/content/paths';
 import { LIMITS } from '../../lib/limits';
 import { createStorageHarness } from './http-harness';
 
 const commit = (value: string) => value.repeat(40);
 const markdown = (title: string) => Buffer.from(`# ${title}\n\nSynthetic body.`);
+
+it('keeps cache preparation fenced and rejects unsafe catalog/staging layouts', async () => {
+  const storage = await createStorageHarness();
+  const catalog = newCatalogRecord({ github: { repositoryId: 101, installationId: 201, owner: 'synthetic', name: 'docs', branch: 'main', docsPath: 'docs' },
+    slug: 'cache-layout', title: 'Cache layout', visibility: 'private' });
+  const owner = randomUUID();
+  catalog.accessState = 'ready'; catalog.leaseFence = 1;
+  catalog.lease = { owner, fence: 1, heartbeatAt: new Date(), expiresAt: new Date(Date.now() + 60_000) };
+  await storage.db.collection<Catalog>('catalogs').insertOne(catalog);
+  const request = { catalogId: catalog._id, configRevision: 1, owner, fence: 1 };
+  const root = join(storage.contentRoot, catalog._id);
+  try {
+    await expect(prepareGenerationRoom(storage.db, storage.contentRoot, { ...request, owner: randomUUID() })).rejects.toThrow('sync_lease_lost');
+    await writeFile(root, 'unsafe directory replacement');
+    await expect(prepareGenerationRoom(storage.db, storage.contentRoot, request)).rejects.toThrow('generation_invalid_path');
+    await rm(root); await mkdir(root);
+    await writeFile(join(root, 'unexpected'), 'untouched');
+    await expect(prepareGenerationRoom(storage.db, storage.contentRoot, request)).rejects.toThrow('generation_invalid_path');
+    expect(await readFile(join(root, 'unexpected'), 'utf8')).toBe('untouched');
+    await rm(join(root, 'unexpected'));
+    await mkdir(join(root, `staging-${owner}-1`));
+    await expect(prepareGenerationRoom(storage.db, storage.contentRoot, request)).rejects.toThrow('retention_pressure');
+    await rm(join(root, `staging-${owner}-1`), { recursive: true });
+    const abandoned = join(root, `staging-${randomUUID()}-1`);
+    await mkdir(abandoned); await writeFile(join(abandoned, 'partial'), 'partial');
+    expect(await prepareGenerationRoom(storage.db, storage.contentRoot, request)).toBe(0);
+    expect(await readdir(root)).toEqual([]);
+    await writeFile(join(root, 'blob-cache'), 'not a directory');
+    await expect(prepareGenerationRoom(storage.db, storage.contentRoot, request)).rejects.toThrow('generation_invalid_path');
+    await rm(join(root, 'blob-cache'));
+    await mkdir(join(root, 'generations'));
+    await writeFile(join(root, 'generations', 'invalid'), 'bad generation');
+    await expect(prepareGenerationRoom(storage.db, storage.contentRoot, request)).rejects.toThrow('generation_invalid_path');
+  } finally { await storage.close(); }
+});
+
+it('counts cache bytes in catalog storage and evicts them before reserving snapshot space', async () => {
+  const storage = await createStorageHarness();
+  const catalog = newCatalogRecord({ github: { repositoryId: 101, installationId: 201, owner: 'synthetic', name: 'docs', branch: 'main', docsPath: 'docs' },
+    slug: 'cache-room', title: 'Cache room', visibility: 'private' });
+  const owner = randomUUID();
+  const jobId = `manual:${catalog._id}:${randomUUID()}`;
+  catalog.accessState = 'ready'; catalog.leaseFence = 1;
+  catalog.lease = { owner, fence: 1, heartbeatAt: new Date(), expiresAt: new Date(Date.now() + 60_000) };
+  await storage.db.collection<Catalog>('catalogs').insertOne(catalog);
+  const originalLimit = Object.getOwnPropertyDescriptor(LIMITS, 'maxCatalogPayloadBytes')!;
+  try {
+    const request = { catalogId: catalog._id, configRevision: 1, owner, fence: 1 };
+    const staged = await stageGeneration(storage.contentRoot, { ...request, jobId, commitSha: commit('a'), treeSha: commit('b'),
+      files: [{ path: 'index.md', mode: '100644', content: markdown('Preserved') }] });
+    await publishGeneration(storage.db, storage.contentRoot, staged, { ...request, jobId, publicationRevision: 0 });
+    await storage.db.collection<Catalog>('catalogs').updateOne({ _id: catalog._id }, { $set: { lease: catalog.lease } });
+    const bytes = Buffer.from('raw blob');
+    const cache = createBlobCache(storage.contentRoot, catalog._id, 1, LIMITS.maxSnapshotBytes, new AbortController().signal, async () => true);
+    await cache.put(blobSha(bytes), bytes);
+    expect(await prepareGenerationRoom(storage.db, storage.contentRoot, request)).toBe(staged.manifest.normalizedBytes + bytes.length);
+    Object.defineProperty(LIMITS, 'maxCatalogPayloadBytes', { ...originalLimit, value: staged.manifest.normalizedBytes + LIMITS.maxSnapshotBytes });
+    expect(await prepareGenerationRoom(storage.db, storage.contentRoot, request)).toBe(staged.manifest.normalizedBytes);
+    expect(await cache.get(blobSha(bytes), bytes.length)).toBeUndefined();
+    expect((await readFile(join(staged.root, 'index.md'))).toString()).toContain('Preserved');
+    expect((await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id }))!.published!.generationId).toBe(staged.manifest.generationId);
+    const manifestPath = join(staged.root, 'manifest.json');
+    const originalManifest = await readFile(manifestPath);
+    for (const patch of [{ catalogId: randomUUID() }, { configRevision: 2 }, { generationId: randomUUID() }, { commitSha: commit('c') }]) {
+      const tampered = Buffer.from(JSON.stringify({ ...staged.manifest, ...patch }));
+      await writeFile(manifestPath, tampered);
+      await storage.db.collection<Catalog>('catalogs').updateOne({ _id: catalog._id }, { $set: {
+        'published.manifestDigest': createHash('sha256').update(tampered).digest('hex'),
+      } });
+      await expect(prepareGenerationRoom(storage.db, storage.contentRoot, request)).rejects.toThrow('generation_storage_unavailable');
+    }
+    await writeFile(manifestPath, originalManifest);
+    await storage.db.collection<Catalog>('catalogs').updateOne({ _id: catalog._id }, { $set: { 'published.manifestDigest': staged.manifestDigest } });
+    await expect(prepareGenerationRoom(storage.db, join(storage.contentRoot, 'missing'), request)).rejects.toThrow('generation_storage_unavailable');
+  } finally { Object.defineProperty(LIMITS, 'maxCatalogPayloadBytes', originalLimit); await storage.close(); }
+});
 
 it('stages complete immutable bytes and atomically publishes with a fenced catalog CAS', async () => {
   const storage = await createStorageHarness();
@@ -138,6 +216,19 @@ it('validates staged metadata and each source file again before the atomic point
     staged.manifestDigest = 'f'.repeat(64);
     await expect(publish()).rejects.toThrow('generation_invalid');
     staged.manifestDigest = digest;
+    const normalized = await readFile(join(staged.root, 'index.md'));
+    const changed = Buffer.from(normalized); changed[changed.length - 1] ^= 1;
+    await writeFile(join(staged.root, 'index.md'), changed);
+    await expect(publish()).rejects.toThrow('generation_invalid');
+    await writeFile(join(staged.root, 'index.md'), normalized);
+    const originalManifest = staged.manifest;
+    staged.manifest = { ...staged.manifest, normalizedBytes: staged.manifest.normalizedBytes + 2 };
+    const mismatched = Buffer.from(JSON.stringify(staged.manifest));
+    await writeFile(join(staged.root, 'manifest.json'), mismatched);
+    staged.manifestDigest = createHash('sha256').update(mismatched).digest('hex');
+    await expect(publish()).rejects.toThrow('generation_invalid');
+    staged.manifest = originalManifest; staged.manifestDigest = digest;
+    await writeFile(join(staged.root, 'manifest.json'), JSON.stringify(originalManifest));
     await writeFile(join(staged.root, 'index.md'), markdown('Tampered'));
     await expect(publish()).rejects.toThrow('generation_invalid');
     await rm(join(staged.root, 'manifest.json'));

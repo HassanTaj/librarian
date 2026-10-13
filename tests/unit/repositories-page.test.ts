@@ -1,8 +1,9 @@
 import { isValidElement, type ReactNode } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, expect, it, vi } from 'vitest';
 import RepositoriesPage from '../../app/repositories/page';
 import RepositoriesLoading from '../../app/repositories/loading';
-import { AdminConsole, AdminSkeleton, AdminSkeletonCards } from '../../components/admin-console';
+import { AdminConsole } from '../../components/admin-console';
 import { SiteNavigation } from '../../components/site-navigation';
 
 const state = vi.hoisted(() => ({ headers: vi.fn(), requireAdmin: vi.fn() }));
@@ -23,12 +24,6 @@ function navigationOptions(node: ReactNode): { showSignIn?: boolean; showAccount
   return navigationOptions(node.props.children);
 }
 
-function includesComponent(node: ReactNode, component: unknown): boolean {
-  if (Array.isArray(node)) return node.some(item => includesComponent(item, component));
-  if (!isValidElement<{ children?: ReactNode }>(node)) return false;
-  return node.type === component || includesComponent(node.props.children, component);
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   state.headers.mockResolvedValue(new Headers({ cookie: 'session=synthetic' }));
@@ -37,11 +32,14 @@ beforeEach(() => {
 
 it('shows the configured repositories skeleton in the route loading boundary', () => {
   const loading = RepositoriesLoading();
-  expect(includesComponent(loading, AdminSkeleton)).toBe(true);
-  expect(text(loading)).not.toContain('Configured Repositories');
-  expect(text(loading)).not.toContain('Configure repository sources and review synchronization status.');
-  expect(text(AdminSkeletonCards()).trim()).toBe('');
-  expect(text(AdminSkeleton()).trim()).toBe('');
+  expect(isValidElement(loading)).toBe(true);
+  const markup = renderToStaticMarkup(loading);
+  expect(markup).toContain('role="status"');
+  expect(markup).toContain('aria-label="Loading configured repositories"');
+  expect(markup).toContain('aria-busy="true"');
+  expect(markup).not.toContain('Configure repository sources and review synchronization status.');
+  expect(markup).not.toMatch(/<(?:a|button|input)\b/);
+  expect(markup.match(/<article\b/g)).toHaveLength(3);
 });
 
 it('passes the incoming session cookie to the admin gate and renders the console only after authorization', async () => {

@@ -3,7 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import type { CardProps } from 'fumadocs-ui/components/card';
 import Reader, { generateMetadata } from '../../app/[repoSlug]/[[...page]]/page';
 import Link from 'next/link';
-import { ProjectSearch } from '../../components/project-search';
+import { ProjectSearchProvider } from '@/components/project-search';
 import { RuntimeSidebarFolder, RuntimeSidebarItem } from '../../components/runtime-sidebar';
 import { PrivateContentGuard } from '../../components/private-content-guard';
 import { SignInButton } from '../../components/sign-in-button';
@@ -23,7 +23,7 @@ vi.mock('@/mdx-components', () => ({ getMDXComponents: (components = {}) => ({ a
 vi.mock('fumadocs-ui/layouts/docs', () => ({ DocsLayout: state.docsLayout }));
 vi.mock('fumadocs-ui/page', () => ({ DocsBody: () => null, DocsDescription: () => null, DocsPage: () => null, DocsTitle: () => null }));
 vi.mock('@/components/runtime-sidebar', () => ({ RuntimeSidebarFolder: () => null, RuntimeSidebarItem: () => null }));
-vi.mock('@/components/project-search', () => ({ ProjectSearch: () => null }));
+vi.mock('@/components/project-search', () => ({ ProjectSearch: () => null, ProjectSearchProvider: ({ children }: { children: ReactNode }) => children }));
 vi.mock('@/components/private-content-guard', () => ({ AccountControls: state.accountControls, PrivateContentGuard: () => null }));
 
 const generation = '00000000-0000-4000-8000-000000000001';
@@ -36,7 +36,7 @@ const page = {
       return { body: 'Rendered synthetic article', toc: [{ url: '#overview' }] };
     } }) },
 };
-const loader = { pageTree: { name: 'Synthetic docs' }, getPage: vi.fn(() => page) };
+const loader = { pageTree: { name: 'Synthetic docs', children: [] }, getPage: vi.fn(() => page) };
 const manifest = { generationId: generation };
 const context = { privateContent: false, roleVerifiedAt: null };
 
@@ -48,6 +48,7 @@ beforeEach(() => {
   state.withRuntimeContent.mockImplementation(async (_db, _root, _slug, _generation, render) =>
     render({ loader, manifest }, new AbortController().signal, context));
   loader.getPage.mockReturnValue(page);
+  loader.pageTree.children = [];
   renderComponents.mockClear();
 });
 
@@ -129,30 +130,54 @@ it('resolves MDX Card links within the selected generation and leaves unlinked c
   expect(unlinked.props.href).toBeUndefined();
 });
 
+it('builds tabs from non-empty folders, skips empty folders, and preserves indexed folder links', async () => {
+  const setupUrl = `/synthetic-project/guides/setup?g=${generation}`;
+  const guidesUrl = `/synthetic-project/guides?g=${generation}`;
+  loader.pageTree.children = [
+    { type: 'folder', name: 'Empty', collapsible: true, children: [] },
+    { type: 'folder', name: 'Reference', collapsible: true, children: [
+      { type: 'page', name: 'Setup', url: setupUrl },
+    ] },
+    { type: 'folder', name: 'Guides', collapsible: true, index: { type: 'page', name: 'Guides', url: guidesUrl }, children: [
+      { type: 'page', name: 'Setup', url: setupUrl },
+    ] },
+    { type: 'page', name: 'Loose page', url: `/synthetic-project/loose?g=${generation}` },
+  ] as never[];
+
+  const result = await Reader(route());
+  const layout = elements(result).find(node => node.type === state.docsLayout)!;
+  const tabs = (layout.props as { tabs: { title: string; url: string; props: { href: string }; urls: Set<string> }[] }).tabs;
+
+  expect(tabs).toHaveLength(2);
+  expect(tabs[0]).toMatchObject({ title: 'Reference', url: '/synthetic-project/guides/setup', props: { href: setupUrl } });
+  expect(tabs[0].urls).toEqual(new Set(['/synthetic-project/guides/setup']));
+  expect(tabs[1]).toMatchObject({ title: 'Guides', url: '/synthetic-project/guides', props: { href: guidesUrl } });
+  expect(tabs[1].urls).toEqual(new Set(['/synthetic-project/guides/setup', '/synthetic-project/guides']));
+});
+
 it('shows account controls in the public reader when a visitor is signed in', async () => {
   state.auth.mockResolvedValueOnce({ user: { id: 'synthetic-user' } });
   const result = await Reader(route());
   expect(readerNavHasAccountControls(result)).toBe(true);
+  const provider = elements(result).find(node => node.type === ProjectSearchProvider)!;
+  expect(provider.props).toMatchObject({ slug: 'synthetic-project', generation });
   const layout = elements(result).find(node => node.type === state.docsLayout)!;
-  const layoutProps = layout.props as { themeSwitch: { enabled: boolean }; sidebar: { banner?: ReactNode; footer: ReactNode; components: { Folder: unknown; Item: unknown } } };
+  const layoutProps = layout.props as { themeSwitch: { enabled: boolean }; searchToggle: { enabled: boolean }; sidebar: { banner?: ReactNode; footer: ReactNode; components: { Folder: unknown; Item: unknown } } };
   expect(layoutProps.themeSwitch).toEqual({ enabled: false });
+  expect(layoutProps.searchToggle).toEqual({ enabled: true });
   expect(layoutProps.sidebar.components).toEqual({ Folder: RuntimeSidebarFolder, Item: RuntimeSidebarItem });
   const banner = elements(layoutProps.sidebar.banner);
   const footer = elements(layoutProps.sidebar.footer);
   expect(banner.some(node => node.type === state.accountControls)).toBe(false);
-  expect(banner.some(node => node.type === ProjectSearch)).toBe(false);
-  expect(footer.some(node => node.type === ProjectSearch)).toBe(true);
   expect(footer.find(node => node.type === state.accountControls)?.props).toMatchObject({ compact: true });
   expect(footer.find(node => node.type === ThemeSwitch)?.props.className).toContain('rounded-full');
   const actionGroup = footer.find(node => node.props['data-reader-sidebar-actions'] === true);
   expect(actionGroup).toBeDefined();
   const actionItems = elements(actionGroup!.props.children);
-  expect(actionItems.some(node => node.type === ProjectSearch)).toBe(true);
   expect(actionItems.some(node => node.type === Link && node.props['aria-label'] === 'Home')).toBe(true);
   const nav = elements(readerNav(result));
   expect(nav.some(node => node.type === Link && node.props['aria-label'] === 'Home')).toBe(true);
   expect(layoutProps.sidebar.banner).toBeUndefined();
-  expect(nav.some(node => node.type === ProjectSearch)).toBe(true);
 });
 
 it('wraps private rendering only while role freshness is present and returns safe metadata when denied', async () => {

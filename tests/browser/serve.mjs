@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { resolve, join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { MongoClient, ObjectId } from 'mongodb';
 
 const uri = 'mongodb://127.0.0.1:27018';
@@ -16,8 +17,11 @@ const browserState = resolve('.local/browser-state.json');
 const browsers = ['chromium', 'firefox', 'webkit'];
 const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000, maxPoolSize: 10, minPoolSize: 0 });
 let server;
+let controlServer;
 let cleaning;
 let stateWritten = false;
+let fixtureDb;
+let directoryCatalogs = [];
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const uuid = () => randomUUID();
@@ -67,11 +71,76 @@ async function addProject(db, { slug, title, visibility, repoId, files, links = 
   return { catalogId, generationId };
 }
 
+async function addFailedFirstSyncProject(db) {
+  const catalogId = uuid();
+  const attemptId = uuid();
+  const jobId = `manual:${catalogId}:${attemptId}`;
+  const now = new Date();
+  const code = 'github_invalid_content';
+  await db.collection('catalogs').insertOne({
+    _id: catalogId, slug: 'failed-first-sync', title: 'Failed First Sync', visibility: 'public',
+    github: { repositoryId: 7, installationId: 456, owner: 'synthetic', name: 'failed-first-sync', branch: 'main', docsPath: 'docs' },
+    publicDescription: 'A synthetic documentation source whose first sync failed.', readerRole: 'docs:failed-first-sync:reader',
+    enabled: true, approvalRef: 'synthetic-owner-approval', accessState: 'ready', configRevision: 1, authEpoch: 1,
+    published: null, publicationRevision: 0, retained: [], lease: null, leaseFence: 0, readPins: [],
+    admissionReservations: 0, rateWindow: { window: now, count: 0 }, lastSuccess: null, lastFailure: { at: now, jobId, code },
+    createdAt: now, updatedAt: now,
+  });
+  await db.collection('syncJobs').insertOne({
+    _id: jobId, catalogId, configRevision: 1, origin: 'manual', event: 'manual', payloadDigest: createHash('sha256').update('{}').digest('hex'),
+    admissionSequence: 1, state: 'failed', requestedAt: now, availableAt: now, attempts: 1, owner: null, fence: 1,
+    targetCommit: null, generationId: null, result: { kind: 'failure', code }, completedAt: now, detailExpiresAt: new Date(now.getTime() + 60_000),
+  });
+}
+
+async function setDirectoryMode(mode) {
+  const drop = async name => {
+    try { await fixtureDb.dropCollection(name); }
+    catch (error) { if (error.code !== 26) throw error; }
+  };
+  if (!['normal', 'empty', 'storage-error'].includes(mode)) throw new Error('Unknown directory fixture mode');
+  await drop('catalogs');
+  await drop('directory_storage_error');
+  if (mode === 'storage-error') {
+    await fixtureDb.collection('directory_storage_error').insertOne({ _id: 'synthetic-storage-error' });
+    await fixtureDb.createCollection('catalogs', { viewOn: 'directory_storage_error', pipeline: [
+      { $project: { enabled: { $divide: [1, 0] }, accessState: { $literal: 'ready' } } },
+    ] });
+    return;
+  }
+  if (mode === 'normal') {
+    if (directoryCatalogs.length) await fixtureDb.collection('catalogs').insertMany(directoryCatalogs);
+    await fixtureDb.collection('catalogs').createIndexes([
+      { key: { slug: 1 }, unique: true, name: 'catalog_slug' },
+      { key: { 'github.repositoryId': 1, 'github.branch': 1, 'github.docsPath': 1 }, unique: true, name: 'catalog_source' },
+      { key: { enabled: 1, accessState: 1 }, name: 'catalog_directory' },
+    ]);
+  }
+}
+
+function startControlServer() {
+  controlServer = createServer(async (request, response) => {
+    const mode = /^\/directory\/(normal|empty|storage-error)$/.exec(request.url ?? '')?.[1];
+    if (request.method !== 'POST' || !mode) {
+      response.writeHead(404).end();
+      return;
+    }
+    try {
+      await setDirectoryMode(mode);
+      response.writeHead(204).end();
+    } catch {
+      response.writeHead(500).end();
+    }
+  });
+  controlServer.listen(3101, '127.0.0.1');
+}
+
 async function prepare() {
   await mkdir(contentRoot, { recursive: true });
   await mkdir(secrets, { recursive: true });
   await client.connect();
   const db = client.db(dbName);
+  fixtureDb = db;
   const userId = new ObjectId();
   const sessionToken = 'synthetic-browser-admin-session';
   const sessionCreatedAt = new Date();
@@ -146,6 +215,7 @@ async function prepare() {
     links: { 'index.md': ['guides/setup.md', 'pixel.png'] },
     metadata: [['guides/meta.json', Buffer.from('{"title":"Private Guides","pages":["setup"],"defaultOpen":true}')]],
   });
+  await addFailedFirstSyncProject(db);
   const syncCatalogIds = {};
   for (const [index, browser] of browsers.entries()) {
     const project = await addProject(db, { slug: `sync-reader-${browser}`, title: `Sync Reader ${browser}`, visibility: 'private', repoId: index + 4,
@@ -154,6 +224,7 @@ async function prepare() {
     });
     syncCatalogIds[browser] = project.catalogId;
   }
+  directoryCatalogs = await db.collection('catalogs').find().toArray();
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   const values = { auth: randomBytes(32).toString('base64url'), oidc: randomBytes(32).toString('base64url'), mongo: `${uri}/${dbName}`,
     github: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), webhook: randomBytes(32).toString('hex'), encryption: randomBytes(32).toString('base64') };
@@ -180,6 +251,7 @@ async function cleanup() {
       await exited;
       clearTimeout(timer);
     }
+    if (controlServer?.listening) await new Promise(resolve => controlServer.close(resolve));
     try { await client.db(dbName).dropDatabase(); } finally {
       try { await client.close(); } finally {
         await Promise.all([
@@ -198,6 +270,7 @@ try {
   const { paths, syncCatalogIds } = await prepare();
   await writeFile(browserState, JSON.stringify({ dbName, contentRoot, syncCatalogIds }), { flag: 'wx' });
   stateWritten = true;
+  startControlServer();
   const env = { ...process.env, NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', AUTH_URL: 'http://127.0.0.1:3100', AUTH_TRUST_HOST: 'true',
     LIBRARIAN_NEXT_DIST_DIR: relative(process.cwd(), join(root, 'next')),
     LIBRARIAN_WORKER_ENABLED: '0',

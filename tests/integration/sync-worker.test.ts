@@ -1,10 +1,10 @@
-import { randomUUID } from 'node:crypto';
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { newCatalogRecord, type Catalog } from '../../lib/catalog';
 import { publishGeneration, stageGeneration } from '../../lib/content/generations';
-import { GitHubError } from '../../lib/sync/github';
+import { blobSha, GitHubError } from '../../lib/sync/github';
 import { candidateManifestDigest } from '../../lib/public-approvals';
 import { admitSyncJob, claimNextSyncJob, newManualJobId, reconcilePublishedSyncJobs, setSyncTargetCommit, type SyncJob } from '../../lib/sync/jobs';
 import { processNextSyncJob } from '../../lib/sync/worker';
@@ -41,6 +41,43 @@ it('fetches, validates, stages, publishes and completes one durable job', async 
       generationId: catalog?.published?.generationId, result: { kind: 'published', commitSha: commit('b') } });
     expect((await readFile(join(storage.contentRoot, storage.catalog._id, 'generations', catalog!.published!.generationId, 'index.md'))).toString())
       .toContain('Published');
+  } finally { await storage.close(); }
+});
+
+it('reuses verified GitHub blobs through the worker cache across sync jobs', async () => {
+  const storage = await setup();
+  try {
+    const bytes = content('Cached publication');
+    const sha = blobSha(bytes);
+    const head = commit('3');
+    const rootTree = commit('4');
+    const docsTree = commit('5');
+    const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const githubPrivateKey = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+    let blobReads = 0;
+    const fetcher: typeof fetch = async input => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/access_tokens')) return Response.json({ token: 'synthetic-token', expires_at: new Date(Date.now() + 60 * 60_000).toISOString(),
+        permissions: { contents: 'read' }, repositories: [{ id: storage.catalog.github.repositoryId }] }, { status: 201 });
+      if (path.endsWith('/git/ref/heads/main')) return Response.json({ ref: 'refs/heads/main', object: { type: 'commit', sha: head } });
+      if (path.endsWith(`/git/commits/${head}`)) return Response.json({ sha: head, tree: { sha: rootTree } });
+      if (path.endsWith(`/git/trees/${rootTree}`)) return Response.json({ sha: rootTree, truncated: false,
+        tree: [{ path: 'docs', mode: '040000', type: 'tree', sha: docsTree }] });
+      if (path.endsWith(`/git/trees/${docsTree}`)) return Response.json({ sha: docsTree, truncated: false,
+        tree: [{ path: 'index.md', mode: '100644', type: 'blob', size: bytes.length, sha }] });
+      if (path.endsWith(`/git/blobs/${sha}`)) { blobReads++; return new Response(bytes); }
+      throw new Error('Unexpected synthetic GitHub request');
+    };
+    const github = { githubAppId: 'synthetic-app', githubPrivateKey, fetcher };
+
+    expect(await processNextSyncJob({ db: storage.db, contentRoot: storage.contentRoot, github })).toBe('succeeded');
+    expect(blobReads).toBe(1);
+    const retryJob = (await admitSyncJob(storage.db, { _id: newManualJobId(storage.catalog._id, randomUUID()),
+      catalogId: storage.catalog._id, origin: 'manual', event: 'manual', payloadDigest: 'b'.repeat(64) })).job;
+    expect(await processNextSyncJob({ db: storage.db, contentRoot: storage.contentRoot, github })).toBe('succeeded');
+    expect(blobReads).toBe(1);
+    expect(await storage.db.collection<SyncJob>('syncJobs').findOne({ _id: retryJob._id })).toMatchObject({ state: 'succeeded' });
+    expect(await readFile(join(storage.contentRoot, storage.catalog._id, 'blob-cache', `1-${sha}`))).toEqual(bytes);
   } finally { await storage.close(); }
 });
 

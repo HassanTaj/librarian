@@ -9,6 +9,7 @@ import { CatalogSchema, type Catalog } from '../catalog';
 import { LIMITS } from '../limits';
 import { SyncJobIdSchema } from '../sync/jobs';
 import { validateCandidate, type CandidateFile } from './validate';
+import { trimBlobCache } from './blob-cache';
 import { canonicalPath, documentRoute, generationRoot, openSafeFile, resolveLinkTarget } from './paths';
 
 const uuid = z.uuidv4();
@@ -193,7 +194,7 @@ export async function prepareGenerationRoom(db: Db, contentRoot: string, input: 
   if (catalogInfo) {
     const activeStaging = `staging-${request.owner}-${request.fence}`;
     for (const entry of await readdir(catalogRoot, { withFileTypes: true })) {
-      if (entry.name === 'generations') {
+      if (entry.name === 'generations' || entry.name === 'blob-cache') {
         if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error('generation_invalid_path');
         continue;
       }
@@ -232,8 +233,12 @@ export async function prepareGenerationRoom(db: Db, contentRoot: string, input: 
     catalog = CatalogSchema.parse(latest);
   }
 
-  return (await Promise.all([catalog.published, ...catalog.retained].filter((pointer): pointer is NonNullable<Catalog['published']> => pointer !== null)
+  const generationBytes = (await Promise.all([catalog.published, ...catalog.retained].filter((pointer): pointer is NonNullable<Catalog['published']> => pointer !== null)
     .map(pointer => pointerSize(root, catalog._id, pointer)))).reduce((total, size) => total + size, 0);
+  // The cache is disposable; reserve a full snapshot before retaining any cached blobs.
+  const cacheBytes = await trimBlobCache(root, catalog._id, request.configRevision,
+    LIMITS.maxCatalogPayloadBytes - generationBytes - LIMITS.maxSnapshotBytes);
+  return generationBytes + cacheBytes;
 }
 
 const stageRequestSchema = z.object({ catalogId: uuid, configRevision: integer.min(1), owner: uuid, fence: integer.min(1),

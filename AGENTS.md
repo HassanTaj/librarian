@@ -72,6 +72,10 @@ or plan does not authorize implementing the application or deploying it.
 
 ## Inspect Before Editing and Finish the Scoped Work
 
+Keep synchronization status badges at the bottom left of homepage and repositories
+cards, including their skeletons. Both page skeletons show three consistent cards
+without error placeholders. Preserve this placement during future UI changes.
+
 Inspect current behavior and every affected caller, route, configuration, fixture,
 and interface before changing shared logic. Preserve required behavior and validation.
 For migrations, map existing behavior to the replacement and identify recovery needs.

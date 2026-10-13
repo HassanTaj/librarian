@@ -307,10 +307,10 @@ and lines (not averages of file percentages).
 
 | Scope | Implementation file set | Acceptance evidence |
 |---|---|---|
-| C1 Discovery/reader | app/page.tsx, app/loading.tsx, app/[repoSlug]/**/*.tsx, app/layout.tsx, components/{directory,site-navigation}.tsx, components/project-selector.tsx, components/project-search.tsx, components/sync-status-badge.tsx, lib/layout.shared.tsx, lib/catalog.ts, lib/content/source.ts | US1; ST-12; SC-001-002 |
+| C1 Discovery/reader | app/page.tsx, app/loading.tsx, app/[repoSlug]/**/*.tsx, app/layout.tsx, components/{directory,site-navigation,runtime-sidebar}.tsx, components/project-selector.tsx, components/project-search.tsx, components/sync-status-badge.tsx, lib/layout.shared.tsx, lib/catalog.ts, lib/content/source.ts | US1; ST-12; SC-001-002 |
 | C2 Authorization | auth.ts, app/api/auth/**/*.ts, lib/auth/**/*.ts, app/page.tsx, components/private-content-guard.tsx, lib/catalog.ts, all protected app/[repoSlug] handlers/functions | US2; ST-01-03,10,13; SC-003-004,010 |
-| C3 Navigation/search/assets | lib/content/**/*.ts, app/api/search/**/*.ts, app/api/assets/**/*.ts, repo reader files, project selector and project search | US3; ST-04-05,11-12; SC-005 |
-| C4 Synchronization/recovery | lib/sync/**/*.ts, lib/content/{validate,paths,generations}.ts, lib/{mongo,catalog,limits,public-approvals}.ts, instrumentation.ts, app/api/webhooks/**/*.ts | US4; ST-05-09,11,13; SC-006-008 |
+| C3 Navigation/search/assets | lib/content/**/*.ts, app/api/search/**/*.ts, app/api/assets/**/*.ts, repo reader files, runtime sidebar, project selector and project search | US3; ST-04-05,11-12; SC-005 |
+| C4 Synchronization/recovery | lib/sync/**/*.ts, lib/content/{validate,paths,generations,blob-cache}.ts, lib/{mongo,catalog,limits,public-approvals}.ts, instrumentation.ts, app/api/webhooks/**/*.ts | US4; ST-05-09,11,13; SC-006-008 |
 | C5 Administration | app/repositories/**/*.tsx, app/loading.tsx, app/page.tsx, app/api/admin/**/*.ts, components/{catalog-form,sync-status,admin-console,directory,site-navigation}.tsx, components/sync-status-badge.tsx, lib/{admin,catalog,public-approvals}.ts, lib/auth/**/*.ts, lib/sync/jobs.ts, lib/content/generations.ts | US5; ST-09-11,12-13; SC-009-010 |
 | C6 Packaging/operations/tooling | lib/operations/**/*.ts, app/api/health/**/*.ts, instrumentation.ts, next.config.mjs, mdx-components.tsx if retained, executable test/lint config, scripts/*.mjs, shared startup/config code | ST-11,13-14; SC-012-014 |
 
@@ -477,6 +477,39 @@ remain required. Recovery target: validated isolated DEV restore and healthy rol
 for the acceptance corpus; targets require measurement before production.
 
 ## Complexity Tracking
+
+### Approved incremental blob download follow-up — 2026-10-13
+
+The owner approved reducing downloads while retaining full candidate validation and complete
+immutable publication, including unchanged syncs. Feature implementation scope is
+`lib/content/blob-cache.ts`, `lib/content/generations.ts`, `lib/sync/github.ts`, and
+`lib/sync/worker.ts`; C3/C4 and global coverage gates include these files.
+
+The internal `readCandidate(catalog, signal?, cache?)` adapter accepts optional verified raw-byte
+lookup/write methods. Existing injected providers retain their two-argument invocation. The cache
+is under `<contentRoot>/<catalogId>/blob-cache`, keyed by configuration revision and Git blob SHA.
+No manifest schema, Mongo schema, public route, sync response, or dependency changes are required.
+Normalized Markdown/metadata/attachments are never used as original blobs. Reused bytes undergo
+size/SHA checks and the complete existing validation and owner-approval path.
+
+Cache storage is capped at 50 MiB/1,000 blobs. Fenced lease checks precede writes and atomic rename;
+exclusive cache locks serialize mutations. Expired locks and abandoned temporary files are cleaned
+without following symlinks. Ordinary cache read/write failure falls back to upstream download;
+unsafe paths fail closed. Cleanup counts cache and temporary bytes and evicts them before reserving
+a full 50 MiB snapshot, within the existing 200 MiB catalog budget. The existing 20-catalog quota
+bounds combined catalog payload below the 4 GiB portal budget; neither quota is increased.
+
+Acceptance covers initial/unchanged/changed downloads, duplicate SHAs, renamed/added/deleted files,
+restart/configuration isolation, corruption, interrupted writes, storage pressure, unsafe entries,
+lease loss, upstream/head failures, normalization equivalence, and preserved publication. Run cache,
+GitHub, worker and generation tests; repository coverage collection/check, typecheck, lint,
+production build, and artifact validation. Keep full coverage/release tasks open when evidence fails.
+
+Existing installations warm the cache on their first successful download. No live rollout is
+authorized. Cache omission restores the uncached provider path; older application rollback must
+account for the new cache directory before restoring old cleanup code. Cache disposal is scoped to
+that private directory, never published generations or reader pins, and needs the existing approval
+process on shared/live infrastructure.
 
 No constitutional exceptions requested. Official session adapter, small encryption/role boundary,
 conditional catalog publication, durable replay tombstones, and request pins address explicit

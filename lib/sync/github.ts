@@ -5,6 +5,15 @@ import { CatalogSchema, newCatalogRecord, type Catalog } from '../catalog';
 import { LIMITS } from '../limits';
 import { canonicalPath, isDocumentPath } from '../content/paths';
 
+export type BlobCache = {
+  get(sha: string, size: number): Promise<Buffer | undefined>;
+  put(sha: string, bytes: Buffer): Promise<void>;
+};
+
+export function blobSha(bytes: Buffer) {
+  return createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+}
+
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 const tokenSchema = z.object({
   token: z.string().min(1).max(4096),
@@ -206,7 +215,7 @@ export function createGitHubClient(
 
   return {
     verifyRepository,
-    async readCandidate(input: unknown, externalSignal?: AbortSignal) {
+    async readCandidate(input: unknown, externalSignal?: AbortSignal, cache?: BlobCache) {
       let catalog: Catalog;
       try { catalog = CatalogSchema.parse(input); }
       catch { throw new GitHubError('github_invalid_catalog'); }
@@ -262,6 +271,36 @@ export function createGitHubClient(
         const controller = new AbortController();
         const blobSignal = AbortSignal.any([signal, controller.signal]);
         let index = 0;
+        const blobs = new Map<string, Promise<Buffer>>();
+        const readBlob = (file: typeof files[number]) => {
+          let pending = blobs.get(file.sha);
+          if (!pending) {
+            pending = (async () => {
+              blobSignal.throwIfAborted();
+              let bytes: Buffer | undefined;
+              try { bytes = await cache?.get(file.sha, file.size); }
+              catch (error) {
+                blobSignal.throwIfAborted();
+                if (error instanceof Error && error.message === 'generation_invalid_path') throw error;
+              }
+              if (!bytes || bytes.length !== file.size || blobSha(bytes) !== file.sha) {
+                bytes = await request(`/repos/${repo}/git/blobs/${file.sha}`, {
+                  token, expected: 200, maximum: file.size, accept: 'application/vnd.github.raw+json', signal: blobSignal,
+                });
+                if (bytes.length !== file.size || blobSha(bytes) !== file.sha) throw new GitHubError('github_blob_mismatch');
+                blobSignal.throwIfAborted();
+                try { await cache?.put(file.sha, bytes); }
+                catch (error) {
+                  blobSignal.throwIfAborted();
+                  if (error instanceof Error && error.message === 'generation_invalid_path') throw error;
+                }
+              }
+              return bytes;
+            })();
+            blobs.set(file.sha, pending);
+          }
+          return pending;
+        };
         const content = new Array<{ path: string; mode: string; content: Buffer }>(files.length);
         const workers = Array.from({ length: Math.min(LIMITS.fetchConcurrency, files.length) }, async () => {
           while (true) {
@@ -269,11 +308,8 @@ export function createGitHubClient(
             if (current >= files.length) return;
             try {
               const file = files[current];
-              const bytes = await request(`/repos/${repo}/git/blobs/${file.sha}`, {
-                token, expected: 200, maximum: file.size, accept: 'application/vnd.github.raw+json', signal: blobSignal,
-              });
-              const gitSha = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
-              if (bytes.length !== file.size || gitSha !== file.sha) throw new GitHubError('github_blob_mismatch');
+              const bytes = await readBlob(file);
+              if (bytes.length !== file.size) throw new GitHubError('github_blob_mismatch');
               content[current] = { path: file.path, mode: file.mode, content: bytes };
             } catch (error) {
               controller.abort();

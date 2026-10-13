@@ -120,7 +120,7 @@ it('inventories executable sources, excludes declarations, assigns overlapping s
   try {
     for (const dir of ['app', 'components', 'lib', 'scripts']) await mkdir(join(root, dir));
     await mkdir(join(root, 'lib/content'));
-    const included = ['app/layout.tsx', 'app/loading.tsx', 'app/page.tsx', 'components/directory.tsx', 'components/site-navigation.tsx', 'components/sign-in-button.tsx', 'components/sync-status-badge.tsx', 'lib/catalog.ts', 'lib/content/source.ts', 'lib/content/generations.ts', 'scripts/check.mjs', 'auth.ts', 'instrumentation.ts', 'mdx-components.tsx', 'next.config.mjs'];
+    const included = ['app/layout.tsx', 'app/loading.tsx', 'app/page.tsx', 'components/directory.tsx', 'components/runtime-sidebar.tsx', 'components/site-navigation.tsx', 'components/sign-in-button.tsx', 'components/sync-status-badge.tsx', 'lib/catalog.ts', 'lib/content/source.ts', 'lib/content/generations.ts', 'scripts/check.mjs', 'auth.ts', 'instrumentation.ts', 'mdx-components.tsx', 'next.config.mjs'];
     for (const file of [...included, 'lib/types.d.ts', 'postcss.config.mjs', 'README.md']) await writeFile(join(root, file), 'export {};');
     const inventory = await sourceInventory(root);
     expect(inventory).toEqual(included.map(file => resolve(root, file)).sort());
@@ -129,6 +129,8 @@ it('inventories executable sources, excludes declarations, assigns overlapping s
     expect(scopes.C1).toContain(resolve(root, 'app/loading.tsx'));
     expect(scopes.C1).toContain(resolve(root, 'components/sync-status-badge.tsx'));
     expect(scopes.C1).toContain(resolve(root, 'components/site-navigation.tsx'));
+    expect(scopes.C1).toContain(resolve(root, 'components/runtime-sidebar.tsx'));
+    expect(scopes.C3).toContain(resolve(root, 'components/runtime-sidebar.tsx'));
     expect(scopes.C2).toContain(resolve(root, 'app/page.tsx'));
     expect(scopes.C5).toContain(resolve(root, 'app/page.tsx'));
     expect(scopes.C5).toContain(resolve(root, 'app/loading.tsx'));

@@ -3,8 +3,9 @@ import { expect, test, type Locator } from '@playwright/test';
 test.use({ viewport: { width: 390, height: 844 } });
 
 test('the former /admin UI route is not registered', async ({ page }) => {
-  const response = await page.goto('/admin');
-  expect(response?.status()).toBe(404);
+  await page.goto('/admin');
+  await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Configured Repositories' })).toHaveCount(0);
 });
 
 async function expectCircularButton(button: Locator, size: number) {
@@ -97,9 +98,15 @@ test('administrator can review configured repositories and save safe settings ac
   await expect(project.getByLabel('Portal route slug')).toBeEnabled();
   await expect(project.getByLabel('Repository type')).toHaveValue('public');
   await expect(project.getByLabel('Repository type').locator('option')).toHaveText(['Private', 'Public']);
+  for (const label of ['Repository name', 'GitHub installation ID', 'Branch', 'Documentation folder', 'Display title',
+    'Required reader role', 'Owner approval reference', 'Enabled']) {
+    await expect(project.getByLabel(label)).toBeVisible();
+  }
   await expect(project.getByRole('button', { name: 'Sync Public Project' })).toBeEnabled();
   await expect(project.getByLabel('Directory description')).toBeVisible();
   await expect(project.getByLabel('Directory description')).toHaveJSProperty('tagName', 'TEXTAREA');
+  const descriptionLabel = project.getByLabel('Directory description').locator('xpath=..');
+  expect(await descriptionLabel.evaluate(label => [...label.parentElement!.querySelectorAll(':scope > label')].at(-1) === label)).toBe(true);
   await expect(page.getByRole('button', { name: 'Refresh status' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Configure' })).toBeVisible();
   await expect(project.getByRole('button', { name: 'Sync Public Project' })).toHaveCSS('cursor', 'pointer');

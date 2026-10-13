@@ -3,8 +3,6 @@ function Skeleton({ className = '', height = 20, width = '100%', pill = false }:
 }
 
 export default function Loading() {
-  const issueCard = Math.floor(Math.random() * 2);
-
   return <main role="status" aria-label="Loading documentation directory" aria-busy="true" className="mx-auto w-full max-w-6xl px-5 py-12 sm:px-8">
     <span className="sr-only">Loading documentation directory…</span>
     <header className="mb-8">
@@ -45,7 +43,7 @@ export default function Loading() {
     </div>
 
     <ul aria-hidden="true" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {[0, 1].map(item => <li key={item}>
+      {[0, 1, 2].map(item => <li key={item}>
         <article className="flex h-full flex-col rounded-lg border bg-card p-5">
           <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
             <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -60,10 +58,7 @@ export default function Loading() {
             <Skeleton width="92%" />
             <Skeleton width="75%" />
           </div>
-          {item === issueCard ? <div style={{ borderColor: 'rgba(239, 68, 68, 0.5)', backgroundColor: 'rgba(127, 29, 29, 0.15)' }} className="mt-4 rounded-md border p-3">
-            <div aria-hidden="true" style={{ height: 20, width: 176, maxWidth: '100%', backgroundColor: 'rgba(252, 165, 165, 0.6)' }} className="animate-pulse rounded-sm motion-reduce:animate-none" />
-          </div> : null}
-          <div style={{ marginTop: 'auto' }} className="flex justify-start pt-3">
+          <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-start' }} className="pt-3">
             <Skeleton height={28} width={96} pill />
           </div>
         </article>

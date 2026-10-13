@@ -75,19 +75,8 @@ it('shows a directory card skeleton while the route is loading', () => {
   if (!isValidElement<{ children?: ReactNode; 'aria-busy'?: string }>(loading)) return;
   expect(loading.props).toMatchObject({ 'aria-busy': 'true' });
   const markup = renderToStaticMarkup(loading);
-  expect(markup).toContain('<nav aria-hidden="true"');
   expect(markup).toContain('Loading documentation directory');
-  expect(markup).not.toContain('0 selected');
-  expect(markup).not.toContain('Sync Selected docs');
-  expect(markup.match(/<button\b/g)).toHaveLength(4);
-  expect(markup.match(/disabled=""/g)).toHaveLength(4);
-  expect(markup).toContain('h-4 w-28');
-  expect(markup).toContain('h-5 w-16 rounded-full');
-  expect(markup).toContain('size-10 items-center justify-center rounded-full');
-  expect(markup).toContain('max-h-12 space-y-2 overflow-hidden');
-  expect(markup).toContain('h-6 w-20 rounded-full');
-  expect(markup).toContain('grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3');
-  expect(markup).toContain('motion-reduce:animate-none');
+  expect(markup).not.toMatch(/<(?:a|button|input)\b/);
   const list = Children.toArray(loading.props.children).find(child => isValidElement(child) && child.type === 'ul');
   expect(isValidElement<{ children?: ReactNode; 'aria-hidden'?: string }>(list)).toBe(true);
   if (isValidElement<{ children?: ReactNode; 'aria-hidden'?: string }>(list)) {

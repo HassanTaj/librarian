@@ -1,7 +1,7 @@
 # Tasks: Librarian v1 Git-connected Documentation Portal
 
 **Feature**: `001-librarian-v1-portal` | **Generated**: 2026-10-11
-**Status**: 76/92 tasks are checked. Earlier local synthetic acceptance and the homepage sync-status follow-up passed their recorded story tests and full coverage gates. Later admin-editor/deletion and auth changes invalidate that prior full-coverage snapshot. The latest focused auth/admin and adapter regression tests, typecheck, lint, and production build pass; updated full coverage and full three-engine browser acceptance remain open. The 2026-10-13 DEV catalog sync now shows Succeeded and reports published commit `d82a7d26487af66f37d91cdea8e828f133564806`; exact provenance against the inspected local source checkout remains open in T082. T022, T027, T050, T068, T069, T072, T075, T079, T087, and T092 remain open, along with measured workload, complete infrastructure revalidation, recovery, and separately approved publication/deployment. No production delivery is claimed complete.
+**Status**: 82/92 tasks are checked. Current-source local verification passed 638/638 unit/integration/client tests, global and C1-C6 four-metric coverage, artifact validation, typecheck, repository-wide lint, and production build; the Chromium E2E suite passed 24/24. T022, T027, T068, T069, T072, and T075 are now checked. T050 remains open because Firefox/WebKit privacy acceptance was not run; T079, T082, and T086-T092 remain open for aggregate story acceptance, source provenance, measured workload, infrastructure/recovery, and separately approved publication/deployment. The 2026-10-13 DEV catalog sync reports Succeeded at commit `d82a7d26487af66f37d91cdea8e828f133564806`, but exact provenance against the inspected local source checkout remains open in T082. No production delivery is claimed complete.
 **Git branch**: `main`, unchanged. Feature identifier is not a newly created branch.
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md),
 [data-model.md](data-model.md), [contracts/http.md](contracts/http.md), [quickstart.md](quickstart.md).
@@ -11,6 +11,42 @@
 This list retains all five stories and six delivery stages. Original task generation changed only
 planning artifacts; local implementation evidence is recorded below. Later operational tasks
 document required work and do not grant approval for publication or deployment.
+
+## Incremental sync follow-up — 2026-10-13
+
+This approved US4 follow-up uses the existing synchronization/storage acceptance tasks and does
+not close aggregate v1 or deployment gates. Scope and rollback are recorded in plan.md.
+
+- [X] Implement optional SHA-based raw blob reuse, in-attempt deduplication, per-catalog/revision
+  private cache storage, fenced atomic writes, bounded cleanup, and snapshot-first storage accounting.
+- [X] Add synthetic regression coverage for changed/unchanged/added/deleted/renamed/duplicate blobs,
+  corruption, restart/configuration isolation, normalization, cache faults, cancellation, unsafe paths,
+  lease checks, publication preservation, and quota eviction. The final focused run passed 92 tests
+  across twelve files; the expanded filesystem fault suite separately passed 7/7 (overlapping cases).
+- [X] Verify the exact incremental implementation file set with source-compatible counters and
+  current hashes: statements 795/825 (96.36%), branches 487/512 (95.11%), functions 128/133 (96.24%),
+  and lines 615/623 (98.71%). Evidence is retained in `.local/incremental-sync-feature-evidence.json`.
+  The background-worker regression failed before its caller fix (two downloads across two identical
+  syncs) and passed afterward (one initial download, zero on the second sync). The worker's default
+  provider now reaches cache initialization; injected providers preserve their original invocation.
+- [X] Revalidate current-source full coverage and artifact acceptance after the final worker fix.
+  Final source-hash, coverage, and artifact checks passed against accepted aggregate evidence of
+  638 tests, zero failures, and zero skips. Latest global statements are 3701/3819 (96.91%), branches
+  2925/3050 (95.90%), functions 613/631 (97.15%), and lines 2872/2917 (98.46%); every C1-C6 scope
+  passes all four >=95% thresholds. Earlier temporary-file/build failures and stale UI captures
+  were not accepted as passing evidence. Final typecheck, scoped lint, and isolated production build
+  passed. The full Chromium E2E suite passed 24/24 after the lower-right directory status alignment
+  regression was fixed; T069 and T075 are checked. Firefox/WebKit acceptance remains open in T050.
+  No live repository or deployment operation was performed.
+
+The focused admin route suite passed 29/29, including exact 32 KiB boundary/overflow, quota rejection,
+cleanup retry, bad Origin/CSRF, unsafe paths, and safe response assertions. Typecheck, repository lint,
+and the production build passed. Artifact validation found 73 requirements, 92 tasks, 70 executable
+sources, six scopes, and 151 scanned artifacts. The Chromium acceptance suite passed 24/24; Firefox and
+WebKit privacy acceptance were not run, so T050 and aggregate story completion remain open. No live DEV
+sync, deployment, commit, push, source-repository mutation, or schema migration was performed.
+First/unchanged/one-file-change synthetic blob request counts were 4/0/1; rename/delete required zero
+blob downloads. These are fixture results, not live GitHub performance measurements.
 
 ## Format and Paths
 
@@ -87,14 +123,14 @@ Depends on Phase 1. Complete shared boundaries before story implementation; fixt
 ### Mandatory Tests for US1
 
 - [X] T021 [P] [US1] Write homepage/reader HTTP contracts in tests/integration/discovery.test.ts for US1.1-3,5: safe enabled catalog cards/badges/routes, case-insensitive title-only filter, disabled exclusion, Mongo error distinct from empty, unpublished/missing pages and no source-derived private metadata.
-- [ ] T022 [P] [US1] Write phone/tablet/desktop, keyboard/focus/theme/reader tests in tests/browser/discovery-reader.spec.ts for US1.4: supported public Markdown/GFM rendering, readable content, Documentation Directory heading, generated app icon/shared footer branding, Public/Private labels and lower-right sync badges, first-sync failure non-navigation with expandable issue, and accessible loading/empty/not-found/error states with observable assertions.
+- [X] T022 [P] [US1] Write phone/tablet/desktop, keyboard/focus/theme/reader tests in tests/browser/discovery-reader.spec.ts for US1.4: supported public Markdown/GFM rendering, readable content, Documentation Directory heading, generated app icon/shared footer branding, Public/Private labels and lower-right sync badges, first-sync failure non-navigation with expandable issue, and accessible loading/empty/not-found/error states with observable assertions.
 ### Implementation and Integration for US1
 
 - [X] T023 [US1] Implement safe query in lib/catalog.ts and app/page.tsx/components/directory.tsx: Perspective V / Docs, Documentation Directory, configured Public/Private cards with status-only sync indicators, title filter and one/two/three responsive columns; only successful publications navigate.
 - [X] T024 [US1] Reuse trusted original branding/theme/provider/standard Fumadocs presentation in app/layout.tsx, app/globals.css, lib/layout.shared.tsx and mdx-components.tsx; inspect callers and remove unused executable MDX adapters; no source-dependent global tree or metadata/fork.
 - [X] T025 [US1] Implement guarded runtime overview/article in app/[repoSlug]/[[...page]]/page.tsx with shared rendering in lib/layout.shared.tsx; independently guard tree/page/generateMetadata, render loaded ReactNode from complete selected generation, no source-based static params or sitemaps.
 - [X] T026 [US1] Implement accessible loading/error/not-found/unavailable states in app/[repoSlug]/[[...page]]/loading.tsx, error.tsx, not-found.tsx and components/directory.tsx; denied/unpublished states expose no protected title/body.
-- [ ] T027 [US1] Validate US1 directory/basic reader fixtures and first-sync availability behavior, then run affected browser tests, global/C1/affected C6 four-metric gates, typecheck/lint/production build and record results in specs/001-librarian-v1-portal/tasks.md; full public navigation/search/assets acceptance closes at T037 and US1.6 runtime Git updates at T066. This local checkpoint must not claim full US1/v1 completion or block its required US3 support.
+- [X] T027 [US1] Validate US1 directory/basic reader fixtures and first-sync availability behavior, then run affected browser tests, global/C1/affected C6 four-metric gates, typecheck/lint/production build and record results in specs/001-librarian-v1-portal/tasks.md; full public navigation/search/assets acceptance closes at T037 and US1.6 runtime Git updates at T066. This local checkpoint must not claim full US1/v1 completion or block its required US3 support.
 
 **Checkpoint**: Run this story's explicit gate and retain unresolved integrated/live evidence.
 
@@ -185,16 +221,16 @@ Depends on Phase 1. Complete shared boundaries before story implementation; fixt
 
 ### Mandatory Tests for US5
 
-- [ ] T068 [P] [US5] Verify tests/integration/admin.test.ts for GET view/list, POST registration, PATCH/DELETE If-Match, sync UUID Idempotency-Key, confirmed removal, active lease/read-pin conflicts, snapshot cleanup/retry and retained replay history; identities/CSRF/exact Origin/unknown fields/32 KiB/slug/path/default-private/approval/quota/stale revision rejected without partial mutation.
-- [ ] T069 [P] [US5] Verify tests/browser/admin.spec.ts and tests/browser/discovery-reader.spec.ts for mobile/keyboard/themes/focus/skeleton-loading/denied/error, every configuration field, circular top-left view/edit/delete/sync actions, read-only card expansion, delete disabled during edit, Repository type Private/Public, administration bottom-right sync status, shortened commit with tooltip, directory circular checkboxes, visible selected count, button-based toolbar/card sync controls and lower-right status placement, Home/Repositories navigation, authenticated sign-out, disabled Sync now explanation and admin-only private denial.
+- [X] T068 [P] [US5] Verify tests/integration/admin.test.ts for GET view/list, POST registration, PATCH/DELETE If-Match, sync UUID Idempotency-Key, confirmed removal, active lease/read-pin conflicts, snapshot cleanup/retry and retained replay history; identities/CSRF/exact Origin/unknown fields/32 KiB/slug/path/default-private/approval/quota/stale revision rejected without partial mutation.
+- [X] T069 [P] [US5] Verify tests/browser/admin.spec.ts and tests/browser/discovery-reader.spec.ts for mobile/keyboard/themes/focus/skeleton-loading/denied/error, every configuration field, circular top-left view/edit/delete/sync actions, read-only card expansion, delete disabled during edit, Repository type Private/Public, administration bottom-right sync status, shortened commit with tooltip, directory circular checkboxes, visible selected count, button-based toolbar/card sync controls and lower-right status placement, Home/Repositories navigation, authenticated sign-out, disabled Sync now explanation and admin-only private denial.
 ### Implementation and Integration for US5
 
 - [X] T070 [US5] Implement registration/update/indexes in lib/catalog.ts/lib/mongo.ts with all foundation model constraints: stable read-only App ID lookup, private-source default, public approval, unique source/slug, <=20 monotonic creation reservations/safe overcount, optimistic If-Match and metadata-only publication preservation; deletion does not recycle lifetime quota.
 - [X] T071 [US5] Enforce project-fresh librarian-admin/exact Origin/session-bound CSRF for admin in lib/auth/authorization.ts with tests/integration/admin.test.ts; reader-only/wrong-project denial, deadline refresh, no credentialed wildcard CORS and GET never mutates.
-- [ ] T072 [US5] Verify app/api/admin/repos/route.ts and app/api/admin/repos/[id]/route.ts contract GET/POST/PATCH/DELETE: bounded allowed fields/summaries, unknown/unsafe/stale preconditions reject, deletion uses admin/CSRF, active lease/pins block it, and no credentials/private bodies/physical paths appear in admin responses.
+- [X] T072 [US5] Verify app/api/admin/repos/route.ts and app/api/admin/repos/[id]/route.ts contract GET/POST/PATCH/DELETE: bounded allowed fields/summaries, unknown/unsafe/stale preconditions reject, deletion uses admin/CSRF, active lease/pins block it, and no credentials/private bodies/physical paths appear in admin responses.
 - [X] T073 [US5] Implement configuration transitions in lib/catalog.ts with tests/integration/admin.test.ts: metadata-only preserve, source/slug/role/visibility increment configRevision/authEpoch/fence/remove incompatible selectable pointers; disabled blocks caches/delivery; access-loss reenable requires validated access and compatible sync/review.
 - [X] T074 [US5] Implement app/api/admin/repos/[id]/sync/route.ts via lib/sync/jobs.ts: guarded UUID key/durable 202, duplicate stored outcome/conflicting scope 409, disabled/capacity/rate failures explicit; automatic current-head/lease/content/publication rules unchanged.
-- [ ] T075 [US5] Verify app/repositories/page.tsx and components/admin-console.tsx: Configure toggle; safe collapsed repository summary and view-only expansion before Edit/Delete; delete disabled during edit; circular actions and lower-right status; commit tooltip; Repository type Private/Public ordering; bottom description textarea; save closes form with success notice/refreshed cards while failure preserves form with collapsible error; all settings/default role/approval/enable controls and accessible states; cannot provision owner approval or expose source bodies.
+- [X] T075 [US5] Verify app/repositories/page.tsx and components/admin-console.tsx: Configure toggle; safe collapsed repository summary and view-only expansion before Edit/Delete; delete disabled during edit; circular actions and lower-right status; commit tooltip; Repository type Private/Public ordering; bottom description textarea; save closes form with success notice/refreshed cards while failure preserves form with collapsible error; all settings/default role/approval/enable controls and accessible states; cannot provision owner approval or expose source bodies.
 - [X] T076 [US5] Implement sync states and bounded refresh in components/admin-console.tsx: four distinct text and color states, retry_wait pending/next-attempt, published commit/last success/readable actionable error, visible prerequisites when Sync now is disabled, accessible Sync now; saving is not ingestion success.
 - [X] T077 [US5] Verify manual sync in tests/integration/admin.test.ts and tests/browser/admin.spec.ts: initial failure/missed webhook/manual recovery, blocked-worker prompt durable ack, duplicate clicks one job and successful retry correct publication; admin gains no reader privilege.
 - [X] T078 [US5] Rerun config/disable/visibility/role/approval and live-worker races in tests/integration/admin.test.ts and tests/browser/private-cache.spec.ts: zero denied bytes, no old incompatible content/stale publication, rejected changes preserve valid state.

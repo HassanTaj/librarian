@@ -1,8 +1,18 @@
 import { createHash, generateKeyPairSync, verify } from 'node:crypto';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { newCatalogRecord } from '../../lib/catalog';
 import { LIMITS } from '../../lib/limits';
 import { createGitHubClient } from '../../lib/sync/github';
+import { createBlobCache, trimBlobCache } from '../../lib/content/blob-cache';
+import { validateCandidate } from '../../lib/content/validate';
+import { processNextSyncJob, startSyncWorker } from '../../lib/sync/worker';
+import { admitSyncJob, newManualJobId } from '../../lib/sync/jobs';
+import { createStorageHarness } from './http-harness';
+import { randomUUID } from 'node:crypto';
+import type { Catalog } from '../../lib/catalog';
 
 const appId = '123456';
 const repositoryId = 987;
@@ -15,6 +25,86 @@ const token = 'ghs_synthetic_stateless_installation_token_with_no_fixed_length_a
 const now = 1_800_000_000_000;
 const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const privatePem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+
+it('downloads only new SHAs across restart, rename, deletion, corruption and configuration changes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'librarian-incremental-'));
+  const source = catalog();
+  const signal = new AbortController().signal;
+  const cache = () => createBlobCache(root, source._id, source.configRevision, LIMITS.maxSnapshotBytes, signal, async () => true);
+  const files = [
+    { path: 'index.md', content: '---\r\ntitle: Original\r\n---\r\n# Original\r\n' },
+    { path: 'guide.md', content: '# Guide' },
+    { path: 'copy.md', content: '# Guide' },
+    { path: 'meta.json', content: '{ "pages": ["index", "guide", "copy"] }' },
+    { path: 'sample.txt', content: 'line\r\n' },
+  ];
+  const downloads = (f: ReturnType<typeof provider>) => f.requests.filter(request => request.url.pathname.includes('/git/blobs/')).length;
+  try {
+    const first = provider({ files });
+    const initial = await first.client.readCandidate(source, signal, cache());
+    expect(downloads(first)).toBe(4);
+    expect(first.downloadedBytes).toBe([...new Set(files.map(file => file.content))].reduce((total, content) => total + Buffer.byteLength(content), 0));
+    const second = provider({ files });
+    const reused = await second.client.readCandidate(source, signal, cache());
+    expect(downloads(second)).toBe(0);
+    expect(second.downloadedBytes).toBe(0);
+    expect(reused).toEqual(initial);
+    expect(validateCandidate(reused.files)).toEqual(validateCandidate(initial.files));
+    expect(validateCandidate(initial.files).documents[0].markdown).not.toBe(files[0].content);
+    const changed = provider({ files: files.map(file => file.path === 'guide.md' ? { ...file, content: '# Changed' } : file) });
+    await changed.client.readCandidate(source, signal, cache());
+    expect(downloads(changed)).toBe(1);
+    expect(changed.downloadedBytes).toBe(Buffer.byteLength('# Changed'));
+    const renamed = provider({ files: [{ path: 'renamed.md', content: '# Guide' }, files[0]] });
+    const renamedCandidate = await renamed.client.readCandidate(source, signal, cache());
+    expect(downloads(renamed)).toBe(0);
+    expect(renamedCandidate.files.map(file => file.path)).toEqual(['renamed.md', 'index.md']);
+    const added = provider({ files: [...files, { path: 'new.md', content: '# New' }] });
+    await added.client.readCandidate(source, signal, cache());
+    expect(downloads(added)).toBe(1);
+    const originalSha = gitBlob(files[0].content).sha;
+    await writeFile(join(root, source._id, 'blob-cache', `1-${originalSha}`), 'x'.repeat(Buffer.byteLength(files[0].content)));
+    const corrupt = provider({ files });
+    await corrupt.client.readCandidate(source, signal, cache());
+    expect(downloads(corrupt)).toBe(1);
+    await rm(join(root, source._id, 'blob-cache', `1-${originalSha}`));
+    const missing = provider({ files });
+    await missing.client.readCandidate(source, signal, cache());
+    expect(downloads(missing)).toBe(1);
+    source.configRevision++;
+    await trimBlobCache(root, source._id, source.configRevision, LIMITS.maxSnapshotBytes);
+    const revised = provider({ files });
+    await revised.client.readCandidate(source, signal, cache());
+    expect(downloads(revised)).toBe(4);
+    expect(second.requests.filter(request => request.url.pathname.includes('/git/ref/'))).toHaveLength(2);
+    expect(second.requests.some(request => request.url.pathname.includes('/access_tokens'))).toBe(true);
+    console.info('Incremental synthetic downloads: first=4, unchanged=0, changed=1, rename/delete=0, addition=1, corrupt=1, missing=1, revision=4');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it('treats ordinary cache failures as misses, rejects unsafe cache paths and verifies adapter bytes', async () => {
+  const source = catalog();
+  const unavailable = { get: async () => { throw new Error('disk_unavailable'); }, put: async () => { throw new Error('disk_full'); } };
+  const fixture = provider();
+  await expect(fixture.client.readCandidate(source, undefined, unavailable)).resolves.toMatchObject({ files: [{ path: 'index.md' }] });
+  const invalid = { get: async () => Buffer.from('bad'), put: async () => {} };
+  await expect(provider().client.readCandidate(source, undefined, invalid)).resolves.toMatchObject({ files: [{ content: Buffer.from('# Synthetic docs') }] });
+  const unsafe = { get: async () => { throw new Error('generation_invalid_path'); }, put: async () => {} };
+  await expect(provider().client.readCandidate(source, undefined, unsafe)).rejects.toThrow('generation_invalid_path');
+  const unsafeWrite = { get: async () => undefined, put: async () => { throw new Error('generation_invalid_path'); } };
+  await expect(provider().client.readCandidate(source, undefined, unsafeWrite)).rejects.toThrow('generation_invalid_path');
+});
+
+it('preserves cancellation, access checks and head checks when every blob is cached', async () => {
+  const source = catalog();
+  const raw = Buffer.from('# Synthetic docs');
+  const cached = { get: async () => raw, put: async () => {} };
+  await expect(provider({ branchHeads: [commitSha, 'f'.repeat(40)] }).client.readCandidate(source, undefined, cached)).rejects.toThrow('github_head_changed');
+  await expect(provider({ tokenPermissions: 'write' }).client.readCandidate(source, undefined, cached)).rejects.toThrow('github_invalid_token');
+  const controller = new AbortController();
+  const stopped = { get: async () => { controller.abort(); throw new Error('stopped'); }, put: async () => {} };
+  await expect(provider().client.readCandidate(source, controller.signal, stopped)).rejects.toThrow('github_cancelled');
+});
 
 function gitBlob(content: string) {
   const bytes = Buffer.from(content);
@@ -55,6 +145,7 @@ function provider(options: {
   let headIndex = 0;
   let activeBlobs = 0;
   let maxActiveBlobs = 0;
+  let downloadedBytes = 0;
   const fetcher: typeof fetch = async (input, init = {}) => {
     const url = new URL(String(input));
     requests.push({ url, init });
@@ -107,13 +198,14 @@ function provider(options: {
         if (!bytes) return new Response(null, { status: 404 });
         expect(new Headers(init.headers).get('accept')).toBe('application/vnd.github.raw+json');
         const body = options.corruptBlob && bytes.length ? Buffer.from([bytes[0]! ^ 1, ...bytes.subarray(1)]).toString('utf8') : bytes.toString('utf8');
+        downloadedBytes += Buffer.byteLength(body);
         return new Response(body, { status: 200 });
       } finally { activeBlobs--; }
     }
     throw new Error('Unexpected provider request');
   };
   const client = createGitHubClient({ githubAppId: appId, githubPrivateKey: privatePem }, fetcher, () => now);
-  return { client, requests, get maxActiveBlobs() { return maxActiveBlobs; } };
+  return { client, requests, fetcher, get maxActiveBlobs() { return maxActiveBlobs; }, get downloadedBytes() { return downloadedBytes; } };
 }
 
 function catalog() {
@@ -122,6 +214,71 @@ function catalog() {
   value.accessState = 'ready';
   return value;
 }
+
+it('reuses persisted blobs when sync is driven by the started background worker', async () => {
+  const storage = await createStorageHarness();
+  const source = catalog();
+  await storage.db.collection<Catalog>('catalogs').insertOne(source);
+  const fixture = provider({ tokenExpiresAt: new Date(Date.now() + 60 * 60_000).toISOString() });
+  const enqueue = () => admitSyncJob(storage.db, { _id: newManualJobId(source._id, randomUUID()), catalogId: source._id,
+    origin: 'manual', event: 'manual', payloadDigest: 'a'.repeat(64) });
+  const first = await enqueue();
+  const worker = startSyncWorker({ db: storage.db, contentRoot: storage.contentRoot,
+    github: { githubAppId: appId, githubPrivateKey: privatePem, fetcher: fixture.fetcher } });
+  const waitFor = async (id: string) => {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const current = await storage.db.collection<Catalog>('catalogs').findOne({ _id: source._id });
+      if (current?.lastSuccess?.jobId === id) return;
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    throw new Error('Synthetic worker did not publish');
+  };
+  try {
+    await waitFor(first.job._id);
+    const second = await enqueue();
+    await waitFor(second.job._id);
+    expect(fixture.requests.filter(request => request.url.pathname.includes('/git/blobs/'))).toHaveLength(1);
+  } finally { await worker.stop(); await storage.close(); }
+});
+
+it('publishes new complete generations from cached raw blobs and preserves publication on later upstream failure', async () => {
+  const storage = await createStorageHarness();
+  const source = catalog();
+  await storage.db.collection<Catalog>('catalogs').insertOne(source);
+  const files = [{ path: 'index.md', content: '# Worker raw\r\n' }, { path: 'guide.md', content: '# Guide' }];
+  const run = async (fixture: ReturnType<typeof provider>) => {
+    await admitSyncJob(storage.db, { _id: newManualJobId(source._id, randomUUID()), catalogId: source._id,
+      origin: 'manual', event: 'manual', payloadDigest: 'a'.repeat(64) });
+    return processNextSyncJob({ db: storage.db, contentRoot: storage.contentRoot,
+      github: { githubAppId: appId, githubPrivateKey: privatePem, fetcher: fixture.fetcher } });
+  };
+  const current = () => storage.db.collection<Catalog>('catalogs').findOne({ _id: source._id });
+  const tokenExpiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
+  try {
+    const first = provider({ files, tokenExpiresAt });
+    expect(await run(first)).toBe('succeeded');
+    const firstPointer = (await current())!.published!;
+    const second = provider({ files, tokenExpiresAt });
+    expect(await run(second)).toBe('succeeded');
+    const secondPointer = (await current())!.published!;
+    expect(secondPointer.generationId).not.toBe(firstPointer.generationId);
+    expect(second.requests.filter(request => request.url.pathname.includes('/git/blobs/'))).toHaveLength(0);
+    const paths = [firstPointer, secondPointer].map(pointer => join(storage.contentRoot, source._id, 'generations', pointer.generationId, 'index.md'));
+    const { readFile } = await import('node:fs/promises');
+    expect(await readFile(paths[0])).toEqual(await readFile(paths[1]));
+    expect(await readFile(join(storage.contentRoot, source._id, 'blob-cache', `1-${gitBlob(files[0].content).sha}`), 'utf8')).toBe(files[0].content);
+    const renamed = provider({ files: [{ path: 'renamed.md', content: files[1].content }, files[0]], tokenExpiresAt });
+    expect(await run(renamed)).toBe('succeeded');
+    expect(renamed.requests.filter(request => request.url.pathname.includes('/git/blobs/'))).toHaveLength(0);
+    const validPointer = (await current())!.published!;
+    const retained = (await current())!.retained.map(pointer => ({ ...pointer, retiredAt: new Date(0) }));
+    await storage.db.collection<Catalog>('catalogs').updateOne({ _id: source._id }, { $set: { retained } });
+    const failed = provider({ files: [{ path: 'index.md', content: '# Changed' }], tokenExpiresAt, corruptBlob: true });
+    expect(await run(failed)).toBe('failed');
+    expect((await current())!.published).toEqual(validPointer);
+  } finally { await storage.close(); }
+});
 
 it('uses a short-lived JWT, a selected read-only installation token, immutable tree/blob SHAs, and rechecks branch head', async () => {
   const fixture = provider();

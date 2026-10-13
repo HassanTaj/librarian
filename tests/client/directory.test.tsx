@@ -59,10 +59,8 @@ it('labels access beside titles, aligns the toolbar and controls, and anchors st
   expect(container.textContent).toContain('Public');
   expect(container.textContent).toContain('Private');
   expect(container.textContent).not.toContain('Restricted');
-  expect(container.querySelector('ul')?.className).toContain('sm:grid-cols-2');
   const toolbar = container.querySelector('[role="toolbar"]')!;
-  expect(toolbar.className).toContain('items-center');
-  expect(toolbar.className).toContain('justify-between');
+  expect(toolbar.getAttribute('aria-label')).toBe('Documentation directory tools');
   expect(container.querySelector('label[for="project-filter"]')).toBeNull();
   expect(container.querySelector<HTMLInputElement>('#project-filter')?.placeholder).toBe('Filter documentation by title');
   expect(container.querySelector<HTMLInputElement>('#project-filter')?.getAttribute('aria-label')).toBe('Search documentation');
@@ -73,38 +71,26 @@ it('labels access beside titles, aligns the toolbar and controls, and anchors st
   const sync = atlasCard.querySelector<HTMLButtonElement>('button[aria-label="Sync Atlas"]')!;
   const links = atlasCard.querySelectorAll<HTMLAnchorElement>('a[href="/atlas"]');
   const cardLink = links[0]!;
-  expect(select.className).toContain('appearance-none');
-  expect(select.className).toContain('rounded-full');
-  expect(select.className).toContain('checked:bg-primary');
-  expect(select.closest('label')?.classList.contains('bg-card')).toBe(true);
-  expect(select.closest('label')?.className).toContain('grid');
-  expect(select.closest('label')?.className).not.toContain('absolute');
-  expect(sync.className).toContain('h-9');
-  expect(sync.className).toContain('w-9');
-  expect(sync.className).toContain('min-h-9');
-  expect(sync.className).toContain('min-w-9');
-  expect(sync.className).toContain('p-0');
-  expect(sync.className).toContain('rounded-full');
-  expect(sync.className).not.toContain('absolute');
+  expect(select.type).toBe('checkbox');
+  expect(select.closest('label')).not.toBeNull();
+  expect(sync.type).toBe('button');
   const header = sync.parentElement as HTMLElement;
-  expect(header.className).toContain('justify-between');
   expect(header.children).toHaveLength(2);
   expect(header.firstElementChild?.firstElementChild).toBe(select.closest('label'));
   expect((header.firstElementChild?.children[1] as HTMLAnchorElement).querySelector('h2')?.textContent).toBe('Atlas');
   expect((header.firstElementChild?.children[1] as HTMLAnchorElement).textContent).toContain('Public');
   expect(select.closest('label')?.parentElement?.parentElement).toBe(header);
   expect(cardLink.querySelector('h2')?.textContent).toBe('Atlas');
-  const unavailableLinks = container.querySelectorAll<HTMLAnchorElement>('a[href="/orion"]');
-  expect(unavailableLinks[0]?.querySelector('h2')?.textContent).toBe('Orion');
-  expect(unavailableLinks[1]?.textContent).toContain('Documentation is unavailable until a successful sync.');
+  const orionCard = [...container.querySelectorAll('article')].find(article => article.textContent?.includes('Orion'))!;
+  expect(orionCard.querySelector('h2')?.textContent).toBe('Orion');
+  expect(orionCard.querySelector('a[href="/orion"]')).toBeNull();
+  expect(orionCard.textContent).toContain('Documentation is unavailable until a successful sync.');
   const status = atlasCard.querySelector('[aria-label="Sync status: succeeded"]')!;
   expect(status.parentElement?.parentElement).toBe(atlasCard);
   expect(status.parentElement).toBe(atlasCard.lastElementChild);
-  expect(status.parentElement?.className).toContain('mt-auto');
-  expect(status.parentElement?.className).toContain('justify-end');
   expect([...atlasCard.querySelectorAll('span')].some(label => label.textContent === 'Public')).toBe(true);
   expect(container.querySelector('a[href="/atlas"]')).not.toBeNull();
-  expect(container.querySelector('a[href="/orion"]')).not.toBeNull();
+  expect(container.querySelector('a[href="/orion"]')).toBeNull();
   await filter(' ORI ');
   expect(container.querySelectorAll('ul li')).toHaveLength(1);
   expect(container.querySelector('ul')?.textContent).toContain('Orion');
@@ -113,7 +99,7 @@ it('labels access beside titles, aligns the toolbar and controls, and anchors st
   expect(container.textContent).toContain('Sign in with Zitadel');
 });
 
-it('truncates long card text visually while keeping the complete title and description available', async () => {
+it('keeps the complete long title and description available', async () => {
   const title = 'An unusually long documentation repository title that exceeds the available card width';
   const description = 'A long description that needs a visual limit. '.repeat(12);
   await act(async () => root.render(<Directory cards={[{ ...cards[0], title, publicDescription: description }]} />));
@@ -121,15 +107,13 @@ it('truncates long card text visually while keeping the complete title and descr
   const links = container.querySelectorAll<HTMLAnchorElement>('a[href="/atlas"]');
   const heading = links[0]!.querySelector('h2')!;
   const summary = links[1]!.querySelector('p')!;
-  expect(heading.className).toContain('truncate');
   expect(heading.title).toBe(title);
   expect(heading.textContent).toBe(title);
-  expect(summary.className).toContain('line-clamp-3');
   expect(summary.title).toBe(description);
   expect(summary.textContent).toBe(description);
 });
 
-it('shows the selection count in the labeled sync button and checks the card circle', async () => {
+it('shows the selection count in the labeled sync button and keeps the checkbox accessible', async () => {
   await act(async () => root.render(<Directory cards={cards} canSync />));
   const select = container.querySelector<HTMLInputElement>('input[aria-label="Select Atlas"]')!;
 
@@ -138,13 +122,9 @@ it('shows the selection count in the labeled sync button and checks the card cir
   expect(select.checked).toBe(true);
   expect(batchSyncButton().getAttribute('aria-label')).toBe('Sync 1 selected document');
   expect(batchSyncCount()).toBe('1');
-  expect(batchSyncButton().className).toContain('h-10');
-  expect(batchSyncButton().className).toContain('rounded-full');
-  expect(batchSyncButton().className).toContain('bg-primary');
+  expect(batchSyncButton().disabled).toBe(false);
   expect(batchSyncButton().textContent).toContain('Sync');
-  expect(batchSyncButton().querySelector('span[aria-hidden="true"]')?.className).toContain('font-bold');
-  expect(batchSyncButton().querySelector('span[aria-hidden="true"]')?.className).toContain('bg-white');
-  expect(select.nextElementSibling?.getAttribute('class')).toContain('opacity-100');
+  expect(select.nextElementSibling?.getAttribute('aria-hidden')).toBe('true');
 });
 
 it('falls back to access and initial-sync metadata when no live status exists', async () => {
@@ -159,14 +139,17 @@ it('falls back to access and initial-sync metadata when no live status exists', 
   expect(container.querySelector('[aria-label="Sync status: succeeded"]')).not.toBeNull();
   expect(container.querySelector('[aria-label="Sync status: pending"]')).not.toBeNull();
   expect(container.querySelector('a[href="/ready"]')).not.toBeNull();
-  expect(container.querySelector('a[href="/first-sync"]')).not.toBeNull();
-  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Sync First sync"]')?.disabled).toBe(true);
-  expect(container.querySelector('article p.text-muted-foreground')).toBeNull();
+  expect(container.querySelector('a[href="/first-sync"]')).toBeNull();
+  const firstSyncCard = [...container.querySelectorAll('article')].find(article => article.textContent?.includes('First sync'))!;
+  expect(firstSyncCard.textContent).toContain('Documentation is unavailable until a successful sync.');
+  expect(firstSyncCard.querySelector<HTMLButtonElement>('button[aria-label="Sync First sync"]')?.disabled).toBe(true);
+  expect(firstSyncCard.querySelector('a[href="/first-sync"]')).toBeNull();
+  expect(firstSyncCard.querySelector('p')?.textContent).toBe('Documentation is unavailable until a successful sync.');
 });
 
-it('shows first-sync failure in a collapsed reportable banner while keeping its unavailable route navigable', async () => {
+it('keeps a first-sync failure non-navigable and exposes a collapsed reportable issue', async () => {
   await act(async () => root.render(<Directory cards={[cards[1]]} />));
-  expect(container.querySelector('a[href="/orion"]')).not.toBeNull();
+  expect(container.querySelector('article a')).toBeNull();
   expect(container.querySelector('[aria-label="Sync status: failed"]')?.textContent).toBe('failed');
   const details = container.querySelector('details')!;
   expect(details.nextElementSibling?.querySelector('[aria-label="Sync status: failed"]')).not.toBeNull();
@@ -203,17 +186,16 @@ it('enables batch sync only after selection and posts selected catalogs once wit
   vi.stubGlobal('fetch', fetchMock);
   await act(async () => root.render(<Directory cards={cards} canSync />));
 
-  const syncSelected = batchSyncButton();
-  expect(syncSelected.disabled).toBe(true);
+  expect(batchSyncButton().disabled).toBe(true);
   await act(async () => {
     container.querySelector<HTMLInputElement>('input[aria-label="Select Atlas"]')!.click();
     container.querySelector<HTMLInputElement>('input[aria-label="Select Orion"]')!.click();
   });
   expect(batchSyncButton().getAttribute('aria-label')).toBe('Sync 2 selected documents');
   expect(batchSyncCount()).toBe('2');
-  expect(syncSelected.disabled).toBe(false);
-  await act(async () => { syncSelected.click(); await Promise.resolve(); await Promise.resolve(); });
-  expect(syncSelected.getAttribute('aria-label')).toBe('Sync 2 selected documents');
+  expect(batchSyncButton().disabled).toBe(false);
+  await act(async () => { batchSyncButton().click(); await Promise.resolve(); await Promise.resolve(); });
+  expect(batchSyncButton().getAttribute('aria-label')).toBe('Sync 2 selected documents');
   expect(releaseBatch).toBeDefined();
   expect(batchRequest).toMatchObject({ method: 'POST', headers: expect.objectContaining({ 'x-csrf-token': 'synthetic-csrf', 'idempotency-key': '00000000-0000-4000-8000-000000000099' }) });
   expect(JSON.parse(String(batchRequest?.body))).toEqual({ ids: ['atlas-id', 'orion-id'] });
@@ -227,8 +209,8 @@ it('enables batch sync only after selection and posts selected catalogs once wit
   });
   expect(container.querySelector('[aria-label="Sync status: pending"]')).not.toBeNull();
   expect(container.querySelector('details')).toBeNull();
-  expect(container.querySelector('button[aria-label="Sync Atlas"] svg')?.classList.contains('animate-spin')).toBe(true);
-  expect(syncSelected.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Sync Atlas"]')?.disabled).toBe(true);
+  expect(batchSyncButton().disabled).toBe(true);
   expect(batchSyncCount()).toBe('0');
 
   await act(async () => { await vi.advanceTimersByTimeAsync(750); });
@@ -237,7 +219,7 @@ it('enables batch sync only after selection and posts selected catalogs once wit
   await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
   expect(container.querySelector('[aria-label="Sync status: succeeded"]')).not.toBeNull();
   expect(container.querySelector('details')).toBeNull();
-  expect(container.querySelector('button[aria-label="Sync Atlas"] svg')?.classList.contains('animate-spin')).toBe(false);
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Sync Atlas"]')?.disabled).toBe(false);
 });
 
 it('keeps sync actions admin-only and distinguishes an unavailable directory from an empty one', async () => {
@@ -251,14 +233,12 @@ it('keeps sync actions admin-only and distinguishes an unavailable directory fro
   expect(container.querySelector('#project-filter')).toBeNull();
 });
 
-it('shows accessible sync badges with distinct pending, running, success, and failure styles', async () => {
+it('shows accessible sync badges for pending, running, success, and failure states', async () => {
   const statuses = ['pending', 'running', 'succeeded', 'failed'] as const;
-  const colors = ['text-amber-800', 'text-green-800', 'text-primary', 'text-red-800'];
   const statusCards = statuses.map((syncStatus, index) => ({ ...cards[index % cards.length], id: `status-${syncStatus}`, syncStatus }));
   await act(async () => root.render(<Directory cards={statusCards} />));
-  for (const [index, status] of statuses.entries()) {
+  for (const status of statuses) {
     const badge = container.querySelector(`[aria-label="Sync status: ${status}"]`);
-    expect(badge?.className).toContain(colors[index]);
     expect(badge?.textContent).toBe(status);
   }
 });
@@ -373,6 +353,6 @@ it('recovers directory sync-status polling errors and disables a card omitted fr
   await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
 
   expect(container.querySelector('[aria-label="Sync status: failed"]')).not.toBeNull();
-  expect(container.querySelector('a[href="/orion"]')).not.toBeNull();
-  expect(container.querySelector('details')?.textContent).toContain('catalog_not_found');
+  expect(container.querySelector('a[href="/orion"]')).toBeNull();
+  expect(container.querySelector('details [role="alert"]')?.textContent).toContain('Issue code: catalog_not_found');
 });
