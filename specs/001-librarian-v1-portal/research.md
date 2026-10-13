@@ -102,12 +102,13 @@ grant access. The synthetic probe exercised the exact pinned GET interface.
 
 ## Content Validation
 
-**Decision**: Validate before local-md sees a candidate. Only .md is accepted; reject executable
-MDX/JSX/imports/expressions outside code, all raw HTML, unsafe URL schemes, symlinks/submodules and
-escaping/encoded paths. Parse Markdown/GFM normally; use parse-only MDX recognition on executable
-syntax candidates outside code nodes, not an unrestricted MDX parser on the entire Markdown file.
-Preserve ordinary GFM/autolinks, escaped literal braces and fenced/inline code in conformance tests.
-An ambiguity or unsafe syntax candidate is rejected, never compiled to discover its behavior.
+**Decision**: Validate before local-md sees a candidate. `.md` and `.mdx` are accepted; `.mdx` is
+parsed as an MDX AST and permits Markdown/GFM plus only static `Info`, `Note`, `Warning`, `Columns`,
+`Card`, `Steps`, and `Step` nodes. Component attributes must be literal strings, except literal
+`Columns cols={1..4}`. Reject imports, exports, other expressions, unknown components/attributes,
+all raw HTML, unsafe URL schemes, symlinks/submodules, and escaping/encoded paths. Preserve ordinary
+GFM/autolinks, escaped literal braces and fenced/inline code in conformance tests. Ambiguous or unsafe
+syntax is rejected, never compiled to discover its behavior.
 
 Validate bounded YAML using parseDocument with strict/stringKeys/uniqueKeys, YAML1.2 core, no
 custom/known tags or merges. Reject errors/warnings, explicit tags, anchors/aliases before conversion;
@@ -122,7 +123,14 @@ only. No rehype-raw; supported raster/PDF/text types and explicit attachment dis
 **Rationale**: AST rendering does not itself provide a trust boundary, and a pure MDX grammar can
 incorrectly reject legitimate Markdown. Required conformance/security fixtures prove the validator.
 **Alternatives considered**: Regex-only filtering, arbitrary component imports, raw HTML sanitization
-and remote image fetching are unnecessary for the agreed Markdown-only product.
+and remote image fetching are unnecessary for the agreed safe-content product.
+
+**Phase 3 update (2026-10-13)**: The original Markdown-only `.mdx` policy rejected static Fumadocs
+components present in the source docs. `.mdx` now passes AST validation before runtime loading and
+allows only the static `Info`, `Note`, `Warning`, `Columns`, `Card`, `Steps`, and `Step` components.
+Unknown components/attributes, imports, exports, nonliteral expressions (except `Columns cols={1..4}`),
+and raw HTML remain rejected. Local wrappers map the components to trusted Fumadocs UI; Card links are
+rewritten through the selected catalog/generation route. This does not approve arbitrary MDX execution.
 [Parse-only MDX package](https://mdxjs.com/packages/remark-mdx/),
 [YAML controls](https://eemeli.org/yaml/),
 [pinned frontmatter reader](https://unpkg.com/fumadocs-core@16.15.18/dist/content/md/frontmatter.js).
@@ -292,7 +300,8 @@ lifecycle scripts disabled, and no project edits. An assert-based Node probe pas
 - Markdown/GFM rendering through localMd and dynamicLoader.
 - Scoped live search using createFromSource.
 - A second immutable source generation changes rendering/search without rebuilding.
-- Explicit include excludes MDX; excluded sentinel code does not execute.
+- Historical initial-probe behavior explicitly excluded MDX; the Phase 3 update above supersedes that
+  policy with validated `.mdx` and the static Fumadocs component allowlist, while executable syntax remains rejected.
 - Parse-only recognition of ESM/expression/JSX and preservation of fenced code examples.
 - YAML aliases/anchors detected before conversion.
 

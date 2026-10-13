@@ -57,12 +57,14 @@ within the scope of their respective commands. A request to write a specificatio
 or plan does not authorize implementing the application or deploying it.
 
 - Feature specifications MUST include testable user stories, access-control impact,
-  failure/recovery behavior, mandatory automated tests, and the 95% coverage gates.
+  failure/recovery behavior, and mandatory tests/95% gates for changed functional
+  behavior. Isolated presentation-only UI work follows the exception in Principle V.
 - Feature plans MUST define affected files/interfaces, inputs/outputs, dependencies,
   edge cases, validation commands, feature coverage scope, and operational rollback
   when relevant. Use the Constitution Check to expose conflicts before implementation.
-- Task lists MUST include the required test and coverage work for every feature.
-  Generic Spec Kit wording that tests are optional does not apply to Librarian.
+- Task lists MUST include required test and coverage work for functional features.
+  Do not add or run tests for presentation-only changes unless the user asks; defer
+  that test work until requested.
 - Do not modify installed Spec Kit skills or template sources unless requested.
   Use the existing template resolver when the workflow requires it.
 - Do not create Git branches, commits, pushes, or releases unless explicitly requested.
@@ -85,26 +87,31 @@ group blocking questions. Complete authorized work and its required verification
 
 ## Testing and Completion Gates
 
-Every added or changed feature MUST ship with automated acceptance tests. Every bug
-fix MUST include a regression test demonstrating the defect before the fix. Cover
-observable behavior and failure paths; do not merely mirror implementation details.
+Changes to functional behavior MUST ship with automated acceptance tests. Functional
+bug fixes MUST include a regression test demonstrating the defect before the fix.
+Presentation-only UI changes that preserve existing behavior, data flow, and access
+control do not require new tests or coverage work; defer all test authoring and
+execution for them until the user asks. Do not add tests that only assert utility
+classes for visual styling.
 
-Enforce at least **95% separately for statements, branches, functions, and lines**:
+For functional feature and v1 release completion, enforce at least **95% separately
+for statements, branches, functions, and lines**:
 
 - Across all first-party executable application code, including unexecuted files.
 - For each feature's implementation file set declared in its plan.
 - In CI, failing on any applicable threshold below 95%, required test failure, or
   missing coverage report. Apply the constitution's documented exclusion rules.
 
-Use unit, integration, and browser tests appropriate to the feature. Security tests
-MUST exercise all protected delivery paths and relevant negative cases. Ingestion
-tests MUST verify signatures, deduplication, concurrency/leases, restart recovery,
-invalid content, upstream failure, and preservation of the last valid generation.
-The constitution defines the complete required scenario set.
+Use unit, integration, and browser tests appropriate to changed functional behavior.
+Security tests MUST exercise all protected delivery paths and relevant negative
+cases. Ingestion tests MUST verify signatures, deduplication, concurrency/leases,
+restart recovery, invalid content, upstream failure, and preservation of the last
+valid generation. The constitution defines the complete required scenario set.
 
-Run lightweight, targeted checks while developing. Before declaring a feature
-complete, run its acceptance tests, applicable coverage gates, type checks, lint,
-and production build. Targeted checks do not replace these completion gates.
+Run lightweight, targeted checks while developing. Before declaring a functional
+feature complete, run its acceptance tests, applicable coverage gates, type checks,
+lint, and production build. Standalone presentation-only changes do not require new
+test or coverage runs. Targeted checks do not replace functional feature gates.
 Use actual repository scripts once available; do not claim nonexistent commands ran.
 
 Investigate validation failures, fix in-scope causes, and report unresolved blockers.

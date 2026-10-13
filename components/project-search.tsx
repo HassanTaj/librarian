@@ -1,26 +1,46 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { SearchProvider, type SharedProps } from 'fumadocs-ui/contexts/search';
+import { SearchTrigger } from 'fumadocs-ui/layouts/shared/slots/search-trigger';
+import { SearchDialog, SearchDialogOverlay, SearchDialogContent, SearchDialogHeader, SearchDialogInput, SearchDialogClose, SearchDialogList, SearchDialogIcon, SearchDialogListItem } from 'fumadocs-ui/components/dialog/search';
 import { LIMITS } from '@/lib/limits';
-
-type Result = { id: string; type: string; url: string; content: string; breadcrumbs: string[] };
+type Result = { id: string; type: 'page' | 'heading' | 'text'; url: string; content: string; breadcrumbs: string[] };
 function isResult(value: unknown, slug: string, generation: string): value is Result {
   if (!value || typeof value !== 'object') return false;
   const result = value as Partial<Result>;
   if (typeof result.url !== 'string' || typeof result.content !== 'string' || typeof result.id !== 'string' ||
-      typeof result.type !== 'string' || !Array.isArray(result.breadcrumbs) || !result.breadcrumbs.every(part => typeof part === 'string')) return false;
+      !['page', 'heading', 'text'].includes(result.type ?? '') || !Array.isArray(result.breadcrumbs) || !result.breadcrumbs.every(part => typeof part === 'string')) return false;
   try {
     const target = new URL(result.url, window.location.origin);
     return target.origin === window.location.origin && target.pathname.split('/')[1] === slug && target.searchParams.get('g') === generation;
   } catch { return false; }
 }
 
-export function ProjectSearch({ slug, generation }: { slug: string; generation: string }) {
-  const [open, setOpen] = useState(false);
+function highlightedText(content: ReactNode) {
+  if (typeof content !== 'string') return content;
+  // Only the search engine's highlight tags are interpreted; other HTML remains text.
+  return content.split(/(<mark>[\s\S]*?<\/mark>)/g).map((part, index) => part.startsWith('<mark>')
+    ? <span key={index} style={{ color: 'var(--color-fd-primary)', textDecoration: 'underline' }}>{part.slice(6, -7)}</span>
+    : part);
+}
+
+function ProjectSearchDialog({ slug, generation, open, onOpenChange }: SharedProps & { slug: string; generation: string }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Result[]>([]);
   const [state, setState] = useState<'idle' | 'searching' | 'ready' | 'error'>('idle');
-  const input = useRef<HTMLInputElement>(null);
+
+  function changeQuery(value: string) {
+    setQuery(value);
+    setResults([]);
+    setState('idle');
+  }
+
+  function changeOpen(value: boolean) {
+    if (!value) changeQuery('');
+    onOpenChange(value);
+  }
+
   useEffect(() => {
     const normalized = query.trim();
     if (!open || !normalized) return;
@@ -28,8 +48,10 @@ export function ProjectSearch({ slug, generation }: { slug: string; generation: 
     const timer = setTimeout(async () => {
       setState('searching');
       try {
-        const response = await fetch(`/api/search/${encodeURIComponent(slug)}?query=${encodeURIComponent(normalized)}&g=${encodeURIComponent(generation)}`,
-          { cache: 'no-store', signal: controller.signal });
+        const response = await fetch(
+          '/api/search/' + encodeURIComponent(slug) + '?query=' + encodeURIComponent(normalized) + '&g=' + encodeURIComponent(generation),
+          { cache: 'no-store', signal: controller.signal },
+        );
         if (!response.ok) throw new Error('search_unavailable');
         const value: unknown = await response.json();
         if (!Array.isArray(value)) throw new Error('search_unavailable');
@@ -41,35 +63,31 @@ export function ProjectSearch({ slug, generation }: { slug: string; generation: 
     }, 180);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [generation, open, query, slug]);
-  return (
-    <div className="relative">
-      <button type="button" aria-expanded={open} aria-controls="project-search-panel"
-        onClick={() => {
-          if (open) { setOpen(false); setQuery(''); setResults([]); setState('idle'); }
-          else { setOpen(true); requestAnimationFrame(() => input.current?.focus()); }
-        }}
-        className="rounded-md border px-2 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        Search this project
-      </button>
-      {open ? (
-        <div id="project-search-panel" className="absolute right-0 top-full z-50 mt-2 w-[min(24rem,90vw)] rounded-lg border bg-background p-3 shadow-lg">
-          <label htmlFor="project-search" className="mb-2 block text-sm font-medium">Search this project</label>
-          <input ref={input} id="project-search" type="search" value={query} maxLength={LIMITS.maxSearchQueryBytes}
-            onChange={event => { setQuery(event.target.value); setResults([]); setState('idle'); }} placeholder="Search documentation"
-            className="w-full rounded-md border bg-background px-3 py-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-          <div aria-live="polite" role="status" className="mt-2 max-h-72 overflow-auto text-sm">
-            {state === 'searching' ? <p>Searching…</p> : null}
-            {state === 'error' ? <p>Search is temporarily unavailable.</p> : null}
-            {state === 'ready' && results.length === 0 ? <p>No matching pages.</p> : null}
-            {results.map(result => (
-              <a key={result.id} href={result.url} className="block rounded-md px-2 py-2 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                <span className="block font-medium">{result.breadcrumbs.at(-1) ?? 'Documentation page'}</span>
-                <span className="mt-1 block text-muted-foreground">{result.content}</span>
-              </a>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
+
+  return <SearchDialog open={open} onOpenChange={changeOpen} search={query} onSearchChange={changeQuery} isLoading={state === 'searching'}>
+    <SearchDialogOverlay />
+    <SearchDialogContent>
+      <SearchDialogHeader>
+        <SearchDialogIcon />
+        <SearchDialogInput maxLength={LIMITS.maxSearchQueryBytes} />
+        <SearchDialogClose />
+      </SearchDialogHeader>
+      {query.trim() ? <SearchDialogList
+        items={results}
+        Empty={() => <p role="status" className="p-3 text-sm">{state === 'error' ? 'Search is temporarily unavailable.' : state === 'ready' ? 'No matching pages.' : 'Searching…'}</p>}
+        Item={({ item, onClick }) => <SearchDialogListItem item={item} onClick={onClick}>
+          <span className="block font-medium">{'breadcrumbs' in item ? item.breadcrumbs?.at(-1) ?? 'Documentation page' : 'Documentation page'}</span>
+          <span className="block text-fd-muted-foreground">{'content' in item ? highlightedText(item.content) : ''}</span>
+        </SearchDialogListItem>}
+      /> : null}
+    </SearchDialogContent>
+  </SearchDialog>;
+}
+
+export function ProjectSearchProvider({ slug, generation, children }: { slug: string; generation: string; children: ReactNode }) {
+  return <SearchProvider SearchDialog={ProjectSearchDialog} options={{ slug, generation }}>{children}</SearchProvider>;
+}
+
+export function ProjectSearch({ slug, generation }: { slug: string; generation: string }) {
+  return <ProjectSearchProvider slug={slug} generation={generation}><SearchTrigger aria-label="Search this project" /></ProjectSearchProvider>;
 }

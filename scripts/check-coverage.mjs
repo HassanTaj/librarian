@@ -110,11 +110,11 @@ export function capabilityScopes(root, inventory) {
   /** @type {Record<string, string[]>} */
   const scopes = {};
   const rules = {
-    C1: /^(?:app\/(?:page\.tsx|layout\.tsx|\[(?:repoSlug|\[\.\.\.slug\])\]\/)|components\/(?:directory|project-selector|project-search|sync-status-badge)\.tsx|lib\/(?:catalog\.ts|layout\.shared\.tsx|source\.ts|content\/source\.ts))/,
-    C2: /^(?:auth\.ts|app\/api\/auth\/|lib\/auth\/|components\/(?:private-content-guard|sign-in-button)\.tsx|lib\/catalog\.ts|app\/\[repoSlug\]\/)/,
+    C1: /^(?:app\/(?:page\.tsx|layout\.tsx|loading\.tsx|\[(?:repoSlug|\[\.\.\.slug\])\]\/)|components\/(?:directory|site-navigation|project-selector|project-search|sync-status-badge)\.tsx|lib\/(?:catalog\.ts|layout\.shared\.tsx|source\.ts|content\/source\.ts))/,
+    C2: /^(?:auth\.ts|app\/page\.tsx|app\/api\/auth\/|lib\/auth\/|components\/(?:private-content-guard|sign-in-button)\.tsx|lib\/catalog\.ts|app\/\[repoSlug\]\/)/,
     C3: /^(?:lib\/content\/|lib\/source\.ts|app\/api\/(?:search|assets)\/|app\/\[(?:repoSlug|\[\.\.\.slug\])\]\/|components\/(?:project-selector|project-search)\.tsx)/,
     C4: /^(?:lib\/sync\/|lib\/content\/(?:validate|paths|generations)\.ts|lib\/(?:mongo|catalog|limits|public-approvals)\.ts|instrumentation\.ts|app\/api\/webhooks\/)/,
-    C5: /^(?:app\/admin\/|app\/api\/admin\/|components\/(?:catalog-form|sync-status|admin-console|sync-status-badge)\.tsx|lib\/(?:admin|catalog|public-approvals)\.ts|lib\/content\/generations\.ts|lib\/auth\/|lib\/sync\/jobs\.ts)/,
+    C5: /^(?:app\/loading\.tsx|app\/repositories\/|app\/page\.tsx|app\/api\/admin\/|components\/(?:catalog-form|sync-status|admin-console|directory|site-navigation|sync-status-badge)\.tsx|lib\/(?:admin|catalog|public-approvals)\.ts|lib\/content\/generations\.ts|lib\/auth\/|lib\/sync\/jobs\.ts)/,
     C6: /^(?:lib\/operations\/|lib\/config\.ts|lib\/sync\/worker-startup\.ts|app\/api\/health\/|instrumentation\.ts|mdx-components\.tsx|scripts\/|[^/]*config\.(?:mjs|ts))/,
   };
   for (const file of inventory) {

@@ -1,12 +1,17 @@
 # Quickstart and Validation Guide: Librarian v1
 
 **Status**: The local v1 application is implemented across discovery/reading, private authorization,
-search/assets, GitHub intake, durable synchronization, administration, and health. Synthetic integration
-and browser tests cover these paths. Global and C1-C6 coverage gates, typecheck, lint, artifact
-validation, and all 33 Chromium/Firefox/WebKit browser tests pass. A local standalone Docker image
-built and passed container acceptance. `npm run build` passes when Next can create its standalone trace
-directories. The full resource workload, source-content provenance, broader live-provider, recovery,
-and deployment gates remain open.
+search/assets, GitHub intake, durable synchronization, administration, and health. The prior 2026-10-12
+global/C1-C6 coverage, typecheck, lint, artifact, browser, build, and container gates are recorded below.
+For Phase 3, the inspected source checkout's supported files pass the updated MDX validator and current
+limits; no limit increase was made. The first manual sync failed with legacy `github_invalid_content`;
+a later local DEV sync completed successfully. The directory and admin views show Succeeded, with
+published commit `d82a7d26487af66f37d91cdea8e828f133564806` and last successful sync `13/10/2026, 02:51:01`.
+The inspected local checkout is at `567e6d3`, so exact published-tree provenance/content review remains
+open. Focused importer integration, unit and batch-route tests, typecheck, lint, and production build pass.
+Full coverage evidence and browser acceptance remain open because the sandbox could not launch a usable
+Playwright browser against Vitest's loopback server. Measured workload, recovery, publication, and
+deployment gates also remain open.
 See [tasks.md](tasks.md) for verified evidence and remaining tasks.
 **References**: [plan](plan.md), [data model](data-model.md), [HTTP contracts](contracts/http.md).
 
@@ -66,6 +71,9 @@ It is separate from the current application integration/browser results below.
 - Live DEV stage separately requires operator-provisioned Zitadel/GitHub/Mongo/Swarm secrets, selected
   source repositories, explicit public approval manifest and approved DEV hostname. Never paste
   real values into chat or examples; credentials are provisioned through the approved mechanism.
+- A real GitHub App sync requires the installed App to have read-only `Contents: read` and the source
+  repository to be selected for that installation. The importer reads the configured docs subtree and
+  supported blobs by SHA; it does not clone the repository or fetch unrelated regular file types.
 
 Public official image digests verified read-only on 2026-10-11:
 - Planned app base: node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
@@ -93,7 +101,7 @@ and content directories; never pass secret values through logged command argumen
 | `npm run lint` | Passed with no warnings. |
 | `npm run test:coverage` / `npm run coverage:check` | Passed all global and C1-C6 statement/branch/function/line gates; 534 tests passed with no failures or skips. Global raw counts: statements 3054/3164, branches 2305/2420, functions 460/474, lines 2377/2420. |
 | `npm run test:e2e` | 33/33 passed across Chromium, Firefox, and WebKit, including admin screens, private HTML/RSC/metadata/search/assets identity/cache paths and runtime sync visibility. |
-| `npm run validate:artifacts` | Passed: 73 requirements, 92 tasks, 62 source files, 6 scopes, 115 scanned artifacts. |
+| `npm run validate:artifacts` | Passed before the Phase 3 delta with 73 requirements, 92 tasks, 62 source files, 6 scopes, and 115 scanned artifacts. The 2026-10-13 rerun could not complete because `coverage/evidence.json` is absent; regenerate full coverage evidence before accepting this gate. |
 | `npm run build` | Passed on Windows after granting the local build process filesystem access for Next's standalone trace copy. A Linux standalone production image previously built as `librarian:codex-local-20261012` (`sha256:9cdf658afb70b9af8181b753b45fdc900fb57b4f3101907df330f09975daa103`) and passed container acceptance (see below); that image was not rebuilt for the final sign-in CTA update. |
 | `npm run test:unit`, `npm run test:integration` | Included in the coverage collection and focused integration runs; all required runs passed. |
 | `npm run start` | Not run directly on Windows; the built production image started and passed the container integration test. |
@@ -123,7 +131,8 @@ rather than substitute for, global/per-scope statements/branches/functions/lines
 | Live role removal | In separately approved DEV, verify roles, remove repository grant, request after >=15 min; inspect result | Current-role lookup proves removal; old token/session claims do not grant access |
 | Browser restoration | View private content; logout in another tab; navigate back/forward; background/restore; repeat after disable/visibility/role change | Private subtree/title/navigation/search/assets remain hidden until fresh authorized reload; denied state contains no private sentinel |
 | Scoped data | Search/follow nested links, anchors and assets in equal-name repositories; publish while reading old g | Only selected authorized repo/generation; expired generation gives reload_required, not mixed fallback |
-| Parser limits | Plain Markdown/GFM/autolinks/escaped braces/code examples; hostile MDX/HTML/YAML alias/tag and encoded path fixtures; limits-1/limit/limit+1 | Supported syntax passes; unsafe/over-limit candidates reject without execution or last-good loss |
+| Parser limits | Markdown/GFM plus allowlisted static Fumadocs MDX components; imports/exports, dynamic expressions, unknown components/attributes, HTML, YAML aliases/tags and encoded paths; limits-1/limit/limit+1 | Safe syntax passes; unsafe/over-limit candidates reject without execution or last-good loss |
+| Scoped Git ingestion | Configure docsPath; include unrelated regular files and supported `.md`/`.mdx`/metadata/assets; inject unsafe Git modes and oversized supported files | Only supported blobs under docsPath are fetched; unrelated regular files are omitted; unsafe modes/paths and out-of-limit supported content fail without last-good loss |
 | Durable intake | Original-byte signed pushes; altered bytes, duplicate/restart replay, wrong branch/repo, unavailable storage, multi-catalog partial admission | Durable acceptance only; no invalid/unrelated work; receipts dedupe and retry partial matches |
 | Publication/restart | Inject crash/error before/after manifest flush, rename, catalog CAS, job-terminal write; overlap instances/lost leases/out-of-order pushes | Complete pointers only; stale worker never publishes; last valid remains; pending success reconciles |
 | Storage/access loss | Fill scratch volume, fail upstream/rate-limit, revoke fixture App access, disable/reconfigure catalog | Transient failure retains compatible content; confirmed loss/disable stops all paths; wrong-config snapshot never served |

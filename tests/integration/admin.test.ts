@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ObjectId } from 'mongodb';
+import { Collection, ObjectId } from 'mongodb';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { adminCsrfToken } from '../../lib/auth/admin';
 import { candidateManifestDigest } from '../../lib/public-approvals';
@@ -175,6 +175,40 @@ it('rejects malformed or unsafe catalog creation and sanitizes GitHub verificati
   expect(await storage.db.collection('catalogs').countDocuments()).toBe(1);
 });
 
+it('rejects values that pass the request shape but fail the persisted catalog schema', async () => {
+  const response = await create(request('/api/admin/repos', { method: 'POST', csrf: true,
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      github: { owner: 'synthetic', name: 'docs', branch: 'main', docsPath: 'docs', installationId: 61 },
+      slug: 'bad/slug', title: 'Invalid slug',
+    }) }));
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: 'admin_invalid_request' } });
+  expect(await storage.db.collection('catalogs').countDocuments()).toBe(0);
+});
+
+it('keeps a newly inserted catalog unverified when its conditional verification write loses a race', async () => {
+  type FindOneAndUpdate = Collection<Catalog>['findOneAndUpdate'];
+  const original = Collection.prototype.findOneAndUpdate as unknown as FindOneAndUpdate;
+  const spy = vi.spyOn(Collection.prototype, 'findOneAndUpdate').mockImplementation(async function (
+    this: Collection<Catalog>, ...args: Parameters<FindOneAndUpdate>
+  ) {
+    if (this.collectionName === 'catalogs') return null;
+    return original.apply(this, args);
+  });
+  try {
+    const response = await create(request('/api/admin/repos', { method: 'POST', csrf: true,
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+        github: { owner: 'synthetic', name: 'docs', branch: 'main', docsPath: 'docs', installationId: 61 },
+        slug: 'verification-race', title: 'Verification race',
+      }) }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: 'admin_unavailable' } });
+    expect(await storage.db.collection<Catalog>('catalogs').findOne({ slug: 'verification-race' })).toMatchObject({
+      accessState: 'unverified', enabled: true,
+    });
+  } finally { spy.mockRestore(); }
+});
+
 it('requires the reviewed GitHub commit and exact approval scope for public registration', async () => {
   const body = { github: { owner: 'synthetic', name: 'public-docs', branch: 'main', docsPath: 'docs', installationId: 61 },
     slug: 'new-public', title: 'New public docs', visibility: 'public', approvalRef: 'owner-review-new-public' };
@@ -194,6 +228,21 @@ it('requires a matching owner approval before changing a private catalog to publ
     body: JSON.stringify({ visibility: 'public', approvalRef: 'owner-review-admin-fixture' }) }), { params: Promise.resolve({ id: catalog._id }) });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ catalog: { visibility: 'public', approvalRef: 'owner-review-admin-fixture', accessState: 'ready', publishedCommit: null }, revision: 2 });
+});
+
+it('explains a rejected public approval and leaves the previous catalog settings unchanged', async () => {
+  const catalog = await seedCatalog();
+  const response = await update(request(`/api/admin/repos/${catalog._id}`, { method: 'PATCH', csrf: true,
+    headers: { 'content-type': 'application/json', 'if-match': `"${catalog.updatedAt.toISOString()}"` },
+    body: JSON.stringify({ title: 'Unapproved title', slug: 'different-scope', visibility: 'public', approvalRef: 'owner-review-admin-fixture' }) }),
+  { params: Promise.resolve({ id: catalog._id }) });
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ error: { code: 'public_approval_required',
+    message: expect.stringContaining('not a GitHub App Installation ID problem') } });
+  expect(await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id })).toMatchObject({
+    title: 'Admin fixture', slug: 'admin-fixture', visibility: 'private', approvalRef: null,
+    configRevision: catalog.configRevision, updatedAt: catalog.updatedAt,
+  });
 });
 
 it('applies metadata edits with If-Match and rejects stale revisions without partial mutation', async () => {
@@ -243,13 +292,14 @@ it('removes the configured repository and snapshot, preserves replay history, an
     headers: { 'if-match': `"${version}"` } }), { params: Promise.resolve({ id: catalog._id }) });
 
   const response = await removeRequest();
-  expect(response.status).toBe(204);
+  expect(response.status, await response.clone().text()).toBe(204);
   expect(await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id })).toBeNull();
   await expect(access(join(storage.contentRoot, catalog._id))).rejects.toThrow();
   expect(await storage.db.collection<SyncJob>('syncJobs').countDocuments({ catalogId: catalog._id })).toBe(1);
   expect(await claimNextSyncJob(storage.db, randomUUID())).toBeNull();
   expect(await storage.db.collection<SyncJob>('syncJobs').findOne({ catalogId: catalog._id })).toMatchObject({ state: 'cancelled' });
-  expect((await removeRequest()).status).toBe(204);
+  const repeatedDelete = await removeRequest();
+  expect(repeatedDelete.status, await repeatedDelete.clone().text()).toBe(204);
 });
 
 it('requires a current version and refuses repository deletion while a lease or reader pin is active', async () => {
@@ -261,11 +311,56 @@ it('requires a current version and refuses repository deletion while a lease or 
 
   await storage.db.collection<Catalog>('catalogs').updateOne({ _id: catalog._id }, { $set: { readPins: [{ requestId: randomUUID(),
     generationId: randomUUID(), expiresAt: new Date(Date.now() + 30_000) }] } });
-  expect((await removeRequest()).status).toBe(409);
+  const pinnedDelete = await removeRequest();
+  expect(pinnedDelete.status, await pinnedDelete.clone().text()).toBe(409);
   await storage.db.collection<Catalog>('catalogs').updateOne({ _id: catalog._id }, { $set: { readPins: [], leaseFence: 1,
     lease: { owner: randomUUID(), fence: 1, heartbeatAt: new Date(), expiresAt: new Date(Date.now() + 30_000) } } });
-  expect((await removeRequest()).status).toBe(409);
+  const leasedDelete = await removeRequest();
+  expect(leasedDelete.status, await leasedDelete.clone().text()).toBe(409);
   expect(await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id })).not.toBeNull();
+});
+
+it('reports a conflict when deletion loses its conditional write to a concurrent edit', async () => {
+  const catalog = await seedCatalog();
+  const original = Collection.prototype.deleteOne;
+  const spy = vi.spyOn(Collection.prototype, 'deleteOne').mockImplementationOnce(async function (this: Collection<Catalog>, filter, options) {
+    if (this.collectionName === 'catalogs') await storage.db.collection<Catalog>('catalogs').updateOne({ _id: catalog._id }, { $set: {
+      title: 'Concurrent edit', updatedAt: new Date(catalog.updatedAt.getTime() + 1000),
+    } });
+    return original.call(this, filter, options);
+  });
+  try {
+    const response = await remove(request(`/api/admin/repos/${catalog._id}`, { method: 'DELETE', csrf: true,
+      headers: { 'if-match': `"${catalog.updatedAt.toISOString()}"` } }), { params: Promise.resolve({ id: catalog._id }) });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: 'catalog_conflict' } });
+    expect(await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id })).toMatchObject({ title: 'Concurrent edit' });
+  } finally { spy.mockRestore(); }
+});
+
+it('treats deletion by another administrator as an idempotent success', async () => {
+  const catalog = await seedCatalog();
+  const original = Collection.prototype.deleteOne;
+  const spy = vi.spyOn(Collection.prototype, 'deleteOne').mockImplementationOnce(async function (this: Collection<Catalog>, _filter, options) {
+    await original.call(this, { _id: catalog._id }, options);
+    return { acknowledged: true, deletedCount: 0 };
+  });
+  try {
+    const response = await remove(request(`/api/admin/repos/${catalog._id}`, { method: 'DELETE', csrf: true,
+      headers: { 'if-match': `"${catalog.updatedAt.toISOString()}"` } }), { params: Promise.resolve({ id: catalog._id }) });
+    expect(response.status).toBe(204);
+    expect(await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id })).toBeNull();
+  } finally { spy.mockRestore(); }
+});
+
+it('refuses to delete a catalog whose stored record no longer validates', async () => {
+  const catalog = await seedCatalog();
+  await storage.db.collection<Catalog>('catalogs').updateOne({ _id: catalog._id }, { $set: { title: '' } });
+  const response = await remove(request(`/api/admin/repos/${catalog._id}`, { method: 'DELETE', csrf: true,
+    headers: { 'if-match': `"${catalog.updatedAt.toISOString()}"` } }), { params: Promise.resolve({ id: catalog._id }) });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: 'admin_invalid_request' } });
+    expect(await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id })).not.toBeNull();
 });
 
 it('durably acknowledges manual sync once per idempotency key and rejects untrusted mutation context', async () => {
@@ -360,6 +455,8 @@ it('rechecks GitHub and public approval outcomes before applying a catalog updat
   expect((await patch(approval)).status).toBe(400);
   state.readCandidate.mockRejectedValueOnce(new Error('synthetic provider failure'));
   expect((await patch(approval)).status).toBe(503);
+  state.readCandidate.mockRejectedValueOnce('synthetic provider failure without an Error object');
+  expect((await patch(approval)).status).toBe(503);
 
   expect((await storage.db.collection<Catalog>('catalogs').findOne({ _id: catalog._id }))?.visibility).toBe('private');
 });
@@ -373,6 +470,30 @@ it('revalidates a blocked catalog before reenabling it', async () => {
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ catalog: { enabled: true, accessState: 'ready', publishedCommit: null }, revision: 2 });
   expect(state.verifyRepository).toHaveBeenCalledOnce();
+});
+
+it('rechecks the existing publication before re-enabling a blocked public catalog', async () => {
+  const catalog = await seedCatalog();
+  const publishedCommit = reviewedCommit;
+  const manifest = JSON.parse(await readFile(config.publicCatalogApprovalsFile, 'utf8')) as {
+    approvals: Array<{ approvalId: string; allowFutureUpdates: boolean }>;
+  };
+  manifest.approvals.find(item => item.approvalId === 'owner-review-admin-fixture')!.allowFutureUpdates = false;
+  await writeFile(config.publicCatalogApprovalsFile, JSON.stringify(manifest));
+  await storage.db.collection<Catalog>('catalogs').updateOne({ _id: catalog._id }, { $set: {
+    enabled: false, accessState: 'blocked', visibility: 'public', approvalRef: 'owner-review-admin-fixture', leaseFence: 1,
+    publicationRevision: 1, published: { generationId: randomUUID(), commitSha: publishedCommit,
+      jobId: `manual:${catalog._id}:${randomUUID()}`, fence: 1, configRevision: 1, manifestDigest: 'd'.repeat(64), publishedAt: new Date() },
+  } });
+  state.readCandidate.mockResolvedValueOnce({ commitSha: publishedCommit, treeSha: 'b'.repeat(40), files: approvedFiles });
+
+  const response = await update(request(`/api/admin/repos/${catalog._id}`, { method: 'PATCH', csrf: true,
+    headers: { 'content-type': 'application/json', 'if-match': `"${catalog.updatedAt.toISOString()}"` },
+    body: JSON.stringify({ enabled: true }) }), { params: Promise.resolve({ id: catalog._id }) });
+  expect(response.status, await response.clone().text()).toBe(200);
+  expect(await response.json()).toMatchObject({ catalog: { enabled: true, accessState: 'ready', publishedCommit: null }, revision: 2 });
+  expect(state.verifyRepository).toHaveBeenCalledOnce();
+  expect(state.readCandidate).toHaveBeenCalledOnce();
 });
 
 it('detects changes to every GitHub scope field and the portal slug before updating the catalog', async () => {

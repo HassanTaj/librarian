@@ -17,7 +17,8 @@ const createSchema = z.object({
 
 function sourceError(error: unknown): never {
   const code = error instanceof Error ? error.message : '';
-  if (['github_invalid_catalog', 'github_docs_missing', 'github_access_denied', 'github_not_found', 'github_invalid_content'].includes(code)) throw new Error(code);
+  if (['github_invalid_catalog', 'github_docs_missing', 'github_access_denied', 'github_not_found', 'github_invalid_content', 'github_tree_invalid',
+    'github_unsafe_path', 'github_unsafe_entry', 'github_content_limit', 'github_no_pages', 'github_blob_mismatch'].includes(code)) throw new Error(code);
   throw new Error('admin_unavailable');
 }
 

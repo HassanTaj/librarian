@@ -13,7 +13,7 @@ it('returns only enabled and currently ready catalog cards with configured safe 
     await storage.db.collection<Catalog>('catalogs').insertMany(records);
     const cards = await listDirectoryCards(storage.db);
     expect(cards).toEqual([
-      { slug: 'public-project', title: 'Public Project', publicDescription: 'Configured synthetic directory description.', visibility: 'public', url: '/public-project' },
+      { id: records[0]._id, slug: 'public-project', title: 'Public Project', publicDescription: 'Configured synthetic directory description.', visibility: 'public', canOpen: false, url: '/public-project' },
     ]);
     expect(JSON.stringify(cards)).not.toContain('github');
     expect(JSON.stringify(cards)).not.toContain('repositoryId');
@@ -27,7 +27,7 @@ it('distinguishes an empty catalog from storage failure and exposes no private s
     const privateRecord = CatalogSchema.parse(catalogs[1]);
     await storage.db.collection<Catalog>('catalogs').insertOne(privateRecord);
     const cards = await listDirectoryCards(storage.db);
-    expect(cards).toMatchObject([{ title: 'Restricted One', visibility: 'private', publicDescription: 'Configured synthetic directory description.' }]);
+    expect(cards).toMatchObject([{ id: privateRecord._id, title: 'Restricted One', visibility: 'private', canOpen: false, publicDescription: 'Configured synthetic directory description.' }]);
     expect(JSON.stringify(cards)).not.toContain('SYNTHETIC_PRIVATE_ONE_BODY');
     await storage.client.close();
     await expect(listDirectoryCards(storage.db)).rejects.toThrow();

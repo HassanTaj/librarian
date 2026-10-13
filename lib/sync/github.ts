@@ -3,7 +3,7 @@ import { posix } from 'node:path';
 import { z } from 'zod';
 import { CatalogSchema, newCatalogRecord, type Catalog } from '../catalog';
 import { LIMITS } from '../limits';
-import { canonicalPath } from '../content/paths';
+import { canonicalPath, isDocumentPath } from '../content/paths';
 
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 const tokenSchema = z.object({
@@ -200,7 +200,7 @@ export function createGitHubClient(
     const value = await json(`/repos/${repo}/git/trees/${treeSha}${recursive ? '?recursive=1' : ''}`, {
       token, expected: 200, maximum: LIMITS.maxGitHubTreeBytes, signal,
     }, treeSchema);
-    if (value.sha !== treeSha || value.truncated) throw new GitHubError('github_invalid_content');
+    if (value.sha !== treeSha || value.truncated) throw new GitHubError('github_tree_invalid');
     return value.tree;
   }
 
@@ -236,27 +236,28 @@ export function createGitHubClient(
         for (const entry of entries) {
           let path: string;
           try { path = canonicalPath(entry.path); }
-          catch { throw new GitHubError('github_invalid_content'); }
+          catch { throw new GitHubError('github_unsafe_path'); }
           if (entry.type === 'tree') {
-            if (entry.mode !== '040000') throw new GitHubError('github_invalid_content');
+            if (entry.mode !== '040000') throw new GitHubError('github_unsafe_entry');
             continue;
           }
-          if (entry.type !== 'blob' || entry.mode !== '100644' || entry.size === undefined) throw new GitHubError('github_invalid_content');
+          if (entry.type !== 'blob' || entry.mode !== '100644') throw new GitHubError('github_unsafe_entry');
           const basename = posix.basename(path);
           const extension = posix.extname(path).toLowerCase();
-          const markdown = path.endsWith('.md');
+          const markdown = isDocumentPath(path);
           const metadata = basename === 'meta.json';
           const asset = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf', '.txt', '.csv', '.json'].includes(extension);
           const maximum = markdown ? LIMITS.maxMarkdownBytes : metadata ? LIMITS.maxMetadataBytes : asset ? LIMITS.maxAssetBytes : -1;
-          if (maximum < 0 || entry.size > maximum) throw new GitHubError('github_invalid_content');
+          if (maximum < 0) continue;
+          if (entry.size === undefined || entry.size > maximum) throw new GitHubError('github_content_limit');
           files.push({ path, mode: entry.mode, sha: entry.sha, size: entry.size });
           totalBytes += entry.size;
           if (markdown) pages++;
           if (files.length > LIMITS.maxFiles || pages > LIMITS.maxPages || totalBytes > LIMITS.maxSnapshotBytes) {
-            throw new GitHubError('github_invalid_content');
+            throw new GitHubError('github_content_limit');
           }
         }
-        if (!pages) throw new GitHubError('github_invalid_content');
+        if (!pages) throw new GitHubError('github_no_pages');
 
         const controller = new AbortController();
         const blobSignal = AbortSignal.any([signal, controller.signal]);
@@ -272,7 +273,7 @@ export function createGitHubClient(
                 token, expected: 200, maximum: file.size, accept: 'application/vnd.github.raw+json', signal: blobSignal,
               });
               const gitSha = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
-              if (bytes.length !== file.size || gitSha !== file.sha) throw new GitHubError('github_invalid_content');
+              if (bytes.length !== file.size || gitSha !== file.sha) throw new GitHubError('github_blob_mismatch');
               content[current] = { path: file.path, mode: file.mode, content: bytes };
             } catch (error) {
               controller.abort();

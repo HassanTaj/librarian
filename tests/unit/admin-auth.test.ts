@@ -19,7 +19,7 @@ it('distinguishes failed role verification from a verified absence of admin role
   dependencies.getAuthContext.mockResolvedValue({ session: { user: { id: userId } }, config });
   dependencies.getMongo.mockResolvedValue({ db });
   dependencies.auth.mockResolvedValue({ user: { id: userId } });
-  const request = new Request('http://localhost/admin', { headers: { cookie: 'authjs.session-token=synthetic-session' } });
+  const request = new Request('http://localhost/repositories', { headers: { cookie: 'authjs.session-token=synthetic-session' } });
 
   dependencies.getVerifiedRoles.mockRejectedValueOnce(new Error('role_verification_failed'));
   await expect(requireAdmin(request)).rejects.toThrow('admin_unavailable');
@@ -62,7 +62,9 @@ it('maps expected admin failures to safe status codes and hides unknown errors',
     ['admin_unauthorized', 401], ['admin_forbidden', 403], ['admin_origin', 403], ['admin_csrf', 403],
     ['admin_too_large', 413], ['sync_rate_limited', 429], ['admin_invalid_json', 400], ['admin_invalid_request', 400],
     ['github_invalid_catalog', 400], ['github_docs_missing', 400], ['github_access_denied', 400], ['github_not_found', 400],
-    ['github_invalid_content', 400], ['catalog_not_found', 404], ['catalog_conflict', 409], ['sync_catalog_unavailable', 409],
+    ['github_invalid_content', 400], ['github_tree_invalid', 400], ['github_unsafe_path', 400], ['github_unsafe_entry', 400],
+    ['github_content_limit', 400], ['github_no_pages', 400], ['github_blob_mismatch', 400],
+    ['catalog_not_found', 404], ['catalog_conflict', 409], ['sync_catalog_unavailable', 409],
     ['sync_catalog_conflict', 409], ['public_approval_required', 409], ['admin_unavailable', 503], ['sync_quota_exhausted', 503],
     ['sync_storage_unavailable', 503],
   ];
@@ -72,6 +74,12 @@ it('maps expected admin failures to safe status codes and hides unknown errors',
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(JSON.stringify(await response.json())).not.toContain(code === 'admin_unavailable' ? 'synthetic private' : 'secret');
   }
+  const approval = await adminErrorResponse(new Error('public_approval_required')).json();
+  expect(approval.error.code).toBe('public_approval_required');
+  for (const detail of ['exact scope and content', 'not a GitHub App Installation ID problem', 'PUBLIC_CATALOG_APPROVALS_FILE',
+    'repository ID', 'branch', 'docs folder', 'catalog slug', 'reviewed commit', 'candidate content digest',
+    'Owner approval reference', 'admin API cannot create approval records', 'docs/guides/public-catalog-approval.md', 'clear Owner approval reference',
+    'rejected edit leaves prior settings unchanged']) expect(approval.error.message).toContain(detail);
   const unknown = adminErrorResponse('synthetic secret exception');
   expect(unknown.status).toBe(503);
   expect(await unknown.json()).toMatchObject({ error: { code: 'admin_unavailable', message: 'Administration is temporarily unavailable.' } });

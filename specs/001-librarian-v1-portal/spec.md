@@ -4,13 +4,14 @@
 
 **Created**: 2026-10-11
 
-**Status**: Specification validated. The home sync-status follow-up adds accessible status-only badges to directory cards with amber pending, green running, app-primary succeeded, and red failed states. A later auth investigation confirmed the configured `librarian-admin` role remained assigned; access failed when the 15-minute role cache required a fresh Zitadel request and the existing saved access token received HTTP 401. Refresh Token is now enabled in the configured OIDC app, and the local Auth.js adapter now saves encrypted tokens from later sign-ins for an already-linked account. A fresh login stored a refresh token and `/admin` rendered the administration form. The home page shows the Contabo card's red Failed badge; sync remains blocked by unsupported or oversized documentation content. The adapter regression, targeted auth/admin tests, typecheck, lint, and a production build are recorded in [tasks.md](tasks.md); full coverage and three-engine browser acceptance remain open. Aggregate completion also remains open for source-content provenance, measured resource workload, recovery, publication, and deployment evidence.
+**Status**: Updated 2026-10-13 for safe static Fumadocs MDX components and docs-subtree-only blob fetching. `.mdx` allows Markdown/GFM plus `Info`, `Note`, `Warning`, `Columns`, `Card`, `Steps`, and `Step` with static attributes, except constant `Columns cols={1..4}`. The inspected local `contabo` checkout at `main` / `567e6d3` contains 72 `.mdx` files plus two unrelated files (74 total, 530,249 bytes; largest page 92,591 bytes); its supported candidate passes existing limits, so no limit increase was made. The first DEV sync failed with legacy `github_invalid_content`; a later sync completed successfully. The current directory and admin views show Succeeded, and admin reports published commit `d82a7d26487af66f37d91cdea8e828f133564806` at `13/10/2026, 02:51:01`. The locally inspected checkout SHA differs from that published commit, so its counts and validation are not evidence about the exact published tree; source provenance and content-scope review remain open. No source files or GitHub App settings were changed. Targeted tests, typecheck, lint, and production build passed; full coverage and three-engine browser acceptance, measured workload, recovery, publication, and deployment evidence remain open.
 
 **Input**: Create one specification for the complete agreed Librarian v1 portal, with
 prioritized discovery, authorization, project-scoped reading, synchronization, and
-administration journeys, mandatory tests, and all four global and per-feature 95% coverage gates.
+administration journeys, required functional acceptance tests, and all four global and
+per-feature 95% coverage gates for functional work and full v1 completion.
 
-**Authority**: [AGENTS.md](../../AGENTS.md), [constitution v1.0.0](../../.specify/memory/constitution.md),
+**Authority**: [AGENTS.md](../../AGENTS.md), [constitution v2.0.0](../../.specify/memory/constitution.md),
 and [agreed v1 requirements](../../docs/requirements/v1-requirements.md). Constitution references
 to the former root `plan.md` mean that agreed requirements file, as established by AGENTS.md.
 This specification covers the full v1 product; a later feature plan is a separate artifact.
@@ -21,8 +22,9 @@ No Git branch is created or required to locate this feature.
 All five stories are required for v1. Priority orders delivery rather than removing lower-priority
 scope. Stories can be independently demonstrated with synthetic catalogs and published content;
 this does not authorize deploying private content before the authorization boundary is proven.
-Every scenario below requires automated acceptance evidence. The security/recovery matrix and
-quality gates supplement these scenarios rather than making testing optional.
+Every functional scenario below requires automated acceptance evidence for v1 completion. Isolated
+presentation-only UI changes that preserve behavior and data flow follow Principle V's test deferral
+exception; the security/recovery matrix and functional release gates remain mandatory.
 
 ### User Story 1 - Discover repositories and read documentation (Priority: P1)
 
@@ -32,19 +34,24 @@ published articles on desktop or mobile, so I can use documentation maintained b
 **Why this priority**: Discovery and reading are the portal's core value and the first staged
 delivery. Developers retain their existing source-authoring workflow.
 
-**Independent Test**: Use synthetic enabled public/restricted catalog entries and public published
-articles. Demonstrate filtering, opening a project, reading formatted content, and empty/error
-states without a live identity provider or GitHub connection. Restricted entries expose safe
+**Independent Test**: Use synthetic enabled public/private catalog entries, including a first-sync
+failure and a previously published catalog with a later sync failure. Demonstrate filtering, card
+availability/status, opening a project, reading formatted content, and empty/error
+states without a live identity provider or GitHub connection. Private entries expose safe
 directory metadata only.
 
 **Acceptance Scenarios**:
 
 1. **Given** enabled public and private catalogs, **When** a reader opens the homepage,
-   **Then** cards show configured safe titles, descriptions, routes, Public/Restricted badges, and a
-   text-labelled pending/running/succeeded/failed synchronization status when available, without error details;
+   **Then** cards show configured safe titles, descriptions, routes, Public/Private labels beside the title,
+   and text-labelled pending/running/succeeded/failed sync status at the lower right, without exposing
+   document bodies; the heading is Documentation Directory, and generated application and Perspective V
+   branding appear in navigation and the footer;
    the header identifies Perspective V / Docs, offers theme controls, shows an in-place Zitadel
    sign-in control to signed-out visitors or a sign-out control to authenticated visitors, and the
-   directory is headed Project documentation.
+   directory is headed Documentation Directory. A card without a successful publication is disabled;
+   its collapsed sync issue can be expanded and reported. A prior successful publication stays readable
+   after a later failed sync.
 2. **Given** multiple cards, **When** a reader filters by project name, **Then** matching directory
    entries remain; the filter does not search articles or expose private titles from source content.
 3. **Given** a published public article, **When** an anonymous reader follows its project link,
@@ -59,6 +66,17 @@ directory metadata only.
 6. **Given** a developer changes documentation in the source repository, **When** a successful
    synchronization publishes it, **Then** readers see the new documentation without editing in
    Librarian or rebuilding the application.
+7. **Given** an authenticated administrator opens the directory, **When** they select one or more
+   sources, **Then** Sync Selected docs is enabled and submits the selected IDs as independent durable
+   per-catalog jobs; each card also has an individual sync action. Pending/running work animates its
+   card action and updates the status badge without a page reload. Sync controls are absent for
+   non-administrators.
+8. **Given** the directory toolbar and repository cards render at desktop or mobile widths, **When**
+   a reader uses them, **Then** search and sync controls are vertically centered and spaced across the
+   toolbar; administrators get circular selection controls at the card's upper left and a small
+   circular sync action at upper right; the Public/Private label stays beside or below a wrapping title.
+   Navigation includes Home and labels the administration destination Repositories. Directory,
+   administration, and reader loading states use layout-shaped skeletons where data is pending.
 
 ---
 
@@ -178,6 +196,10 @@ restart, and upstream-failure tests; controlled provider fixtures are not live i
    regardless of a retained snapshot, until an administrator resolves access.
 8. **Given** active or in-flight generations and retention cleanup, **When** obsolete data is
    reclaimed, **Then** active publication and in-flight readers are preserved within defined bounds.
+9. **Given** `.mdx` pages with Markdown/GFM and allowlisted static Fumadocs components, supported
+   metadata/assets, and unrelated regular files under the configured documentation folder, **When** a sync runs, **Then** supported content is
+   imported from that folder only and unrelated file types are omitted; unsafe MDX syntax, executable
+   Git modes, symlinks, submodules, and supported files over their limits fail without publication.
 
 ---
 
@@ -213,7 +235,9 @@ manual resync without granting the administrator private reader permission.
 6. **Given** pending/running/succeeded/failed work, **When** the table is inspected,
    **Then** those states have visible text labels and distinct color cues (amber for pending,
    green for running, app primary for success, red for failure), with published commit, last successful sync, and sanitized
-   actionable errors; administration does not expose private document bodies to a non-reader.
+   actionable errors; submitting Sync now immediately shows progress and refreshes status without a page reload;
+   accepted notices appear as info banners and dismiss after 10 seconds, while the latest issue appears as an error banner.
+   Administration does not expose private document bodies to a non-reader.
 7. **Given** a catalog with published content, **When** it is disabled,
    **Then** it stops serving overview, articles, navigation, search, metadata, and assets,
    including cached responses; it is no longer offered for reading in the directory/selector.
@@ -231,13 +255,31 @@ manual resync without granting the administrator private reader permission.
     **When** no worker lease or live reader pin is active, **Then** the catalog configuration and its
     UUID-scoped snapshot are removed; an active lease/pin or stale version is rejected without
     partial deletion, and durable sync/replay history remains available.
+13. **Given** an administrator selects one or more directory cards, **When** they invoke Sync Selected docs,
+     **Then** each source receives its own durable manual job through the existing job model, partial
+     admission is reported per source, and status badges/actions update as work progresses without a
+     reload. Circular selection controls feed a visible selected-source count in the Sync Selected button,
+     which is disabled until a source is selected; non-administrators receive
+    neither batch nor per-card sync controls.
+14. **Given** an administrator reviews a configured repository, **When** its card is collapsed or expanded,
+    **Then** small circular view, edit, delete, and sync actions are shown at the upper left; view expands
+    read-only details, edit opens the form, and delete stays disabled while editing. The sync badge sits
+    at the lower right, and a long published commit is shortened with its full value available by tooltip.
+15. **Given** an administrator opens Configure or submits a repository form, **When** the save succeeds or
+    fails, **Then** configuration can be shown or hidden on demand, the creation form closes with a success
+    banner and refreshed list on success, and remains available with a collapsible error banner on failure.
+    The Directory description is a textarea at the bottom and Repository type precedes the remaining fields.
+16. **Given** a reader opens the documentation directory or reader on a narrow viewport, **When** project
+    controls render, **Then** Home, project selection, search, and account actions remain operable without
+    overlapping or overflowing the page.
 
 ### Edge Cases
 
 | Case | Required outcome | Coverage |
 |---|---|---|
 | Empty directory, no name matches, unpublished catalog, missing page/asset | Usable state; no private details; missing content is not fabricated | US1.5; FR-004 |
-| First sync fails with no valid snapshot | Unavailable content and actionable admin failure; no partial content | US5.4; FR-024 |
+| First sync fails with no valid snapshot | Disabled directory card, unavailable content, expandable sanitized issue and actionable admin failure; no partial content | US1.1, US5.4; FR-003, FR-024 |
+| Later sync fails after a compatible successful publication | Continue serving the last valid generation and display the latest sanitized sync failure | US1.1, US4.4; FR-003, FR-024 |
 | Removed/renamed source page or stale local link | Complete new publication; missing destination has a safe not-found outcome | US3.4; FR-015 |
 | Empty/missing documentation folder or malformed frontmatter/navigation | Reject invalid candidate; retain last valid snapshot if present | US4.4; FR-016, FR-024 |
 | Expired session, wrong project/role, administrator without reader | Deny private content across all protected paths | US2.2-5; FR-007-010 |
@@ -268,9 +310,16 @@ and measurable outcomes define acceptance together.
 - **FR-002**: Each catalog MUST select exactly one GitHub repository, one branch, one documentation
   folder, and one unique route slug. Reading MUST use that catalog's published documentation.
 - **FR-003**: The homepage and project selector MUST expose only explicitly configured safe directory
-  metadata for enabled catalogs, identify Public/Restricted entries, and support directory name filtering.
+  metadata for enabled catalogs, identify Public/Private entries beside or below each title, and support
+  directory name filtering. Cards MUST place sync status at lower right; an administrator's selection
+  control and circular per-card sync action MUST occupy the card's upper left and upper right respectively.
+  The directory toolbar MUST align search and batch actions with vertical centering and space between them.
+  A catalog without a successful publication MUST appear as a non-navigable card; a sanitized,
+  expandable issue is available when a sync failure exists. A previously successful compatible
+  publication remains readable after a later failed sync.
 - **FR-004**: Directory, overview, article, navigation, search, and administration journeys MUST
-  provide usable loading, empty, unavailable, denied, and failure states as applicable; missing
+  provide usable loading, empty, unavailable, denied, and failure states as applicable. Directory,
+  administration, and reader route loading MUST use layout-shaped skeletons where feasible; missing
   documents/assets MUST have a safe not-found outcome rather than unrelated content.
 - **FR-005**: Anonymous users MUST be able to read enabled published public content, including its
   navigation, scoped search, metadata, and permitted local assets.
@@ -298,15 +347,18 @@ and measurable outcomes define acceptance together.
 - **FR-014**: Sidebar, breadcrumbs, previous/next navigation, table of contents, code-copy controls,
   and keyboard-accessible Search this project MUST operate within the selected repository.
   Switching projects MUST NOT retain another project's private navigation or results.
-- **FR-015**: Relative article links, heading anchors, images, and attachments MUST resolve under
+- **FR-015**: Relative article links, safe docs-root links, heading anchors, images, and attachments MUST resolve under
   the repository route within the configured documentation folder. Links to a protected destination
   MUST NOT bypass that destination's authorization.
-- **FR-016**: Supported authoring MUST include Markdown, YAML frontmatter, GitHub Flavored Markdown
-  headings/tables/lists/links/fenced code, optional navigation metadata, and supported local images
-  and attachments. Optional navigation metadata MUST NOT be required for a readable catalog.
+- **FR-016**: Supported authoring MUST include `.md` and `.mdx` files containing Markdown/GFM,
+  optional YAML frontmatter, headings/tables/lists/links/fenced code, optional navigation metadata,
+  supported local images and attachments, and static `Info`, `Note`, `Warning`, `Columns`, `Card`,
+  `Steps`, and `Step` components in `.mdx`. Component attributes are static strings except literal
+  `Columns cols={1}` through `cols={4}` values. Optional navigation metadata MUST NOT be required.
 - **FR-017**: Repository configuration, source/decoded paths, relative links, assets, frontmatter,
-  navigation, and webhook inputs MUST be validated at their trust boundaries. Executable MDX/JSX,
-  imports, expressions, unsafe HTML, symlinks, and escaping paths MUST be rejected. Source repository
+  navigation, and webhook inputs MUST be validated at their trust boundaries. MDX imports, exports,
+  dynamic expressions, non-allowlisted components/attributes, unsafe HTML, symlinks, executable Git modes, submodules, and escaping paths MUST
+  be rejected. Unrelated regular files MUST NOT be fetched into a generation. Source repository
   scripts MUST NOT execute and its dependencies MUST NOT be installed.
 - **FR-018**: Ingestion MUST enforce documented bounds on content size, file count, processing time,
   and supported asset types. Planning MUST declare exact supported limits and boundary tests;
@@ -343,19 +395,36 @@ and measurable outcomes define acceptance together.
   Configured catalogs MUST be editable from a collapsed summary and removable through a confirmed,
   current-version-checked action that removes the settings document and its UUID-scoped snapshot.
   Removal MUST wait for no active worker lease or live reader pin and MUST retain permanent sync and
-  replay receipts.
+  replay receipts. Repository cards MUST provide small circular read-only view, edit, delete, and sync
+  actions; delete MUST be disabled during editing. Sync status MUST appear at the card's lower right,
+  and long commit identifiers MUST be visually shortened while keeping the full identifier available.
+  The configuration form MUST be toggleable, close after successful creation with a success notice and
+  refreshed cards, and stay open after failure with a collapsible error notice. Its description MUST be
+  a bottom-positioned textarea and repository type MUST precede remaining configuration fields.
 - **FR-030**: Catalog changes MUST preserve coherent source identity, visibility, reader permission,
   and publication. A snapshot from an incompatible previous configuration MUST NOT be served as
   current documentation; affected delivery/caches MUST obey the new valid configuration.
-- **FR-031**: Administrators MUST request initial/manual synchronization through Sync now to recover
-  missed notifications or failures. Manual requests MUST obey automatic intake's durable work,
-  validation, authorization, lease, and safe publication rules.
-- **FR-032**: Administration MUST distinguish pending, running, successful publication, and failure;
+- **FR-031**: Administrators MUST request initial/manual synchronization through Sync now or a
+  selected-directory batch action to recover missed notifications or failures. Each selected source
+  MUST be admitted as its own durable job using the existing sync-job model. Manual requests MUST obey
+  automatic intake's durable work, validation, authorization, lease, and safe publication rules.
+- **FR-032**: Administration and the admin-enabled directory MUST distinguish pending, running,
+  successful publication, and failure;
   show published commit and last successful sync; and provide readable actionable sanitized errors.
+  Manual sync progress and resulting status MUST update without a page reload. Accepted notices MUST
+  appear as info banners and dismiss after 10 seconds; the latest issue MUST use an error banner.
   Administrative status MUST NOT reveal private document bodies to an administrator without reader access.
+  Selected and per-card directory sync actions MUST show active progress and update their status badges
+  without a page reload. Accepted directory sync notices MUST use an info banner that dismisses after
+  10 seconds; failures MUST use a red error banner and offer sanitized, expandable issue details.
+  Administration MUST place its refresh action in an accessible icon-only button, show compact circular
+  card actions, and place sync status at the lower right. A configured-repositories section heading MUST
+  not be repeated when the page heading already identifies that list.
 - **FR-033**: All reader/admin controls MUST support keyboard access, visible focus, accessible
-  names, and usable mobile layouts. System/light/dark themes MUST work. Directory columns and reader
-  navigation MUST follow the agreed phone/tablet/desktop behavior; branding/assets MUST be original.
+  names, and usable mobile layouts. Shared navigation MUST provide Home and call the admin destination
+  Repositories. System/light/dark themes MUST work. Directory columns and reader
+  navigation MUST follow the agreed phone/tablet/desktop behavior; the generated Librarian icon and
+  Perspective V footer mark MUST use the supplied original branding assets.
 - **FR-034**: Secrets/tokens MUST NOT appear in catalog records, source control, client payloads,
   logs, or user-visible errors. Logs MUST redact private document bodies and identify relevant
   repository/job/delivery/generation context without leaking protected information.
@@ -375,32 +444,39 @@ and measurable outcomes define acceptance together.
 
 ### Mandatory Automated Tests and Coverage
 
-- **QG-001**: Every added or changed feature MUST include automated tests for its acceptance
-  criteria. Every bug fix MUST include a regression test demonstrating the defect before the fix.
-  Specifications and task lists MUST explicitly include tests; optional-test template wording
-  MUST NOT waive this obligation. Behavior tests MUST be written before or alongside implementation.
+- **QG-001**: Functional changes MUST include automated acceptance tests; functional bug fixes MUST
+  include a regression test demonstrating the defect before the fix. Isolated presentation-only UI
+  changes that preserve behavior/data flow do not require new tests, and their test work MUST be
+  deferred unless the owner asks. Specifications and task lists MUST retain tests for functional
+  behavior; optional-test template wording MUST NOT waive those obligations.
 - **QG-002**: Coverage MUST be at least **95% separately for statements, branches, functions, and lines**
   across all first-party executable application code, including worker, delivery handlers,
-  authorization, rendering adapters, and administration logic, including unexecuted source files.
+  authorization, rendering adapters, and administration logic, including unexecuted source files,
+  for functional changes and complete v1 release. A standalone presentation-only change has no new
+  coverage gate.
 - **QG-003**: The same four independent 95% thresholds MUST apply to each feature's implementation
-  file set declared in its plan and checked in CI. This single v1 specification MUST NOT let an
+  file set declared in its plan and checked in CI for functional work. This single v1 specification MUST NOT let an
   overall average conceal an untested staged capability; planning MUST declare the scope for each
-  implemented feature/capability and its coverage checks.
+  implemented functional feature/capability and its coverage checks. Presentation-only changes are
+  exempt from new coverage work.
 - **QG-004**: CI MUST fail for any applicable threshold below 95%, any required test failure, or a
-  missing coverage report. Enforce these gates from the first executable feature onward. Reports
+  missing coverage report for functional feature and full v1 gates. Enforce these gates from the
+  first functional executable feature onward. Reports
   MUST state source scope, exclusions, and all four metrics. An empty suite/missing instrumentation
   MUST NOT pass; a metric with no applicable items requires an explicit explanation.
 - **QG-005**: Only generated, third-party, test, and purely declarative code MAY be excluded with
   documented reasons. First-party runtime logic MUST NOT be excluded or annotated away to meet the
   gate. Placeholder assertions, blanket mocking of tested behavior, skipped required tests, and
   retrying until failure disappears MUST NOT be used to make the gate pass.
-- **QG-006**: Unit tests MUST cover isolated logic; integration tests MUST exercise actual
+- **QG-006**: For functional changes, unit tests MUST cover isolated logic; integration tests MUST exercise actual
   application/storage boundaries, job/lease behavior, and filesystem snapshots as applicable;
-  browser tests MUST cover affected reader/admin journeys. Synthetic private fixtures MUST be used.
+  browser tests MUST cover affected reader/admin behavior. Presentation-only UI changes do not
+  require new browser tests. Synthetic private fixtures MUST be used.
   Provider contract fixtures in CI MUST be supplemented by live DEV compatibility proof before production.
-- **QG-007**: All applicable scenarios in the matrix below MUST be automated; coverage percentage
-  does not substitute for security/recovery evidence. Final feature completion requires acceptance
-  tests, all applicable coverage gates, type checks, lint checks, and production build to pass.
+- **QG-007**: All applicable functional scenarios in the matrix below MUST be automated for v1;
+  coverage percentage does not substitute for security/recovery evidence. Functional feature and
+  full v1 completion require acceptance tests, all applicable coverage gates, type checks, lint checks,
+  and production build to pass. Presentation-only changes are exempt from new test/coverage work.
   Documentation/configuration-only changes require appropriate validation without artificial coverage.
 
 ### Required Security and Recovery Acceptance Matrix
@@ -414,7 +490,7 @@ US references use story/scenario numbers, for example US2.4 means Story 2, scena
 | ST-02 | Verification immediately below, exactly at, and above 15 minutes; renewed session; refresh failure and role removal | First request at/after deadline verifies before delivery; renewal does not extend age; failed/removed permission denies (US2.4-5; FR-010) |
 | ST-03 | Logout with back/forward navigation; role removal; disablement; public/private visibility changes; cached search/assets | No affected application/browser cache restores denied content; public change needs owner approval (US2.6-7, US5.7-8; FR-012-013, FR-026) |
 | ST-04 | Equal paths/terms in separate repositories and generations; project switching; direct asset/image requests | No cross-project result/body/asset leakage or mixed-generation output (US3; FR-009, FR-011, FR-014-019) |
-| ST-05 | Executable MDX/JSX/imports/expressions, unsafe HTML, invalid frontmatter/navigation, symlinks, escaping/encoded paths, hostile link/asset values | Candidate/input rejected without code execution, escaping delivery, or replacing valid publication (US3.5, US4.4; FR-016-018, FR-024) |
+| ST-05 | Markdown/GFM and allowlisted static Fumadocs MDX components; imports/exports/dynamic expressions, unknown components/attributes, unsafe HTML, invalid frontmatter/navigation, symlinks, executable modes, submodules, escaping/encoded paths, hostile link/asset values | Safe `.mdx` is rendered; unsafe candidates are rejected without code execution, escaping delivery, or replacing valid publication (US3.5, US4.4; FR-016-018, FR-024) |
 | ST-06 | Missing/bad signature, changed original bytes, duplicate delivery including restart, wrong repository/branch, unavailable intake storage | No invalid/unrelated work; duplicates add no logical job; acknowledgement requires durable work (US4.1-2; FR-021-022) |
 | ST-07 | Concurrent/reordered notifications, multiple/overlapping workers, lost lease, restart before/during publication | No stale overwrite or partial generation; former lease holder cannot publish; abandoned accepted work recovers (US4.5-6; FR-023-025) |
 | ST-08 | Invalid/empty/missing content, GitHub outage/rate limiting, worker error/restart, full/unavailable storage; retry/manual resync | Last valid generation retained; first-sync failure unavailable; admin error actionable; successful retry restores valid publication (US4.4, US5.4-6; FR-024, FR-031-032) |
@@ -454,10 +530,10 @@ scope decision consistent with constitutional governance.
 
 | Stage | Required delivery and evidence | Dependency / boundary |
 |---|---|---|
-| 1. Fixture directory and reader | Discovery, safe directory metadata, Markdown reader, navigation/search/link/asset fixtures, accessibility, mandatory tests/coverage from first executable work | US1 and US3; synthetic catalogs; no live private publication |
+| 1. Fixture directory and reader | Discovery, safe directory metadata, Markdown reader, navigation/search/link/asset fixtures, accessibility, functional tests/coverage from first functional executable work | US1 and US3; synthetic catalogs; no live private publication |
 | 2. Prove public/private boundary | Verified identity/roles, all protected paths, freshness, cache/logout/visibility tests | US2; release gate before private production delivery |
 | 3. Ingestion and administration | Durable sync, immutable publication, concurrency/recovery, registration/status/manual sync | US4 and US5; preserves proven authorization; story order does not block configuration fixtures |
-| 4. Prepare sources | Agreed docs folders, safe content format, convert source MDX where needed, explicit public-content approval | Owner/source access required; source work remains in its own repository |
+| 4. Prepare sources | Agreed docs folders, review `.mdx` against the safe static component allowlist, convert only unsupported constructs, explicit content-scope approval | Owner/source access required; source work remains in its own repository |
 | 5. Package application | Versioned standalone application image and resource/health/recovery evidence | All preceding acceptance gates; image publication separately approved |
 | 6. Integrate infrastructure | Scoped persistence/secrets/networking, separate DEV trial, rollback/consistent backup, production handoff | Infrastructure repository owns descriptors; concrete approval and live revalidation required |
 
@@ -487,8 +563,10 @@ All counts apply to the declared acceptance corpus and identities, not a claim a
 live environments. Planning defines workload and operational bounds as required below.
 
 - **SC-001**: Every configured enabled acceptance catalog appears once with its correct safe
-  metadata, route, and Public/Restricted badge; name filtering returns every matching catalog and
-  no nonmatching catalog or article-content search result (US1; FR-002-003).
+  metadata, route, Public/Private label, and sync badge in the specified card positions; first-sync
+  failures cannot navigate while a previously published generation remains available after a later
+  failure. Name filtering returns every matching catalog and no nonmatching catalog or article-content
+  search result (US1; FR-002-003).
 - **SC-002**: 100% of supported published public fixture articles and assets are readable anonymously;
   every required directory/reader/navigation/search journey completes on phone, tablet, and desktop
   with keyboard access and system/light/dark themes (US1, US3; FR-004-005, FR-014-016, FR-033).
@@ -516,10 +594,12 @@ live environments. Planning defines workload and operational bounds as required 
   publishes the correct commit/time, and rejected mutations preserve valid configuration (US5; ST-10).
 - **SC-010**: 100% of private-to-public acceptance cases require explicit owner approval; upstream
   visibility changes alone cause zero portal publications (US2.7, US5.8; FR-013).
-- **SC-011**: Every added/changed feature has required acceptance tests, and every bug fix has its
-  regression test. All applicable statements, branches, functions, and lines coverage results are
-  at least 95% independently, both globally and within every declared implementation scope;
-  deliberately failing a gate or omitting its report prevents completion (QG-001-007).
+- **SC-011**: Every functional feature has required acceptance tests, and every functional bug fix
+  has its regression test. Standalone presentation-only changes that preserve behavior/data flow do
+  not require new tests or coverage. For functional work and complete v1, all applicable statements,
+  branches, functions, and lines coverage results are at least 95% independently, both globally and
+  within every declared implementation scope; deliberately failing an applicable gate or omitting
+  its report prevents completion (QG-001-007).
 - **SC-012**: The planning-declared representative reading/ingestion workload completes within
   the initial 0.5 CPU / 512 MB budget without resource exhaustion or loss of valid publication;
   declared content/retention/retry bounds are observed and active/in-flight content survives cleanup
@@ -542,7 +622,7 @@ live environments. Planning defines workload and operational bounds as required 
 - An enabled catalog with no published generation has an unavailable/pending state and no content.
   An empty or missing documentation folder is an invalid sync candidate; it cannot erase last-good content.
 - Source authoring/conversion remains developer work in source repositories. V1 reads only the
-  agreed safe Markdown format; it does not provide an editing or conversion service.
+  agreed safe Markdown/MDX format in FR-016; it does not provide an editing or conversion service.
 - Changing source identity or visibility must not pair old content with incompatible new settings.
   Planning will define atomic configuration/publication handling satisfying FR-030.
 - Existing authorized downloads and previously public copies cannot be recalled. Logout and
@@ -570,8 +650,8 @@ The defaults above are explicit assumptions, not changes to the agreed architect
 
 The later plan MUST resolve and record, before relevant implementation:
 
-1. Exact supported content/asset limits, accepted asset types, path/navigation/link handling, and
-   boundary tests for each limit; no source-folder escape or executable content may be permitted.
+1. Exact supported `.md`/`.mdx` and asset limits, accepted asset types, path/navigation/link handling,
+   and boundary tests for each limit; no source-folder escape or executable content may be permitted.
 2. Finite cache/snapshot/job/retry retention, lease and recovery timings, and coordination rules
    protecting active/in-flight generations and avoiding stale publication.
 3. Representative corpus and concurrent reading/ingestion workload, responsiveness targets, resource
@@ -582,4 +662,5 @@ The later plan MUST resolve and record, before relevant implementation:
    coverage enforcement, live DEV evidence, consistent backup/recovery, and rollback verification.
 
 These are planning obligations with fixed required outcomes, not open permission to weaken
-security, mandatory tests, the four 95% thresholds, or the complete v1 scope.
+security, functional acceptance tests, the four 95% thresholds for functional work/full v1, or the
+complete v1 scope. Isolated presentation-only changes follow the explicit exception in Principle V.

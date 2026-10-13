@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { LogOut } from 'lucide-react';
 import { LIMITS } from '@/lib/limits';
 
 function hidePrivateContent() {
@@ -11,12 +12,12 @@ function hidePrivateContent() {
   element.inert = true;
 }
 
-export function AccountControls() {
+export function AccountControls({ compact = false }: { compact?: boolean } = {}) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   return (
-    <div className="flex items-center gap-2">
-      <button type="button" disabled={busy} onClick={async () => {
+    <div className={compact ? 'flex shrink-0 items-center gap-2' : 'flex items-center gap-2'}>
+      <button type="button" aria-label={compact ? (busy ? 'Signing out' : 'Sign out') : undefined} title={compact ? 'Sign out' : undefined} disabled={busy} onClick={async () => {
         setBusy(true); setFailed(false); hidePrivateContent();
         try {
           const csrf = await fetch('/api/auth/csrf', { cache: 'no-store' }).then(response => response.json()) as { csrfToken?: string };
@@ -29,8 +30,9 @@ export function AccountControls() {
           channel.postMessage('signed-out'); channel.close();
           window.location.replace('/');
         } catch { setFailed(true); setBusy(false); }
-      }} className="inline-flex min-h-10 items-center rounded-md border px-3 py-2 text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60">
-        {busy ? 'Signing out…' : 'Sign out'}
+      }} className={`inline-flex min-h-10 items-center justify-center gap-2 border text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 ${compact ? 'size-10 shrink-0 rounded-full p-2' : 'rounded-md px-3 py-2'}`}>
+        {compact ? <LogOut aria-hidden="true" className="size-4" /> : null}
+        <span className={compact ? 'sr-only' : undefined}>{busy ? 'Signing out…' : 'Sign out'}</span>
       </button>
       {failed ? <span role="status" className="text-sm">Sign-out could not be confirmed. Reload to check your session.</span> : null}
     </div>

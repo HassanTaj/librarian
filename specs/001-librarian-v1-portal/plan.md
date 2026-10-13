@@ -3,22 +3,30 @@
 **Branch**: `main` (unchanged; Spec Kit feature identifier: `001-librarian-v1-portal`)
 **Date**: 2026-10-11 | **Spec**: [spec.md](spec.md)
 **Input**: Complete v1 specification; [AGENTS.md](../../AGENTS.md),
-[constitution v1.0.0](../../.specify/memory/constitution.md),
+[constitution v2.0.0](../../.specify/memory/constitution.md),
 [agreed brief](../../docs/requirements/v1-requirements.md).
 **Status**: Phase 0 research and Phase 1 design are complete. Prior local implementation and synthetic
-acceptance results are recorded in [tasks.md](tasks.md). The 2026-10-12 home sync-status update assigns
-the shared badge to C1 and C5. Subsequent admin/auth changes invalidate that prior full-coverage snapshot.
-The latest auth regression passes, as do targeted auth/admin unit tests, typecheck, lint, and the
-production build. The live Zitadel app now has Refresh Token enabled; after reauthentication, the linked
-account stored a refresh token and `/admin` rendered successfully. T022/T027/T050/T068/T069/T072/T075/
-T079/T087/T092 and full three-engine browser acceptance remain open. Aggregate completion also remains
-open for source-content provenance, measured resource workload, recovery, publication, and deployment.
+acceptance results are recorded in [tasks.md](tasks.md). The 2026-10-13 Phase 3 update accepts Markdown/GFM
+plus a static Fumadocs MDX component allowlist and fetches supported blobs only from the configured docs
+subtree. The inspected local source checkout's 72 MDX pages fit existing limits; no limit increase was
+made. The first admin sync failed with legacy `github_invalid_content`; a later local DEV sync completed
+successfully. The directory and admin views show Succeeded, with published commit
+`d82a7d26487af66f37d91cdea8e828f133564806` and last successful sync `13/10/2026, 02:51:01`. The inspected
+local checkout is at `567e6d3`, so its validation does not establish byte-for-byte identity with the
+published tree; T082 remains open for exact source provenance/content-scope review. No source-repository
+files, GitHub App settings, or limits changed; no production publication/deployment occurred. Focused
+validation passed 23/23 importer integration tests, 93/93 unit tests, 3/3 batch-route tests, typecheck,
+lint, and a production build using `--webpack` and an ignored temporary output directory. Full coverage
+collection could not complete because the browser sandbox lacks a usable Playwright engine/loopback path;
+three-engine acceptance and refreshed coverage gates remain open. T022/T027/T050/T068/T069/T072/T075/T079/
+T087/T092 and aggregate gates for content provenance, measured workload, recovery, publication, and
+deployment remain open.
 
 ## Summary
 
 Deliver the complete five-story portal in the six agreed stages. Retain the copied Next.js/Fumadocs
-shell and standard reader components, but replace build-time repository-wide MDX and global search
-with authorized per-repository immutable runtime generations. MongoDB stores catalogs, durable jobs,
+shell and standard reader components, but replace build-time repository-wide MDX compilation and
+global search with authorized per-repository immutable runtime generations. MongoDB stores catalogs, durable jobs,
 leases, and server identity/session state. A worker in the application container performs bounded
 read-only GitHub ingestion. No additional queue/search service or dedicated worker deployment.
 
@@ -63,7 +71,8 @@ not measured production claims. Cold first read <=5 s; no correctness or securit
 
 **Constraints**: Exact >=900-second role deadline; authorization before private cache access;
 bounded policies below; explicit public approval; no source execution or private image optimization.
-All first-party executable files and each declared capability scope meet four independent 95% gates.
+Functional work and complete v1 meet all four independent 95% gates; isolated presentation-only
+changes follow the Principle V exception.
 
 **Scale/Scope**: Complete v1; initial maximum 20 catalogs. Representative performance corpus: three
 catalogs (one public, two separately private), 500 pages + 100 assets each, 50 KiB average Markdown,
@@ -79,16 +88,19 @@ Gate assessments apply to this design, not to the inherited scaffold or unexecut
 |---|---|---|
 | I. Git is source of truth | PASS: no editor/source writes; full brief scope retained | PASS: GitHub read-only ingestion; runtime generations; six stages |
 | II. Private authorization boundary | PASS: common server checks required for every path | PASS: identity/project/reader checks, exact freshness, cache/browser fence, owner approval; ST-01-04,10,13 required |
-| III. Untrusted content | PASS: bounded parsing, no MDX execution | PASS: AST/YAML/path/type validation, original-byte signature, scoped tokens/secrets; ST-05-06,10-13 required |
+| III. Untrusted content | PASS: bounded parsing, no source-code execution | PASS: allowlisted static MDX AST plus YAML/path/type validation, original-byte signature, scoped tokens/secrets; ST-05-06,10-13 required |
 | IV. Recoverable generations | PASS: immutable candidate, fenced conditional publication | PASS: durable jobs, per-catalog lease, current-ref resolution, restart reconciliation; ST-06-09,11 required |
-| V. Tests and 95% | PASS: mandatory tests and all four thresholds retained | PASS: global and every capability file scope, unexecuted files and anti-gaming rules; no coverage achieved yet |
+| V. Tests and 95% | PASS: functional tests and all four full-v1 thresholds retained; presentation-only exception recorded | PASS: global and every functional capability scope, unexecuted files and anti-gaming rules; no coverage achieved yet |
 | VI. Standard accessible reader | PASS: reuse copied Fumadocs layouts/components | PASS: standard tree/search/page controls plus only required catalog/auth adapters; three-browser and responsive proof pending |
 | VII. Bounded/reversible operations | PASS: budget, scoped approvals and existing services | PASS: explicit limits/workload/retention and DEV/recovery/rollback gates; no live readiness asserted |
 | Architecture/workflow | PASS: agreed stack and ownership unchanged | PASS: no added service, no silent alternative stack, infrastructure changes deferred to its repository |
 
-The inherited static MDX/global search/image-copy paths do not satisfy v1. Replacing them is planned
-work, not a constitutional exception. A failing executable spike or release check blocks the affected
-stage; neither coverage exclusions nor a complexity table may waive it.
+The inherited build-time MDX/global search/image-copy paths do not satisfy v1. Runtime `.mdx` is
+validated as an AST and permits Markdown/GFM plus the static `Info`, `Note`, `Warning`, `Columns`,
+`Card`, `Steps`, and `Step` component allowlist. Only literal strings are accepted as component
+attributes, except `Columns cols={1..4}`; imports, exports, dynamic expressions, unknown components
+or attributes, and unsafe HTML remain rejected under the constitution. A failing executable spike or release check
+blocks the affected stage; neither coverage exclusions nor a complexity table may waive it.
 
 ## Project Structure
 
@@ -158,7 +170,7 @@ credentials. Local secret files are ignored and excluded from Docker build conte
 | app/[[...slug]]/layout.tsx | Global pageTree | Authorized selected-generation tree; safe selector is independent of private tree |
 | app/api/search/route.ts | Unguarded createFromSource(global source) | Remove global handler; guarded per-repo live search only, no downloadable indexes |
 | app/layout.tsx, lib/layout.shared.tsx, app/globals.css | Standard provider/layout/themes | Reuse; safe global branding, repository search endpoint and guarded private subtree |
-| mdx-components.tsx | Standard Fumadocs components; copied Mintlify compatibility wrappers removed during cleanup | Retain only useful trusted presentation adapters; no remote MDX execution |
+| mdx-components.tsx | Standard Fumadocs components; copied Mintlify compatibility wrappers removed during cleanup | Add only static allowlisted presentation adapters; rewrite Card links through the selected generation route; no remote MDX execution |
 | next.config.mjs | createMDX build plugin, standalone output | Retain standalone; remove MDX build plugin; verify runtime externalization for local-md/shiki |
 | package.json, package-lock.json, tsconfig.json | Build/start only, no test/auth/job setup | Exact pins, test/lint/typecheck/coverage scripts; preserve strict types and aliases |
 | Dockerfile, .dockerignore | COPY .; copied images/logo publication removed during cleanup | Explicit app build-context allowlist; trusted original branding only; no source documents/snapshots/fixtures/secrets in image |
@@ -177,8 +189,9 @@ limits, single-document publication/fencing, queue deduplication, browser-cache 
 
 Verified during planning: exact runtime dependencies installed with lifecycle scripts disabled in
 an isolated temporary directory; synthetic Markdown/GFM rendering, scoped search, generation switching
-without build, explicit MDX exclusion, parse-only expression/JSX/ESM recognition, and YAML alias detection
-passed assertions. This is not a full Next production build, complete validator, or private-boundary proof.
+without build, initial MDX exclusion, parse-only expression/JSX/ESM recognition, and YAML alias detection
+passed assertions. The Phase 3 update replaces MDX exclusion with validated AST support for the narrow
+static component allowlist. This is not a private-boundary proof.
 
 ## Phase 1: Design
 
@@ -232,10 +245,11 @@ and changed only with documented workload evidence. No dynamic tuning UI is adde
 | Policy | Initial bound and failure outcome |
 |---|---|
 | Catalogs | 20 configured catalogs; excess admin creation rejected |
-| Snapshot payload | 1,000 supported files total; <=500 Markdown pages; <=50 MiB normalized bytes including metadata/manifest |
-| Individual inputs | Markdown <=256 KiB; frontmatter/meta.json <=16 KiB each; asset <=5 MiB; decoded path <=1,024 UTF-8 bytes and <=32 segments |
+| Snapshot payload | 1,000 supported files total; <=500 `.md`/`.mdx` pages; <=50 MiB normalized bytes including metadata/manifest |
+| Individual inputs | `.md`/`.mdx` page <=256 KiB; frontmatter/meta.json <=16 KiB each; asset <=5 MiB; decoded path <=1,024 UTF-8 bytes and <=32 segments |
 | Syntax structure | YAML/navigation nesting <=8; AST <=50,000 nodes/page; no aliases/anchors/tags; at most 16 allowlisted highlighted code languages, otherwise plain text |
-| Asset types | PNG/JPEG/GIF/WebP inline; PDF/TXT/CSV/JSON attachment only with safe MIME and nosniff. Reject SVG/HTML/JS/MDX, symlinks/submodules, executable source and unsupported files |
+| Content selection | Import `.md`/`.mdx` Markdown/GFM and allowlisted static component pages, `meta.json`, and supported assets only; omit unrelated regular file types. Reject imports/exports, dynamic expressions, unknown components/attributes, unsafe HTML, symlinks/submodules, and executable Git modes |
+| Asset types | PNG/JPEG/GIF/WebP inline; PDF/TXT/CSV/JSON attachment only with safe MIME and nosniff. Reject SVG/HTML/JS and unsupported assets |
 | Delivery inputs | Webhook <=1 MiB raw body; installation removal event <=1,000 repository references; admin JSON <=32 KiB; search query <=256 UTF-8 bytes, <=20 results; OAuth token response <=64 KiB and role page <=512 KiB; asset/read request timeout <=30 s |
 | Work | One ingestion at a time per instance and one lease holder per catalog; GitHub fetch concurrency 2; recursive Git tree response <=7,000,000 bytes; upstream call timeout 15 s; complete attempt deadline 120 s |
 | Lease/recovery | Catalog lease 30 s, heartbeat 10 s, server-time expiry and fence; queue discovery idle 5 s / active 1 s; crashed work recoverable <=45 s after last heartbeat with healthy storage |
@@ -256,8 +270,10 @@ the last valid compatible publication; confirmed access loss instead disables de
 
 ### Test, Coverage, and Completion Design
 
-Every added/changed feature requires automated acceptance tests; every bug fix requires a regression
-that fails before its fix. Required scenarios are ST-01 through ST-14 in [spec.md](spec.md).
+Every functional change requires automated acceptance tests; every functional bug fix requires a
+regression that fails before its fix. Isolated presentation-only changes that preserve behavior and
+data flow require no new tests or coverage work, and test work stays deferred unless the owner asks.
+Required v1 behavior scenarios are ST-01 through ST-14 in [spec.md](spec.md).
 Integration uses real Mongo job/lease boundaries and filesystem operations; CI upstream fixtures
 mock external providers only, not the authorization/publication logic under test.
 
@@ -291,12 +307,38 @@ and lines (not averages of file percentages).
 
 | Scope | Implementation file set | Acceptance evidence |
 |---|---|---|
-| C1 Discovery/reader | app/page.tsx, app/[repoSlug]/**/*.tsx, app/layout.tsx, components/directory.tsx, components/project-selector.tsx, components/project-search.tsx, components/sync-status-badge.tsx, lib/layout.shared.tsx, lib/catalog.ts, lib/content/source.ts | US1; ST-12; SC-001-002 |
-| C2 Authorization | auth.ts, app/api/auth/**/*.ts, lib/auth/**/*.ts, components/private-content-guard.tsx, lib/catalog.ts, all protected app/[repoSlug] handlers/functions | US2; ST-01-03,10,13; SC-003-004,010 |
+| C1 Discovery/reader | app/page.tsx, app/loading.tsx, app/[repoSlug]/**/*.tsx, app/layout.tsx, components/{directory,site-navigation}.tsx, components/project-selector.tsx, components/project-search.tsx, components/sync-status-badge.tsx, lib/layout.shared.tsx, lib/catalog.ts, lib/content/source.ts | US1; ST-12; SC-001-002 |
+| C2 Authorization | auth.ts, app/api/auth/**/*.ts, lib/auth/**/*.ts, app/page.tsx, components/private-content-guard.tsx, lib/catalog.ts, all protected app/[repoSlug] handlers/functions | US2; ST-01-03,10,13; SC-003-004,010 |
 | C3 Navigation/search/assets | lib/content/**/*.ts, app/api/search/**/*.ts, app/api/assets/**/*.ts, repo reader files, project selector and project search | US3; ST-04-05,11-12; SC-005 |
 | C4 Synchronization/recovery | lib/sync/**/*.ts, lib/content/{validate,paths,generations}.ts, lib/{mongo,catalog,limits,public-approvals}.ts, instrumentation.ts, app/api/webhooks/**/*.ts | US4; ST-05-09,11,13; SC-006-008 |
-| C5 Administration | app/admin/**/*.tsx, app/api/admin/**/*.ts, components/{catalog-form,sync-status,admin-console}.tsx, components/sync-status-badge.tsx, lib/{admin,catalog,public-approvals}.ts, lib/auth/**/*.ts, lib/sync/jobs.ts, lib/content/generations.ts | US5; ST-09-11,12-13; SC-009-010 |
+| C5 Administration | app/repositories/**/*.tsx, app/loading.tsx, app/page.tsx, app/api/admin/**/*.ts, components/{catalog-form,sync-status,admin-console,directory,site-navigation}.tsx, components/sync-status-badge.tsx, lib/{admin,catalog,public-approvals}.ts, lib/auth/**/*.ts, lib/sync/jobs.ts, lib/content/generations.ts | US5; ST-09-11,12-13; SC-009-010 |
 | C6 Packaging/operations/tooling | lib/operations/**/*.ts, app/api/health/**/*.ts, instrumentation.ts, next.config.mjs, mdx-components.tsx if retained, executable test/lint config, scripts/*.mjs, shared startup/config code | ST-11,13-14; SC-012-014 |
+
+### Documentation Directory Sync Actions
+
+`app/page.tsx` sends safe catalog metadata, publication availability, and the latest sanitized sync
+status to `components/directory.tsx`. Only a server-verified `librarian-admin` session receives the
+selection checkboxes and individual/batch sync controls. The directory toolbar filters titles and
+submits 1 to `LIMITS.maxCatalogs` unique catalog UUIDs to `POST /api/admin/repos/sync`; the route
+requires the existing session-bound CSRF/origin checks and a UUID `Idempotency-Key`, then admits one
+existing per-catalog manual job for each selected source. Inputs are bounded by the current admin JSON
+limit; output is one status/error per catalog, preserving partial admission results and sanitizing
+unknown persistence errors. It adds no batch collection, worker, service, dependency, or Mongo migration.
+
+`Catalog.lastSuccess` controls first-publication availability. A catalog with no successful publication
+is rendered as a non-navigable card; a later failure leaves an existing compatible published generation
+readable while the card reports the latest failed status. Status polling uses the existing protected
+admin catalog summary endpoint; per-card icons animate only while a job is pending/running. Accepted
+requests use a ten-second info notice, and failures expose a collapsed error with a safe description
+and issue code. Non-admin directory responses contain only the safe card/status projection.
+
+Mandatory verification is in `tests/client/directory.test.tsx` and
+`tests/unit/directory-sync-route.test.ts`, with directory/browser coverage in
+`tests/browser/discovery-reader.spec.ts` and `tests/browser/admin.spec.ts`. Run the targeted Vitest
+projects, `npm run typecheck`, `npm run lint`, `npm run build`, and the full global/C1/C5/C6 95% gates;
+the three-engine browser suite remains an acceptance gate. No schema migration or published state is
+introduced: code rollback removes the directory controls/endpoint while already admitted jobs remain
+valid under the existing durable job contract. Never delete jobs or published generations to roll back.
 
 CI independently requires **>=95% statements, >=95% branches, >=95% functions, >=95% lines**
 globally AND for C1-C6 as each scope gains executable files. Missing instrumentation, reports,
@@ -325,14 +367,93 @@ No remote database or deployment action is part of this local feature change.
 Required planned scripts and executable validation procedures are in [quickstart.md](quickstart.md).
 No commands absent from current package.json are represented as already runnable today.
 
+### GitHub Source Selection and Phase 3 Correction — 2026-10-13
+
+The importer resolves the configured branch to a commit, walks only the tree path in `docsPath`,
+then requests the recursive tree for that subtree and fetches selected blobs by immutable SHA. It
+does not clone or download the repository archive. Keep this boundary: only supported Markdown,
+MDX, navigation metadata, and asset blobs are fetched; unrelated regular files such as docs-tool
+configuration are omitted. Non-regular Git entries, executable modes, unsafe paths, unsupported
+MDX syntax, and oversized supported files still fail the candidate and preserve the last generation.
+
+Fumadocs `@fumadocs/local-md` supports `.mdx` at runtime. Since its MDX compiler generates code,
+Librarian validates the full MDX AST before the runtime loader. Static `Info`, `Note`, `Warning`,
+`Columns`, `Card`, `Steps`, and `Step` nodes are mapped to trusted local components; only literal
+string attributes are accepted, except literal `Columns cols={1..4}` values. Imports, exports,
+other expressions, unknown components or attributes, and raw HTML are rejected. Card document links
+are rewritten to the selected catalog and generation route. This preserves the untrusted-content
+boundary without converting safe pages to `.md` or executing source-repository code.
+
+The local `HassanTaj/contabo` checkout has `HEAD` and `origin/main` at `567e6d3`; its Git tree for
+`docs/` contains 74 entries and 530,249 bytes: 72 `.mdx` pages, one JSON file, and one `.mintignore`.
+The largest page is 92,591 bytes. All supported local files pass per-file and candidate validation.
+These fit the existing 500-page, 1,000-file, 50 MiB snapshot and 256 KiB page limits, so no limit
+increase is justified. This local ref does not prove the running app fetched the same remote branch.
+The GitHub recursive-tree endpoint itself
+is capped at 100,000 entries and 7 MB; truncated trees must continue to fail safely.
+
+#### Phase 3 Contract and Verification
+
+Inputs are the selected branch commit and configured `docsPath`; output is a validated candidate
+containing only `.md`/`.mdx`, `meta.json`, and supported assets below that subtree. No new package or
+Git checkout is required: the existing GitHub tree/blob API reads the selected subtree, and the
+installed `remark-mdx` parser validates MDX before the existing Fumadocs runtime loader compiles it.
+`Info`, `Note`, `Warning`, `Columns`, `Card`, `Steps`, and `Step` are the only JSX components; string
+attributes are static, with constant 1–4 expressions only for `Columns.cols`. Safe root-absolute and
+relative document links resolve inside the catalog, and Card links retain the selected generation.
+Unsupported files are skipped; oversized supported files, bad Git modes, tree truncation, invalid
+paths, unknown components/attributes, imports, exports, dynamic expressions, raw HTML, invalid links,
+or any invalid page fail the candidate. Publication stays atomic, so a failed sync leaves the current
+generation untouched.
+
+Affected implementation and verification scope: `lib/sync/github.ts`, `lib/content/{validate,paths}.ts`,
+`mdx-components.tsx`, the repository reader, admin sync UI/errors, and their unit/integration/browser
+tests. These functional changes fall in C3/C4/C5; the four independent 95% thresholds still apply. Focused commands
+are `node node_modules/typescript/bin/tsc --noEmit` and
+`node node_modules/vitest/vitest.mjs run --project unit tests/unit/content-validation.test.ts tests/unit/paths.test.ts`;
+full coverage, lint, build, and browser gates remain separate. No versioned deployment or operational
+rollback is in scope; code rollback to the prior grammar is local and failed candidates are not published.
+
+### Responsive Directory and Repository Console UX — 2026-10-13
+
+The directory toolbar keeps search and batch sync controls centered vertically with space between them;
+its outlined Sync button shows the sync icon, selected-source count badge (including zero), and active
+sync state. Cards place a circular selection control at upper left with the same 1px theme border as the
+card, a status badge at lower right, and a smaller icon-only sync button at upper right with no visible
+circle around the icon; its icon spins while the request queues and while status is pending or running.
+Public/Private
+labels stay beside or below a wrapping title. Shared navigation supplies Home and Repositories;
+the Fumadocs reader controls must wrap cleanly on narrow screens. Failed-first-sync cards stay disabled
+and show their sanitized expandable issue. Admin cards use circular actions at upper left, a lower-right
+status badge, read-only details before editing/deleting, and shortened commit IDs with the complete value
+available as a tooltip. The Configure form uses a bottom description textarea and ordered visibility field;
+successful creation closes it and refreshes the list, while a failure leaves it available with a collapsible
+error banner. Static route skeletons mirror directory, admin-card, and reader layouts and contain no catalog
+metadata or private content.
+
+Affected files: `components/directory.tsx`, `components/admin-console.tsx`,
+`components/site-navigation.tsx`, `app/page.tsx`, `app/repositories/page.tsx`, the directory/admin/reader
+`loading.tsx` boundaries, `app/[repoSlug]/[[...page]]/page.tsx`, and their unit/client/browser tests.
+Inputs and outputs remain the existing safe directory DTO, catalog summaries, sync-status APIs, and form
+responses; no package, persistence model, or authorization boundary changes are required for this UX.
+Behavior-changing work retains regression coverage for batch/per-card sync status, Configure
+success/failure, edit/delete, mobile controls, and route skeleton boundaries. The current directory
+polish changes only how existing selection state, count, buttons, status, and active sync feedback are
+presented; it does not change synchronization, Configure, edit/delete, or authorization behavior. Per
+Card sync icons use a 20px status-colored icon, start muted while a request is being queued, and spin
+while sync is pending or running. Principle V defers tests for this presentation-only slice until the
+owner asks. Existing functional behavior tests and full v1 gates remain required for their respective
+work. A failed configuration save preserves persisted catalog state; a failed sync keeps the prior
+published generation. Rollback is a local UI/code revert and requires no database recovery.
+
 ### Implementation Sequence and Handoff
 
 | Stage | In-scope future implementation | Exit gate |
 |---|---|---|
-| 1 | Repair app/packaging boundaries; exact deps and synthetic fixtures; directory/reader/scoped navigation/search/assets; tests and coverage | Runtime/bundling/parser and original-source coverage/merge proof, public fixture journeys, accessible UI; no copied private docs in build |
+| 1 | Repair app/packaging boundaries; exact deps and synthetic fixtures; directory/reader/scoped navigation/search/assets; functional tests and coverage | Runtime/bundling/parser and original-source coverage/merge proof, public fixture journeys, accessible UI; no copied private docs in build |
 | 2 | Auth.js database sessions, current-project role verification, guard every delivery/metadata/cache path, browser fence | Full ST-01-04,10,13 proof, exact freshness and logout/back; no private production delivery before pass |
 | 3 | Catalog persistence/admin, signed intake, durable jobs, lease/fence, publication/retention, manual sync | Real Mongo/filesystem fault, concurrency/restart and storage/access-loss tests; all US4/US5 journeys |
-| 4 | Inspect actual source folders and convert unsupported source MDX in its own repository | Explicit owner review of public scope/documents/assets; no automatic GitHub-visibility publication |
+| 4 | Inspect actual source folders, review MDX against the safe static component allowlist, convert only unsupported constructs in their source repository | Explicit owner review of content scope/documents/assets; no automatic GitHub-visibility publication |
 | 5 | Standalone container with same-container worker, explicit content exclusions, health, workload/recovery proof | All required tests, coverage, typecheck, lint, production build; versioned image publication separately approved |
 | 6 | Infrastructure-owned network/secrets/persistence/placement integration and separate DEV trial | Live identity/sync/browser/resource proof, consistent backup/recovery and rollback; concrete approval before deployment |
 

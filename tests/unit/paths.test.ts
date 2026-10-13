@@ -8,6 +8,7 @@ it('keeps bounded canonical POSIX paths and maps Markdown index pages consistent
   expect(documentRoute('index.md')).toBe('');
   expect(documentRoute('nested/index.md')).toBe('nested');
   expect(documentRoute('nested/guide.md')).toBe('nested/guide');
+  expect(documentRoute('nested/quickstart.mdx')).toBe('nested/quickstart');
 });
 
 it.each(['../outside', '/absolute', 'a/../outside', 'a/./b', 'a//b', 'a\\b', 'a\u0000b', '%2e%2e/outside', '%252e%252e/outside', 'a%2fb', 'a%5cb', 'x'.repeat(1025), Array(33).fill('a').join('/')])('rejects decoded escapes and invalid paths (%s)', path => {
@@ -17,10 +18,17 @@ it.each(['../outside', '/absolute', 'a/../outside', 'a/./b', 'a//b', 'a\\b', 'a\
 it('resolves local Markdown and asset links inside the selected repository and generation', () => {
   const generation = '00000000-0000-4000-8000-000000000004';
   expect(resolveContentLink('project', generation, 'nested/page.md', '../guide.md#heading')).toBe(`/project/guide?g=${generation}#heading`);
+  expect(resolveContentLink('project', generation, 'index.mdx', 'guides/quickstart.mdx')).toBe(`/project/guides/quickstart?g=${generation}`);
+  expect(resolveContentLink('project', generation, 'index.mdx', '/runtime/index')).toBe(`/project/runtime?g=${generation}`);
+  expect(resolveContentLink('project', generation, 'runtime/guide.mdx', '/')).toBe(`/project?g=${generation}`);
   expect(resolveContentLink('project', generation, 'nested/page.md', 'image.png')).toBe(`/api/assets/project/nested/image.png?g=${generation}`);
   expect(resolveContentLink('project', generation, 'index.md', '#heading')).toBe(`/project?g=${generation}#heading`);
   expect(resolveContentLink('project', generation, 'page.md', 'https://synthetic.invalid/path')).toBe('https://synthetic.invalid/path');
   expect(resolveContentLink('project', generation, 'page.md', 'mailto:synthetic@example.invalid')).toBe('mailto:synthetic@example.invalid');
+});
+
+it('rejects heading anchors on asset links', () => {
+  expect(() => resolveLinkTarget('page.md', 'pixel.png#section')).toThrow('invalid_path');
 });
 
 it.each(['javascript:alert(1)', 'data:text/html,synthetic', 'file:///outside', '//synthetic.invalid', '../../../outside.md', '../%252e%252e/outside.md'])('rejects unsafe schemes and escaping document links (%s)', link => {
@@ -55,5 +63,5 @@ it('enforces decoded byte/segment and anchor bounds without losing ordinary Unic
   expect(() => canonicalPath('%E2%82%AC'.repeat(342), true)).toThrow();
   expect(() => canonicalPath('%zz', true)).toThrow();
   expect(resolveLinkTarget('page.md', '#déjà')).toMatchObject({ anchor: '#d%C3%A9j%C3%A0' });
-  for (const href of ['/escape.md', 'a%2fb.md', '%zz.md', 'a.md#one#two', 'a.md?query=1', 'a\0.md', '#'+ 'x'.repeat(1025), 'https://user:password@synthetic.invalid']) expect(() => resolveLinkTarget('page.md', href)).toThrow();
+  for (const href of ['/../escape.md', 'a%2fb.md', '%zz.md', 'a.md#one#two', 'a.md?query=1', 'a\0.md', '#'+ 'x'.repeat(1025), 'https://user:password@synthetic.invalid']) expect(() => resolveLinkTarget('page.md', href)).toThrow();
 });

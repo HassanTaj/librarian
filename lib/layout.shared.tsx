@@ -6,9 +6,8 @@ export const baseOptions: BaseLayoutProps = {
   nav: {
     title: (
       <>
-        <Image src="/logos/light.svg" alt="" width={32} height={32} className="dark:hidden" />
-        <Image src="/logos/dark.svg" alt="" width={32} height={32} className="hidden dark:block" />
-        <span className="sr-only">Perspective V Docs</span>
+        <Image src="/librarian-github-app-icon.png" alt="" width={32} height={32} className="rounded-md" />
+        <span className="max-md:sr-only">Perspective V / Docs</span>
       </>
     ),
   },

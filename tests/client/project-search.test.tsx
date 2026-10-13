@@ -20,7 +20,24 @@ afterEach(async () => {
 
 async function openSearch() {
   await act(async () => root.render(<ProjectSearch slug="librarian" generation="gen-1" />));
-  await act(async () => container.querySelector('button')!.click());
+  const button = container.querySelector('button')!;
+  expect(button.textContent).toBe('Search this project');
+  expect(button.getAttribute('aria-label')).toBe('Search this project');
+  expect(button.className).toContain('size-10');
+  expect(button.className).toContain('rounded-full');
+  expect(button.querySelector('span')?.className).toBe('sr-only');
+  expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  await act(async () => button.click());
+  const panel = container.querySelector('#project-search-panel')!;
+  expect(panel.className).toContain('fixed');
+  expect(panel.className).toContain('top-0');
+  expect(panel.className).toContain('md:start-0');
+  expect(panel.className).toContain('md:w-(--fd-sidebar-width)');
+  expect(panel.className).toContain('max-md:end-0');
+  expect(panel.className).toContain('max-md:w-[85vw]');
+  expect(panel.className).toContain('max-h-');
+  expect(button.parentElement?.className).not.toContain('relative');
+  expect(button.parentElement?.className).not.toContain('basis-full');
   return container.querySelector<HTMLInputElement>('#project-search')!;
 }
 

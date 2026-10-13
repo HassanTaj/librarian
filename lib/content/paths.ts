@@ -25,10 +25,14 @@ export function canonicalPath(input: unknown, decode = false): string {
   return path;
 }
 
+export function isDocumentPath(path: string) {
+  return path.endsWith('.md') || path.endsWith('.mdx');
+}
+
 export function documentRoute(path: string) {
   const canonical = canonicalPath(path);
-  if (!canonical.endsWith('.md')) return invalid();
-  return canonical.slice(0, -3).replace(/(?:^|\/)index$/, '');
+  if (!isDocumentPath(canonical)) return invalid();
+  return canonical.slice(0, -posix.extname(canonical).length).replace(/(?:^|\/)index$/, '');
 }
 
 export function generationRoot(root: string, catalogId: string, generationId: string) {
@@ -60,9 +64,9 @@ export function resolveLinkTarget(sourcePath: string, href: string, image = fals
     if (/[\\/\p{Cc}]/u.test(part) || /%[a-f0-9]{2}/i.test(part)) return invalid();
     return part;
   }).join('/');
-  if (decoded.startsWith('/')) return invalid();
-  const target = decoded ? canonicalPath(posix.join(posix.dirname(sourcePath), decoded)) : sourcePath;
-  if (target.endsWith('.md') && !image) {
+  const absolute = decoded.startsWith('/');
+  const target = decoded ? canonicalPath(absolute ? decoded.slice(1) || 'index' : posix.join(posix.dirname(sourcePath), decoded)) : sourcePath;
+  if (!image && (isDocumentPath(target) || !posix.extname(target))) {
     return { kind: 'document' as const, path: target, anchor };
   }
   if (!decoded || anchor) return invalid();
@@ -77,7 +81,7 @@ export function resolveContentLink(slug: string, generation: string, sourcePath:
   if (target.kind === 'external') return target.url;
   const encode = (path: string) => path.split('/').map(encodeURIComponent).join('/');
   if (target.kind === 'document') {
-    const route = documentRoute(target.path);
+    const route = isDocumentPath(target.path) ? documentRoute(target.path) : target.path.replace(/(?:^|\/)index$/, '');
     return `/${slug}${route ? `/${encode(route)}` : ''}?g=${generation}${target.anchor}`;
   }
   return `/api/assets/${slug}/${encode(target.path)}?g=${generation}`;

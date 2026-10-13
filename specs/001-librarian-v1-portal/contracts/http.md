@@ -37,7 +37,7 @@ writes to a source repository or exposes a static index.
 
 | Method / route | Input and success | Failure / acceptance |
 |---|---|---|
-| GET / | Safe enabled-catalog cards, title/description/route/Public or Restricted badge; case-insensitive display-title substring name filter | No source-derived private titles/snippets; Mongo unavailable is an error state rather than fabricated empty directory |
+| GET / | Safe enabled-catalog cards, title/description/route/Public or Private label beside the title, sync badge at lower right; case-insensitive display-title filter | First-sync failures are non-navigable with a collapsed sanitized issue; an existing publication remains available after later sync failure; Mongo unavailable is an error state rather than fabricated empty directory |
 | GET /{repoSlug}/[[...page]] | Default latest valid generation; optional g for coherent navigation; overview or article with standard reader controls | Public anonymous works; private local login return/denial; unavailable first sync and safe not-found states |
 | Reader navigation/metadata | Selector projects from safe directory projection; authorized selected-generation tree, breadcrumbs, toc, previous/next, copy code | Private metadata generation calls same server boundary; document title may use safe generic project label to avoid private history titles |
 | GET /api/search/{repoSlug}?query=...&g=... | UTF-8 query <=256 bytes, <=20 result objects in pinned Fumadocs live-search shape, URLs bound to repository/generation | Empty query gives empty results after authorization; zero cross-project snippets; no staticGET/index export |
@@ -74,7 +74,7 @@ Provider failure leaves local session revoked. External/open-redirect returnTo v
 
 ## Catalog Administration
 
-### GET /admin and GET /api/admin/repos
+### GET /repositories and GET /api/admin/repos
 
 Require current librarian-admin permission for configured identity project. Return a maximum of 20
 catalog summaries with source configuration, safe title/description, visibility/required role/enabled,
@@ -125,6 +125,18 @@ config returns existing logical job outcome without another insertion. A conflic
 409. Disabled catalog 409; unavailable storage/quota/rate/retention gives explicit failure/backpressure.
 Manual work follows exactly the automatic lease/current-head/validation/publication rules.
 This recovers missed webhooks; it does not grant the admin private reading or public publication.
+
+### POST /api/admin/repos/sync
+
+Require the same verified administrator, exact Origin/session-bound CSRF, JSON content type, and a
+UUID `Idempotency-Key`. Body is `{ "ids": [catalogUuid, ...] }`, with 1 to `LIMITS.maxCatalogs`
+unique version-4 catalog UUIDs and the existing 32 KiB admin JSON limit. Admit each catalog through
+`admitSyncJob` using its existing per-catalog manual-job identity and the shared idempotency key; the
+batch endpoint does not add a separate queue or job record. Return 200 `{jobs:[{catalogId,jobId,status,error?}]}`
+with an independent outcome per catalog, so partial admission is explicit. Known admission failures
+use sanitized codes; unknown persistence details map to `sync_storage_unavailable`. Duplicate requests
+resolve to the existing per-catalog jobs. The directory refreshes safe status summaries while jobs are
+pending/running; this endpoint does not confer private reading or change publication visibility.
 
 ## GitHub Intake: POST /api/webhooks/github
 

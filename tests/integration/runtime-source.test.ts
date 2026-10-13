@@ -1,8 +1,12 @@
+import { createHash } from 'node:crypto';
 import { expect, it } from 'vitest';
 import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { Catalog } from '../../lib/catalog';
+import { getMDXComponents } from '../../mdx-components';
 import { withRuntimeContent } from '../../lib/content/source';
+import { validateMarkdown } from '../../lib/content/validate';
 import { seedRuntimeCatalog } from './runtime-fixtures';
 
 it('renders only checked manifest files and creates an immutable generation-specific source tree', async () => {
@@ -27,6 +31,42 @@ it('renders only checked manifest files and creates an immutable generation-spec
     expect(output.rendered).toContain('Read the');
     expect(JSON.stringify(output.tree)).toContain('Guides');
     expect(output.manifest.generationId).toBe(storage.generationId);
+  } finally { await storage.close(); }
+});
+
+it('renders validated safe Fumadocs MDX components through the guarded loader', async () => {
+  const storage = await seedRuntimeCatalog();
+  try {
+    const path = 'guides/quickstart.mdx';
+    const parsed = validateMarkdown(path, Buffer.from('# Safe MDX\n\n<Info>Heads up</Info>\n\n<Note>Keep this in mind.</Note>\n\n<Warning>Use caution.</Warning>\n\n<Columns cols={2}><Card title="Quickstart" icon="book" href="/guides/quickstart">Runtime **MDX** content.</Card></Columns>\n\n<Card title="Overview">No destination card.</Card>\n\n<Steps><Step title="One">Begin here.</Step></Steps>'));
+    const bytes = Buffer.from(parsed.markdown);
+    const manifest = {
+      ...storage.manifest,
+      documents: [...storage.manifest.documents, { path, route: 'guides/quickstart', title: parsed.title,
+        description: '', headings: parsed.headings, links: parsed.links, size: bytes.length,
+        sha256: createHash('sha256').update(bytes).digest('hex') }],
+    };
+    const manifestBytes = Buffer.from(JSON.stringify(manifest));
+    const manifestDigest = createHash('sha256').update(manifestBytes).digest('hex');
+    await writeFile(join(storage.root, path), bytes);
+    await writeFile(join(storage.root, 'manifest.json'), manifestBytes);
+    await storage.db.collection<Catalog>('catalogs').updateOne({ _id: storage.catalog._id }, { $set: { 'published.manifestDigest': manifestDigest } });
+
+    const output = await withRuntimeContent(storage.db, storage.contentRoot, storage.catalog.slug, undefined, async ({ loader }) => {
+      const page = loader.getPages().find(item => item.path === path)!;
+      const rendered = await page.data.load();
+      return { url: page.url, body: renderToStaticMarkup((await rendered.render(getMDXComponents())).body) };
+    });
+    expect(output.url).toContain('/public-project/guides/quickstart');
+    expect(output.body).toContain('id="safe-mdx"');
+    expect(output.body).toContain('Safe MDX');
+    expect(output.body).toContain('Heads up');
+    expect(output.body).toContain('Keep this in mind.');
+    expect(output.body).toContain('Use caution.');
+    expect(output.body).toContain('Quickstart');
+    expect(output.body).toContain('Runtime <strong>MDX</strong> content.');
+    expect(output.body).toContain('No destination card.');
+    expect(output.body).toContain('Begin here.');
   } finally { await storage.close(); }
 });
 

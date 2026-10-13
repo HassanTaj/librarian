@@ -35,7 +35,8 @@ export async function hasHealthySyncWorker(db: Db) {
 
 function failure(error: unknown, timeout: boolean, stopped: boolean) {
   const code = error instanceof GitHubError ? error.code : error instanceof Error ? error.message : '';
-  const permanent = ['github_invalid_content', 'github_docs_missing', 'github_invalid_catalog',
+  const permanent = ['github_invalid_content', 'github_tree_invalid', 'github_unsafe_path', 'github_unsafe_entry',
+    'github_content_limit', 'github_no_pages', 'github_blob_mismatch', 'github_docs_missing', 'github_invalid_catalog',
     'github_retry_after_too_long', 'invalid_content', 'public_approval_required'].includes(code);
   const safeCode = /^[a-z][a-z0-9_]{0,63}$/.test(code) ? code : 'sync_failed';
   return { code: stopped ? 'worker_shutdown' : timeout ? 'github_timeout' : safeCode, permanent };

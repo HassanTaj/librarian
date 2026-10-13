@@ -60,6 +60,18 @@ it('keeps the private body hidden and reports an unconfirmed sign-out', async ()
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
+it('keeps the compact reader sign-out control accessible on narrow screens', async () => {
+  await act(async () => root.render(<AccountControls compact />));
+  const button = container.querySelector('button')!;
+  expect(button.getAttribute('aria-label')).toBe('Sign out');
+  expect(button.className).toContain('size-10');
+  expect(button.className).toContain('rounded-full');
+  expect(button.textContent).toBe('Sign out');
+  expect(button.querySelector('span')?.className).toBe('sr-only');
+  expect(button.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  expect(button.querySelector('svg')?.getAttribute('class')).toContain('size-4');
+});
+
 it('keeps visible content active for non-persisted restores and hides safely without a private root', async () => {
   await act(async () => root.render(<PrivateContentGuard verifiedAt={Date.now() + 60_000}>Synthetic private body</PrivateContentGuard>));
   const protectedRoot = container.querySelector<HTMLElement>('[data-private-content]')!;

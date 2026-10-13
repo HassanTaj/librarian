@@ -130,6 +130,7 @@ it('uses a short-lived JWT, a selected read-only installation token, immutable t
   expect(result.files[0].content.toString()).toBe('# Synthetic docs');
   expect(fixture.requests.filter(request => request.url.pathname.includes('/git/ref/')).length).toBe(2);
   expect(fixture.requests.some(request => request.url.searchParams.get('recursive') === '1')).toBe(true);
+  expect(fixture.requests.find(request => request.url.searchParams.get('recursive') === '1')?.url.pathname.endsWith(`/git/trees/${docsTreeSha}`)).toBe(true);
   expect(fixture.requests.every(request => request.init.redirect === 'error')).toBe(true);
 });
 
@@ -151,11 +152,11 @@ it('fetches at most two bounded blobs at once', async () => {
 });
 
 it.each([
-  ['truncated trees', { truncated: true }],
-  ['symbolic links', { files: [{ path: 'index.md', content: '# link', mode: '120000' }] }],
-  ['submodules', { files: [{ path: 'index.md', content: '# submodule', mode: '160000', type: 'commit' }] }],
-])('rejects incomplete or unsafe source entries (%s)', async (_name, options) => {
-  await expect(provider(options).client.readCandidate(catalog())).rejects.toThrow('github_invalid_content');
+  ['truncated trees', { truncated: true }, 'github_tree_invalid'],
+  ['symbolic links', { files: [{ path: 'index.md', content: '# link', mode: '120000' }] }, 'github_unsafe_entry'],
+  ['submodules', { files: [{ path: 'index.md', content: '# submodule', mode: '160000', type: 'commit' }] }, 'github_unsafe_entry'],
+])('rejects incomplete or unsafe source entries (%s)', async (_name, options, code) => {
+  await expect(provider(options).client.readCandidate(catalog())).rejects.toMatchObject({ code });
 });
 
 it('rejects a moved branch head rather than mixing commits', async () => {
@@ -191,10 +192,10 @@ it('accepts a bounded retry timestamp and rejects malformed installation tokens 
   await expect(provider({ tokenExpiresAt: new Date(now - 1000).toISOString() }).client.readCandidate(catalog()))
     .rejects.toThrow('github_invalid_token');
   await expect(provider({ repositories: [] }).client.readCandidate(catalog())).rejects.toThrow('github_invalid_token');
-  await expect(provider({ files: [] }).client.readCandidate(catalog())).rejects.toThrow('github_invalid_content');
+  await expect(provider({ files: [] }).client.readCandidate(catalog())).rejects.toMatchObject({ code: 'github_no_pages' });
   await expect(provider({ files: [{ path: 'opaque.bin', content: 'not a docs asset' }] }).client.readCandidate(catalog()))
-    .rejects.toThrow('github_invalid_content');
-  await expect(provider({ corruptBlob: true }).client.readCandidate(catalog())).rejects.toThrow('github_invalid_content');
+    .rejects.toMatchObject({ code: 'github_no_pages' });
+  await expect(provider({ corruptBlob: true }).client.readCandidate(catalog())).rejects.toMatchObject({ code: 'github_blob_mismatch' });
 });
 
 it('rejects a token that exceeds selected repository or read-only permissions', async () => {
@@ -217,7 +218,7 @@ it('stops before blob reads when the selected tree exceeds the file-count policy
   const fixture = provider({ files: Array.from({ length: LIMITS.maxFiles + 1 }, (_, index) => ({
     path: `page-${index}.md`, content: '# Bounded page',
   })) });
-  await expect(fixture.client.readCandidate(catalog())).rejects.toThrow('github_invalid_content');
+  await expect(fixture.client.readCandidate(catalog())).rejects.toMatchObject({ code: 'github_content_limit' });
   expect(fixture.requests.some(request => request.url.pathname.includes('/git/blobs/'))).toBe(false);
 });
 
@@ -275,9 +276,21 @@ it('selects nested metadata and supported assets while rejecting noncanonical an
   await expect(provider({ files: [{ path: 'index.md', content: '# Synthetic docs' }, { path: 'guides', content: '', mode: '040000', type: 'tree' }] })
     .client.readCandidate(catalog())).resolves.toMatchObject({ files: [{ path: 'index.md' }] });
   await expect(provider({ files: [{ path: 'index.md', content: '# Synthetic docs' }, { path: 'guides', content: '', type: 'tree' }] })
-    .client.readCandidate(catalog())).rejects.toMatchObject({ code: 'github_invalid_content' });
+    .client.readCandidate(catalog())).rejects.toMatchObject({ code: 'github_unsafe_entry' });
   await expect(provider({ files: [{ path: '../index.md', content: '# Escaped' }] }).client.readCandidate(catalog()))
-    .rejects.toMatchObject({ code: 'github_invalid_content' });
+    .rejects.toMatchObject({ code: 'github_unsafe_path' });
   await expect(provider({ files: [{ path: 'too-large.pdf', content: 'x'.repeat(LIMITS.maxAssetBytes + 1) }] }).client.readCandidate(catalog()))
-    .rejects.toMatchObject({ code: 'github_invalid_content' });
+    .rejects.toMatchObject({ code: 'github_content_limit' });
+});
+
+it('fetches supported Markdown and MDX only from the configured docs subtree', async () => {
+  const fixture = provider({ files: [
+    { path: 'index.mdx', content: '# Safe MDX' },
+    { path: '.mintignore', content: '*.tmp' },
+    { path: 'runtime/setup.md', content: '# Setup' },
+    { path: 'runtime/archive.zip', content: 'not imported' },
+  ] });
+  const result = await fixture.client.readCandidate(catalog());
+  expect(result.files.map(file => file.path)).toEqual(['index.mdx', 'runtime/setup.md']);
+  expect(fixture.requests.filter(request => request.url.pathname.includes('/git/blobs/'))).toHaveLength(2);
 });

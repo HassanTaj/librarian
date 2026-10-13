@@ -58,7 +58,7 @@ it('lists only the bounded catalog projection and retains null publication field
 it('returns only safe sync status fields for directory cards', async () => {
   const source = catalog();
   const result = await listDirectorySyncStatuses(dbFor(jobFor(source, 'failed'), [source]), [source.slug]);
-  expect(result).toEqual([{ slug: source.slug, status: 'failed' }]);
-  expect(Object.keys(result[0])).toEqual(['slug', 'status']);
+  expect(result).toEqual([{ slug: source.slug, status: 'failed', error: 'github_unavailable', isSyncing: false }]);
+  expect(Object.keys(result[0])).toEqual(['slug', 'status', 'error', 'isSyncing']);
   expect(await listDirectorySyncStatuses({ collection: () => { throw new Error('empty query should not run'); } } as unknown as Db, [])).toEqual([]);
 });

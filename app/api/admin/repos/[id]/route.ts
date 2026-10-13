@@ -62,7 +62,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       provider = createGitHubClient({ githubAppId: config.githubAppId, githubPrivateKey: config.githubPrivateKey });
       try { repository = await provider.verifyRepository(input); } catch (error) {
         const code = error instanceof Error ? error.message : '';
-        if (['github_invalid_catalog', 'github_docs_missing', 'github_access_denied', 'github_not_found', 'github_invalid_content'].includes(code)) throw error;
+        if (['github_invalid_catalog', 'github_docs_missing', 'github_access_denied', 'github_not_found', 'github_invalid_content', 'github_tree_invalid',
+          'github_unsafe_path', 'github_unsafe_entry', 'github_content_limit', 'github_no_pages', 'github_blob_mismatch'].includes(code)) throw error;
         throw new Error('admin_unavailable');
       }
       normalizedChanges.github = { repositoryId: repository!.repositoryId, installationId: input.installationId,
@@ -75,7 +76,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       let candidate: GitHubCandidate;
       try { candidate = await provider!.readCandidate(candidateCatalog); } catch (error) {
         const code = error instanceof Error ? error.message : '';
-        if (['github_invalid_catalog', 'github_docs_missing', 'github_access_denied', 'github_not_found', 'github_invalid_content'].includes(code)) throw error;
+        if (['github_invalid_catalog', 'github_docs_missing', 'github_access_denied', 'github_not_found', 'github_invalid_content', 'github_tree_invalid',
+          'github_unsafe_path', 'github_unsafe_entry', 'github_content_limit', 'github_no_pages', 'github_blob_mismatch'].includes(code)) throw error;
         throw new Error('admin_unavailable');
       }
       if (candidate.commitSha !== repository!.commitSha) throw new Error('public_approval_required');
@@ -114,7 +116,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     const current = CatalogSchema.parse(currentValue);
     if (current.updatedAt.getTime() !== expectedVersion.getTime()) throw new Error('catalog_conflict');
     const deleted = await catalogs.deleteOne({ _id: catalogId, updatedAt: expectedVersion, lease: null,
-      $expr: { $not: { $anyElementTrue: { $map: { input: '$readPins', as: 'pin', cond: { $gt: ['$$pin.expiresAt', '$$NOW'] } } } } },
+      $expr: { $not: [{ $anyElementTrue: [{ $map: { input: '$readPins', as: 'pin', in: { $gt: ['$$pin.expiresAt', '$$NOW'] } } }] }] },
     }, { writeConcern: { w: 1, j: true } });
     if (deleted.deletedCount !== 1) {
       const latestValue = await catalogs.findOne({ _id: catalogId });

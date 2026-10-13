@@ -2,21 +2,25 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import Home from '../../app/page';
 import { filterDirectoryCards, type DirectoryCard } from '../../components/directory';
 
-const state = vi.hoisted(() => ({ auth: vi.fn(), getMongo: vi.fn(), listDirectoryCards: vi.fn(), db: {} }));
+const state = vi.hoisted(() => ({ auth: vi.fn(), headers: vi.fn(), requireAdmin: vi.fn(), getMongo: vi.fn(), listDirectoryCards: vi.fn(), db: {} }));
+vi.mock('next/headers', () => ({ headers: state.headers }));
 vi.mock('@/lib/mongo', () => ({ getMongo: state.getMongo }));
 vi.mock('@/lib/catalog', () => ({ listDirectoryCards: state.listDirectoryCards }));
+vi.mock('@/lib/auth/admin', () => ({ requireAdmin: state.requireAdmin }));
 vi.mock('../../auth', () => ({ auth: state.auth }));
 vi.mock('../../components/sign-in-button', () => ({ SignInButton: vi.fn(() => null) }));
 vi.mock('../../components/private-content-guard', () => ({ AccountControls: () => null }));
 
 const cards: DirectoryCard[] = [
-  { slug: 'atlas', title: 'Atlas', publicDescription: 'Search-only phrase', visibility: 'public', url: '/atlas' },
-  { slug: 'orion', title: 'Orion', publicDescription: 'A documentation project', visibility: 'private', url: '/orion' },
+  { id: 'atlas-id', slug: 'atlas', title: 'Atlas', publicDescription: 'Search-only phrase', visibility: 'public', canOpen: true, url: '/atlas' },
+  { id: 'orion-id', slug: 'orion', title: 'Orion', publicDescription: 'A documentation project', visibility: 'private', canOpen: false, url: '/orion' },
 ];
 
 beforeEach(() => {
   vi.clearAllMocks();
   state.auth.mockResolvedValue(null);
+  state.headers.mockResolvedValue(new Headers({ cookie: 'synthetic' }));
+  state.requireAdmin.mockResolvedValue({ db: state.db });
   state.getMongo.mockResolvedValue({ db: state.db });
   state.listDirectoryCards.mockResolvedValue(cards);
 });

@@ -2,11 +2,12 @@ import { posix } from 'node:path';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkMdx from 'remark-mdx';
+import type { Root } from 'mdast';
 import { remarkHeading } from 'fumadocs-core/mdx-plugins/remark-heading';
 import { parseDocument, isAlias, isMap, isSeq, isScalar, type Node as YamlNode } from 'yaml';
 import { z } from 'zod';
 import { LIMITS } from '../limits';
-import { canonicalPath, documentRoute, resolveLinkTarget } from './paths';
+import { canonicalPath, documentRoute, isDocumentPath, resolveLinkTarget } from './paths';
 
 const invalid = (): never => { throw new Error('invalid_content'); };
 const markdown = unified().use(remarkParse);
@@ -42,8 +43,33 @@ function yamlMetadata(input: string) {
   return frontmatterSchema.parse(document.toJS({ maxAliasCount: 0 }) ?? {});
 }
 
-type SyntaxNode = { type: string; value?: string; children?: SyntaxNode[]; depth?: number; url?: string; identifier?: string;
+type SyntaxNode = { type: string; value?: string; children?: SyntaxNode[]; depth?: number; url?: string; identifier?: string; name?: string | null;
+  attributes?: Array<{ type: string; name?: string | null; value?: string | { type?: string; value?: string } }>;
   position?: { start: { offset?: number }; end: { offset?: number } } };
+const mdxComponents: Record<string, { attributes: string[]; required: string[] }> = {
+  Info: { attributes: [], required: [] }, Note: { attributes: [], required: [] }, Warning: { attributes: [], required: [] },
+  Columns: { attributes: ['cols'], required: ['cols'] }, Card: { attributes: ['title', 'icon', 'description', 'href'], required: ['title'] },
+  Steps: { attributes: [], required: [] }, Step: { attributes: ['title'], required: ['title'] },
+};
+
+function validateMdxElement(path: string, node: SyntaxNode) {
+  const name = node.name;
+  const component = name ? mdxComponents[name] : undefined;
+  if (!component) return invalid();
+  const attributes = new Map<string, string>();
+  for (const attribute of node.attributes ?? []) {
+    const key = attribute.name;
+    if (attribute.type !== 'mdxJsxAttribute' || !key || !component.attributes.includes(key) || attributes.has(key)) return invalid();
+    if (typeof attribute.value === 'string') { attributes.set(key, attribute.value); continue; }
+    if (name === 'Columns' && key === 'cols' && attribute.value?.type === 'mdxJsxAttributeValueExpression' && /^\s*[1-4]\s*$/.test(attribute.value.value ?? '')) {
+      attributes.set(key, attribute.value.value!.trim()); continue;
+    }
+    return invalid();
+  }
+  if (component.required.some(key => !attributes.has(key))) return invalid();
+  if (name === 'Card' && attributes.has('href') && resolveLinkTarget(path, attributes.get('href')!).kind === 'asset') return invalid();
+}
+
 function walk(root: SyntaxNode, visit: (node: SyntaxNode) => void) {
   const stack = [root]; let count = 0;
   while (stack.length) {
@@ -56,7 +82,8 @@ function walk(root: SyntaxNode, visit: (node: SyntaxNode) => void) {
 
 export function validateMarkdown(path: string, bytes: Buffer) {
   canonicalPath(path);
-  if (!path.endsWith('.md')) return invalid();
+  if (!isDocumentPath(path)) return invalid();
+  const isMdx = path.endsWith('.mdx');
   let body = text(bytes, LIMITS.maxMarkdownBytes);
   let frontmatter: z.infer<typeof frontmatterSchema> = {};
   if (body.startsWith('---\n')) {
@@ -66,11 +93,12 @@ export function validateMarkdown(path: string, bytes: Buffer) {
     body = body.slice(4 + end.index + end[0].length);
   }
   if (!body.trim()) return invalid();
-  const tree = markdown.parse(body);
+  let tree: SyntaxNode;
+  try { tree = (isMdx ? mdx.parse(body) : markdown.parse(body)) as unknown as SyntaxNode; } catch { return invalid(); }
   const definitions = new Map<string, string>();
   walk(tree, node => { if (node.type === 'definition' && !definitions.has(node.identifier!)) definitions.set(node.identifier!, node.url!); });
   const headingFile = { data: {} } as Parameters<ReturnType<typeof remarkHeading>>[1];
-  remarkHeading()(tree, headingFile, () => undefined);
+  remarkHeading()(tree as unknown as Root, headingFile, () => undefined);
   const headings = (headingFile.data.toc as Array<{ title: string; url: string; depth: number }> | undefined ?? [])
     .map(item => ({ id: item.url.slice(1), title: item.title, depth: item.depth }));
   const links: Array<{ href: string; image: boolean }> = [];
@@ -78,6 +106,11 @@ export function validateMarkdown(path: string, bytes: Buffer) {
   let heading = '';
   walk(tree, node => {
     if (node.type === 'html') return invalid();
+    if (isMdx) {
+      if (['mdxjsEsm', 'mdxFlowExpression', 'mdxTextExpression'].includes(node.type)) return invalid();
+      if (node.type === 'mdxJsxFlowElement' || node.type === 'mdxJsxTextElement') validateMdxElement(path, node);
+      else if (node.type.startsWith('mdx')) return invalid();
+    }
     if (node.type === 'link' || node.type === 'image' || node.type === 'definition') {
       resolveLinkTarget(path, node.url!, node.type === 'image');
       if (node.type !== 'definition') links.push({ href: node.url!, image: node.type === 'image' });
@@ -102,12 +135,12 @@ export function validateMarkdown(path: string, bytes: Buffer) {
     if (character === '{' && slashes % 2 === 0) expression = true;
     slashes = character === '\\' ? slashes + 1 : 0;
   }
-  if (expression || /^(?:import|export)\s/m.test(candidate) || /<>|<\//.test(candidate)) {
+  if (!isMdx && (expression || /^(?:import|export)\s/m.test(candidate) || /<>|<\//.test(candidate))) {
     // Parse only: source imports, JSX and expressions are never compiled or evaluated here.
     const executable = mdx.parse(candidate);
     walk(executable, node => { if (node.type.startsWith('mdx')) return invalid(); });
   }
-  const title = titleSchema.parse(frontmatter.title ?? (heading || posix.basename(path, '.md')));
+  const title = titleSchema.parse(frontmatter.title ?? (heading || posix.basename(path, posix.extname(path))));
   const normalized = `---\n${JSON.stringify({ ...frontmatter, title })}\n---\n${body}`;
   return { body, frontmatter, title, markdown: normalized, headings, links };
 }
@@ -130,7 +163,9 @@ export function validateMeta(path: string, bytes: Buffer, pages: string[]) {
   for (const entry of meta.pages ?? []) {
     if (entry === '...') continue;
     const target = canonicalPath(posix.join(directory, canonicalPath(entry)));
-    if (!pages.some(page => page === `${target}.md` || page === `${target}/index.md` || page.startsWith(`${target}/`))) return invalid();
+    const base = isDocumentPath(target) ? target.slice(0, -posix.extname(target).length) : target;
+    if (!pages.some(page => page === `${base}.md` || page === `${base}.mdx` ||
+        page === `${base}/index.md` || page === `${base}/index.mdx` || page.startsWith(`${base}/`))) return invalid();
   }
   return meta;
 }
@@ -170,7 +205,7 @@ export function validateCandidate(files: CandidateFile[]) {
     const path = canonicalPath(file.path);
     if (path === 'manifest.json' || file.mode !== '100644' || paths.has(path)) return invalid();
     paths.add(path);
-    if (path.endsWith('.md')) {
+    if (isDocumentPath(path)) {
       if (documents.length >= LIMITS.maxPages) return invalid();
       const route = documentRoute(path);
       if (routes.has(route)) return invalid();

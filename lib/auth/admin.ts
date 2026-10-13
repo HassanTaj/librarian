@@ -89,7 +89,14 @@ const messages: Record<string, string> = {
   admin_origin: 'The request origin is not allowed.', admin_csrf: 'The request could not be verified.',
   admin_invalid_json: 'The request body is not valid JSON.', admin_invalid_request: 'The request fields are invalid.',
   admin_too_large: 'The request exceeds the allowed size.', admin_unavailable: 'Administration is temporarily unavailable.',
-  public_approval_required: 'An owner-approved publication record is required before making a catalog public.',
+  public_approval_required: 'Librarian could not validate an owner-approved record for this catalog\'s exact scope and content. ' +
+    'This is a publication safety check, not a GitHub App Installation ID problem. The owner must review the documentation and assets, ' +
+    'then an operator must provision a matching record in the read-only manifest configured by PUBLIC_CATALOG_APPROVALS_FILE. ' +
+    'It must match the GitHub repository ID, branch, docs folder, catalog slug, reviewed commit, and candidate content digest. ' +
+    'Enter its approval ID in Owner approval reference. The repository ID is distinct from the Installation ID, and the admin API cannot create approval records. ' +
+    'A missing manifest or reference and a mismatched record use the same error. To keep this catalog private, set Visibility to Private and clear Owner approval reference. ' +
+    'A rejected edit leaves prior settings unchanged; a rejected new registration creates no catalog. ' +
+    'See docs/guides/public-catalog-approval.md for the owner/operator procedure and lib/public-approvals.ts for the approval checks.',
   catalog_conflict: 'The catalog conflicts with an existing source or route.', catalog_not_found: 'The catalog is unavailable.',
   catalog_busy: 'A synchronization or reader request is active. Wait for it to finish, then try again.',
   sync_catalog_unavailable: 'The catalog is not ready to synchronize.', sync_catalog_conflict: 'The catalog changed. Try again.',
@@ -97,7 +104,13 @@ const messages: Record<string, string> = {
   sync_quota_exhausted: 'The catalog has reached its synchronization limit.', sync_storage_unavailable: 'Synchronization storage is unavailable.',
   github_invalid_catalog: 'The selected repository configuration is invalid.', github_docs_missing: 'The configured documentation folder was not found.',
   github_access_denied: 'The application cannot read the selected repository.', github_not_found: 'The selected repository was not found.',
-  github_invalid_content: 'The selected documentation content is unsupported or exceeds its limits.',
+  github_invalid_content: 'The documentation folder includes unsupported syntax or a file over its configured limit. MDX supports a small static Fumadocs component set; executable content is rejected.',
+  github_tree_invalid: 'GitHub returned an incomplete or inconsistent documentation tree. Retry the sync, then report this code if it repeats.',
+  github_unsafe_path: 'A file or folder name uses unsupported path characters. Rename it to a portable name, then retry.',
+  github_unsafe_entry: 'The documentation tree contains a symlink, submodule, executable, or other unsupported Git entry. Replace it with a regular file, then retry.',
+  github_content_limit: 'The supported documentation files exceed a configured size or count limit. Reduce this folder or review the limits before changing them.',
+  github_no_pages: 'No supported Markdown or MDX page was found in the configured documentation folder.',
+  github_blob_mismatch: 'GitHub returned content that did not match the selected commit. Retry the sync, then report this code if it repeats.',
 };
 
 export function adminErrorResponse(error: unknown) {
@@ -105,7 +118,8 @@ export function adminErrorResponse(error: unknown) {
   const code = Object.hasOwn(messages, value) ? value : 'admin_unavailable';
   const status = code === 'admin_unauthorized' ? 401 : ['admin_forbidden', 'admin_origin', 'admin_csrf'].includes(code) ? 403
     : code === 'admin_too_large' ? 413 : code === 'sync_rate_limited' ? 429
-    : ['admin_invalid_json', 'admin_invalid_request', 'github_invalid_catalog', 'github_docs_missing', 'github_access_denied', 'github_not_found', 'github_invalid_content'].includes(code) ? 400
+    : ['admin_invalid_json', 'admin_invalid_request', 'github_invalid_catalog', 'github_docs_missing', 'github_access_denied', 'github_not_found',
+      'github_invalid_content', 'github_tree_invalid', 'github_unsafe_path', 'github_unsafe_entry', 'github_content_limit', 'github_no_pages', 'github_blob_mismatch'].includes(code) ? 400
     : code === 'catalog_not_found' ? 404
     : ['catalog_conflict', 'catalog_busy', 'sync_catalog_unavailable', 'sync_catalog_conflict', 'public_approval_required'].includes(code) ? 409 : 503;
   return Response.json({ error: { code, message: messages[code] }, requestId: randomUUID() }, {

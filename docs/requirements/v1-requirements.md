@@ -6,7 +6,7 @@ Build **`librarian`**, a separate Next.js application using Fumadocs, at **[docs
 
 The portal will:
 
-- List configured repositories on its homepage, including private repositories with a **Restricted** badge.
+- List configured repositories on its homepage, including private repositories with a **Private** label.
 - Serve documentation at `/{repo-slug}/{doc-page-path}`, for example:
   - `/contabo-server-setup/runtime/ci`
   - `/homelab-server/getting-started`
@@ -36,9 +36,15 @@ I reviewed the [Fumadocs showcase](https://www.fumadocs.dev/showcase) and inspec
 ### Homepage
 
 - Header: **Perspective V / Docs**, theme control, and sign-in/account menu.
-- Small heading: **Project documentation**, followed by a brief explanation.
-- Repository cards with configured title, safe public description, route, and Public or Restricted badge.
-- A name filter for finding repositories; this searches the directory, not document contents.
+- Page heading: **Documentation Directory**, followed by a brief explanation.
+- Repository cards with configured title, safe public description, route, Public or Private access label beside
+  the title, and sync status at the lower right. A first-sync failure is non-navigable and shows a collapsed,
+  readable reportable issue; an existing published generation remains available after a later failure.
+- A directory toolbar with title filtering and, for verified administrators, per-card and selected-source
+  sync actions. Selected sources are admitted as individual durable sync jobs; status updates without a
+  page refresh.
+- The generated Librarian icon in shared navigation and the Perspective V mark with “Made with love by”
+  in the shared footer.
 - Responsive grid: three columns on wide screens, two on tablets, one on phones.
 - Private cards remain visible. Opening one starts login when necessary and returns the reader to the requested page.
 
@@ -55,7 +61,7 @@ Use the standard Fumadocs components, neutral surfaces, subtle borders, and one 
 
 ### Administration
 
-At `/admin`, provide a compact repository table and configuration form:
+At `/repositories`, provide a compact repository table and configuration form:
 
 - GitHub repository, branch, documentation folder, route slug.
 - Display title and public description.
@@ -105,16 +111,16 @@ A failed sync keeps the last successful documentation available. Manual resync r
 
 For v1, support:
 
-- `.md` files with YAML frontmatter.
+- `.md` and `.mdx` files with optional YAML frontmatter. MDX also permits the static allowlisted Fumadocs components `Info`, `Note`, `Warning`, `Columns`, `Card`, `Steps`, and `Step`.
 - GitHub Flavored Markdown, headings, tables, lists, links, and fenced code blocks.
 - Optional Fumadocs `meta.json` navigation configuration.
 - Local images and attachments from the configured documentation folder.
 
-Convert existing MDX content where necessary. Reject executable MDX/JSX, imports, expressions, unsafe HTML, symlinks, and paths escaping the documentation folder. Do not execute repository scripts or install repository dependencies.
+Keep existing `.mdx` pages that use Markdown/GFM and the allowlisted static components. Component attributes must be static strings, except `Columns cols={1}` through `cols={4}`; reject imports, exports, other expressions, unknown components or attributes, unsafe HTML, symlinks, executable Git modes, and paths escaping the documentation folder. Ignore unrelated regular file types; fetch only supported pages, navigation metadata, and assets beneath the configured documentation folder. Do not execute repository scripts or install repository dependencies.
 
 Use Fumadocs’ **`@fumadocs/local-md` with `dynamicLoader`**, with one source per repository and its own base URL. Fumadocs documents this integration as working at runtime without a content bundle. [Fumadocs Local Markdown](https://www.fumadocs.dev/docs/integrations/content/local-md)
 
-Resolve relative document links and assets under the repository’s route. Build search indexes on the server and cache them per repository generation, with bounded cache retention.
+Resolve relative document links and safe docs-root links under the repository’s route. Build search indexes on the server and cache them per repository generation, with bounded cache retention.
 
 ### Zitadel authentication and authorization
 
@@ -144,7 +150,7 @@ The homepage exposes only explicitly configured directory metadata for private r
 | `/api/assets/{repoSlug}/[...path]` | Authorized local asset delivery |
 | `/api/webhooks/github` | Signed GitHub event intake |
 | `/api/auth/[...nextauth]` | Zitadel authentication |
-| `/admin` and `/api/admin/repos` | Authorized catalog configuration |
+| `/repositories` and `/api/admin/repos` | Authorized catalog configuration |
 | `/api/admin/repos/{id}` | Optimistic settings update or confirmed catalog removal |
 | `/api/admin/repos/{id}/sync` | Queue manual resync |
 | `/api/health` | Container health without sensitive details |

@@ -9,7 +9,7 @@ it('invalid repository content cannot change an existing last-valid snapshot', a
   try {
     const path = join(storage.contentRoot, 'last-valid.md');
     await writeFile(path, '# Synthetic last valid');
-    expect(() => validateCandidate([{ path: 'index.md', mode: '100644', content: Buffer.from('{globalThis.syntheticExecuted = true}') }])).toThrow();
+    expect(() => validateCandidate([{ path: 'index.mdx', mode: '100644', content: Buffer.from('{globalThis.syntheticExecuted = true}') }])).toThrow();
     expect(await readFile(path, 'utf8')).toBe('# Synthetic last valid');
     expect(Reflect.get(globalThis, 'syntheticExecuted')).toBeUndefined();
   } finally { await storage.close(); }

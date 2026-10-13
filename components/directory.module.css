@@ -1,0 +1,9 @@
+.spinning {
+  animation: sync-spin 1s linear infinite;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

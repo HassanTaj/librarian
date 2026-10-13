@@ -1,19 +1,21 @@
 <!--
 Sync Impact Report (temporary review material; remove before committing)
-Version change: unratified scaffold -> 1.0.0 (initial adoption)
-Modified principles: scaffold placeholders replaced by the seven draft principles:
-- I. Git Is the Documentation Source of Truth
-- II. Private Content Has a Single Server Authorization Boundary
-- III. Repository Content and External Inputs Are Untrusted
-- IV. Synchronization Publishes Complete, Recoverable Generations
-- V. Every Feature Ships with Tests and At Least 95% Coverage
-- VI. Use Standard Components and Accessible Reader Behavior
-- VII. Operations Must Be Bounded, Observable, and Reversible
-Added sections: Architecture and Scope Constraints; Development Workflow and Quality Gates;
-Governance populated with the adopted amendment, versioning, and compliance rules.
-Removed sections: none; unfilled scaffold examples and draft-only notices removed.
-Product context: plan.md; all substantive draft provisions preserved verbatim.
-Follow-up TODOs: none. Only the active constitution is updated.
+Version change: 1.0.0 -> 2.0.0 (owner-approved amendment, 2026-10-13)
+Amended principle:
+- V. Functional Features Ship with Tests and At Least 95% Coverage
+Unchanged principles: I. Git Is the Documentation Source of Truth; II. Private Content Has a Single
+Server Authorization Boundary; III. Repository Content and External Inputs Are Untrusted;
+IV. Synchronization Publishes Complete, Recoverable Generations; VI. Use Standard Components and
+Accessible Reader Behavior; VII. Operations Must Be Bounded, Observable, and Reversible.
+Amendment: Principle V and the development gates now exempt isolated, presentation-only UI changes
+from test authoring, test execution, and coverage completion gates unless the owner asks for them.
+Functional, security, data-integrity, ingestion, and release gates remain in force.
+Reason: the owner directed that UI presentation work stay focused and all tests be deferred until requested.
+Migration impact: this directory presentation follow-up does not close any open v1 behavior, security,
+or release tasks; test work for this presentation slice is deferred until the owner requests it.
+Updated sections: Principle V; Development Workflow and Quality Gates; amendment history.
+Synchronized artifacts: AGENTS.md and the active feature spec, plan, and task ledger.
+Product, security, data-integrity, and release scope are unchanged. Follow-up TODOs: none.
 -->
 
 # Librarian Constitution
@@ -111,18 +113,30 @@ Manual resync MUST recover missed webhooks. Sync status MUST distinguish pending
 work, running work, successful publication, and failure, and MUST identify the
 published commit and last successful sync without exposing credentials.
 
-### V. Every Feature Ships with Tests and At Least 95% Coverage
+### V. Functional Features Ship with Tests and At Least 95% Coverage
 
-Every added or changed feature MUST include automated tests for its acceptance
-criteria. Every bug fix MUST include a regression test. Test tasks MUST be explicit
-in feature specifications and generated task lists; template language describing
-tests as optional MUST NOT override this requirement.
+Changes to application behavior, data handling, authorization, APIs, persistence,
+ingestion, synchronization, and operations MUST include automated tests for their
+acceptance criteria. A bug fix in those areas MUST include a regression test.
+Test tasks MUST be explicit in feature specifications and generated task lists;
+template language describing tests as optional MUST NOT override this requirement.
 
-Coverage MUST be at least **95% separately for statements, branches, functions, and
-lines** across all first-party executable application code, including the worker,
-route handlers, authorization, rendering adapters, and administration logic. The
-same four thresholds MUST apply to each feature's implementation file set, declared
-in its plan and checked in CI, so an overall average cannot hide an untested feature.
+Presentation-only UI changes that leave existing behavior and data flow intact,
+including styling, layout, spacing, badge placement, and visibility of information
+already produced by the application, do not require new tests or coverage work.
+Test authoring and execution for this class of change MUST be deferred unless the
+owner explicitly asks for tests. Do not add tests that only assert utility-class
+strings for visual presentation. This exception does not apply when a UI change
+alters authorization, data access, validation, persistence, or other application
+behavior.
+
+For functional feature and v1 release completion, coverage MUST be at least **95%
+separately for statements, branches, functions, and lines** across all first-party
+executable application code, including the worker, route handlers, authorization,
+rendering adapters, and administration logic. The same four thresholds MUST apply
+to each functional feature's implementation file set, declared in its plan and
+checked in CI, so an overall average cannot hide an untested feature. These gates
+are not completion requirements for a standalone presentation-only change.
 Unexecuted source files MUST be included in coverage measurement. A metric with no
 applicable items MAY be reported as not applicable, with an explanation; missing
 instrumentation or an empty test suite MUST NOT count as passing coverage.
@@ -139,11 +153,13 @@ observable behavior; placeholder assertions, blanket mocks of the behavior under
 test, skipped required tests, and retrying until a failure disappears MUST NOT be
 used to make the gate pass.
 
-Unit tests MUST cover isolated logic; integration tests MUST exercise actual
-application boundaries, MongoDB job/lease behavior, and filesystem snapshots as
-applicable. External providers MAY use controlled contract fixtures in CI, but live
-DEV integration checks MUST prove compatibility before production. Browser tests
-MUST cover the reader and administration journeys affected by a feature.
+Unit tests MUST cover changed functional logic; integration tests MUST exercise
+actual application boundaries, MongoDB job/lease behavior, and filesystem snapshots
+as applicable. External providers MAY use controlled contract fixtures in CI, but
+live DEV integration checks MUST prove compatibility before production. Browser
+tests MUST cover reader and administration journeys when their behavior changes.
+Isolated presentation-only adjustments do not require browser tests unless the owner
+requests them.
 
 Coverage does not replace security or recovery evidence. Automated scenarios MUST
 exercise public, anonymous-private, authorized-private, wrong-role, expired-role,
@@ -227,20 +243,22 @@ completed without redundant approval requests.
 ## Development Workflow and Quality Gates
 
 1. Each feature specification MUST state its acceptance criteria, access-control
-   impact, failure behavior, and mandatory automated tests. Each implementation
-   plan MUST include a Constitution Check, affected source/interfaces, feature
-   coverage scope, test commands, and any operational evidence required.
+   impact, failure behavior, and mandatory tests for functional requirements. Each
+   implementation plan MUST include a Constitution Check, affected source/interfaces,
+   applicable feature coverage scope, test commands, and operational evidence.
 2. Generated tasks MUST include unit, integration, and browser tests appropriate
-   to the feature, coverage enforcement, and required negative/security scenarios.
-   Behavior and regression tests MUST be written before or alongside the code;
-   regression tests MUST demonstrate the defect before the fix.
+   to changed functional behavior, coverage enforcement, and required negative/security
+   scenarios. Presentation-only tasks MUST defer test authoring and execution until
+   the owner explicitly requests them. Required regression tests MUST demonstrate
+   functional defects before their fix.
 3. Implementation MUST follow the sequence in `plan.md`: fixture-based directory
    and reader; proof of public/private boundaries; ingestion and administration;
    source preparation; container packaging; infrastructure integration. Private
    delivery MUST NOT proceed to production before its boundary is proven.
-4. A feature MUST NOT be marked complete or merged until its acceptance tests,
-   applicable 95% coverage gates, type checks, lint checks, and production build
-   pass. Configuration/documentation-only changes MUST receive appropriate
+4. A functional feature MUST NOT be marked complete or merged until its acceptance
+   tests, applicable 95% coverage gates, type checks, lint checks, and production
+   build pass. A standalone presentation-only change is not gated on new tests or
+   coverage. Configuration/documentation-only changes MUST receive appropriate
    validation without manufacturing meaningless coverage measurements.
 5. Review MUST confirm that all entry points, callers, assets, caches, fixtures,
    and error paths affected by a change follow the same rules. Specifications,
@@ -260,7 +278,9 @@ This constitution MUST govern feature specifications, plans, tasks, reviews, and
 implementation. `plan.md` records the product decisions and acceptance criteria;
 feature artifacts MUST satisfy both documents. A conflict MUST be resolved
 explicitly rather than silently weakening a rule. Generic template examples and
-optional-test wording MUST NOT waive Librarian's mandatory tests or coverage gates.
+optional-test wording MUST NOT waive functional, security, or release test and
+coverage gates. The presentation-only exception in Principle V is an explicit
+project rule, not an implied waiver for functional work.
 
 Amendments MUST record the reason, affected principles, migration or remediation
 impact, and owner approval. Changes MUST use semantic versioning: MAJOR for removal
@@ -269,10 +289,21 @@ expansion, and PATCH for clarifications that do not change obligations. The
 ratification date MUST remain the original adoption date; Last Amended MUST reflect
 the date of the latest adopted change.
 
-Exceptions MUST NOT be granted implicitly by a feature plan or a complexity table.
-Weakening authorization, content validation, mandatory tests, or the 95% thresholds
-requires an explicit constitution amendment before the affected work can pass its
-completion gate. Unverified integrations and performance assumptions MUST be
-recorded as unresolved evidence, never represented as successful checks.
+Exceptions MUST NOT be granted implicitly by a feature plan or complexity table.
+Weakening authorization, content validation, functional/security test requirements,
+or the 95% thresholds for functional features requires an explicit constitution
+amendment before the affected work can pass its completion gate. Unverified
+integrations and performance assumptions MUST be recorded as unresolved evidence,
+never represented as successful checks.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-11
+### Amendment history
+
+#### 2026-10-13 — Version 2.0.0
+
+- **Owner approval**: The owner explicitly requested updating the testing rules and deferring all tests until requested.
+- **Reason**: Keep presentation work focused on improving the UI instead of adding broad test work for visual defects.
+- **Affected rules**: Principle V and the development workflow and quality gates.
+- **Change**: Isolated presentation-only changes no longer require new automated tests, test execution, or coverage gates. Functional, security, data-integrity, ingestion, and v1 release requirements remain.
+- **Migration impact**: The current directory UI follow-up has no test or coverage completion gate until requested; existing open v1 acceptance, security, and release tasks remain open.
+
+**Version**: 2.0.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-13

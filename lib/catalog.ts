@@ -13,7 +13,7 @@ const display = (max: number, required = false) => z.string().transform(value =>
   .refine(value => [...value].length <= max && (!required || value.trim().length > 0));
 const role = z.string().refine(value => value.length > 0 && [...value].length <= 200 && !controls.test(value));
 const approval = z.string().min(1).max(200).regex(/^[\w.:-]+$/).nullable();
-const reservedSlugs = new Set(['admin', 'api', 'auth', 'health']);
+const reservedSlugs = new Set(['admin', 'api', 'auth', 'health', 'repositories']);
 export function isCatalogSlug(value: string) {
   return /^[a-z][a-z0-9-]{0,62}$/.test(value) && !reservedSlugs.has(value);
 }
@@ -81,8 +81,8 @@ export function newCatalogRecord(input: unknown, now = new Date()): Catalog {
 export function toDirectoryCard(input: unknown) {
   const catalog = CatalogSchema.parse(input);
   if (!catalog.enabled) return null;
-  const { slug, title, publicDescription, visibility } = catalog;
-  return { slug, title, publicDescription, visibility, url: `/${slug}` };
+  const { _id, slug, title, publicDescription, visibility } = catalog;
+  return { id: _id, slug, title, publicDescription, visibility, canOpen: catalog.lastSuccess !== null, url: `/${slug}` };
 }
 
 export async function listDirectoryCards(db: Db) {

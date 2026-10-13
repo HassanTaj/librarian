@@ -1,0 +1,12 @@
+.circleButton {
+  transition: background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.circleButton:enabled:hover {
+  background-color: color-mix(in srgb, currentColor 15%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 20%, transparent);
+}
+
+.circleButton:enabled:active {
+  background-color: color-mix(in srgb, currentColor 25%, transparent);
+}

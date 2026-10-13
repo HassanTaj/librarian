@@ -1,0 +1,15 @@
+.layout :global([data-search-full]),
+.layout :global(#nd-sidebar button[aria-haspopup='dialog']),
+.layout :global(#nd-sidebar-mobile button[aria-haspopup='dialog']) {
+  background-color: var(--color-fd-background);
+  color: var(--color-fd-muted-foreground);
+}
+
+.layout :global([data-search-full]:hover),
+.layout :global(#nd-sidebar button[aria-haspopup='dialog']:hover),
+.layout :global(#nd-sidebar button[aria-haspopup='dialog'][data-state='open']),
+.layout :global(#nd-sidebar-mobile button[aria-haspopup='dialog']:hover),
+.layout :global(#nd-sidebar-mobile button[aria-haspopup='dialog'][data-state='open']) {
+  background-color: var(--color-fd-accent);
+  color: var(--color-fd-accent-foreground);
+}

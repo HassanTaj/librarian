@@ -1,14 +1,19 @@
 import { isValidElement, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { beforeEach, expect, it, vi } from 'vitest';
+import type { CardProps } from 'fumadocs-ui/components/card';
 import Reader, { generateMetadata } from '../../app/[repoSlug]/[[...page]]/page';
+import Link from 'next/link';
+import { ProjectSearch } from '../../components/project-search';
+import { RuntimeSidebarFolder, RuntimeSidebarItem } from '../../components/runtime-sidebar';
 import { PrivateContentGuard } from '../../components/private-content-guard';
 import { SignInButton } from '../../components/sign-in-button';
+import { ThemeSwitch } from 'fumadocs-ui/layouts/shared/slots/theme-switch';
 
-const state = vi.hoisted(() => ({ auth: vi.fn(), getMongo: vi.fn(), listDirectoryCards: vi.fn(), withRuntimeContent: vi.fn(), notFound: vi.fn(), docsLayout: () => null, accountControls: () => null }));
+const state = vi.hoisted(() => ({ auth: vi.fn(), getMongo: vi.fn(), withRuntimeContent: vi.fn(), notFound: vi.fn(), docsLayout: () => null, accountControls: () => null }));
 vi.mock('next/navigation', () => ({ notFound: state.notFound }));
 vi.mock('../../auth', () => ({ auth: state.auth }));
 vi.mock('../../components/sign-in-button', () => ({ SignInButton: vi.fn(() => null) }));
-vi.mock('@/lib/catalog', () => ({ isCatalogSlug: (value: string) => /^[a-z][a-z0-9-]{0,62}$/.test(value), listDirectoryCards: state.listDirectoryCards }));
+vi.mock('@/lib/catalog', () => ({ isCatalogSlug: (value: string) => /^[a-z][a-z0-9-]{0,62}$/.test(value) }));
 vi.mock('@/lib/mongo', () => ({ getMongo: state.getMongo }));
 vi.mock('@/lib/content/source', () => ({ withRuntimeContent: state.withRuntimeContent }));
 vi.mock('@/lib/content/paths', () => ({ resolveContentLink: (slug: string, generation: string, path: string, href: string) =>
@@ -17,7 +22,7 @@ vi.mock('@/lib/layout.shared', () => ({ baseOptions: { nav: {} } }));
 vi.mock('@/mdx-components', () => ({ getMDXComponents: (components = {}) => ({ a: () => null, ...components }) }));
 vi.mock('fumadocs-ui/layouts/docs', () => ({ DocsLayout: state.docsLayout }));
 vi.mock('fumadocs-ui/page', () => ({ DocsBody: () => null, DocsDescription: () => null, DocsPage: () => null, DocsTitle: () => null }));
-vi.mock('@/components/project-selector', () => ({ ProjectSelector: () => null }));
+vi.mock('@/components/runtime-sidebar', () => ({ RuntimeSidebarFolder: () => null, RuntimeSidebarItem: () => null }));
 vi.mock('@/components/project-search', () => ({ ProjectSearch: () => null }));
 vi.mock('@/components/private-content-guard', () => ({ AccountControls: state.accountControls, PrivateContentGuard: () => null }));
 
@@ -33,14 +38,12 @@ const page = {
 };
 const loader = { pageTree: { name: 'Synthetic docs' }, getPage: vi.fn(() => page) };
 const manifest = { generationId: generation };
-const projects = [{ slug: 'synthetic-project', title: 'Synthetic project' }];
 const context = { privateContent: false, roleVerifiedAt: null };
 
 beforeEach(() => {
   vi.clearAllMocks();
   state.auth.mockResolvedValue(null);
   state.getMongo.mockResolvedValue({ db: { marker: 'synthetic' }, contentRoot: 'content-root' });
-  state.listDirectoryCards.mockResolvedValue(projects);
   state.notFound.mockImplementation(() => { throw new Error('NEXT_NOT_FOUND'); });
   state.withRuntimeContent.mockImplementation(async (_db, _root, _slug, _generation, render) =>
     render({ loader, manifest }, new AbortController().signal, context));
@@ -65,12 +68,28 @@ function readerNavHasAccountControls(node: ReactNode): boolean {
     if (Array.isArray(node)) return node.some(visit);
     if (!isValidElement<{ children?: ReactNode }>(node)) return false;
     if (node.type === state.docsLayout) {
-      const nav = (node.props as { nav: { children: ReactNode } }).nav;
-      return visit(nav.children);
+      const props = node.props as { nav: { children: ReactNode }; sidebar: { banner: ReactNode; footer: ReactNode } };
+      return visit(props.nav.children) || visit(props.sidebar.banner) || visit(props.sidebar.footer);
     }
     return node.type === state.accountControls || visit(node.props.children);
   };
   return visit(node);
+}
+
+function readerNav(node: ReactNode): ReactNode {
+  if (Array.isArray(node)) return node.map(readerNav);
+  if (!isValidElement<{ children?: ReactNode }>(node)) return node;
+  if (node.type === state.docsLayout) {
+    const props = node.props as { nav: { children: ReactNode }; sidebar: { banner: ReactNode; footer: ReactNode } };
+    return [props.nav.children, props.sidebar.banner, props.sidebar.footer];
+  }
+  return readerNav(node.props.children);
+}
+
+function elements(node: ReactNode): ReactElement<Record<string, unknown> & { children?: ReactNode }>[] {
+  if (Array.isArray(node)) return node.flatMap(elements);
+  if (!isValidElement<Record<string, unknown> & { children?: ReactNode }>(node)) return [];
+  return [node, ...elements(node.props.children)];
 }
 
 const route = (repoSlug = 'synthetic-project', pagePath?: string[], g?: string | string[]) => ({
@@ -98,10 +117,42 @@ it('renders a selected generation page through the guarded runtime loader', asyn
   expect(readerNavHasAccountControls(result)).toBe(false);
 });
 
+it('resolves MDX Card links within the selected generation and leaves unlinked cards without a target', async () => {
+  await Reader(route('synthetic-project', ['guides', 'setup'], generation));
+  const components = renderComponents.mock.calls.at(-1)?.[0];
+  const card = components!.Card as (props: CardProps) => ReactElement<CardProps>;
+
+  const linked = card({ title: 'Reference', href: 'reference.md', children: 'Read reference' });
+  const unlinked = card({ title: 'Overview', children: 'Read overview' });
+
+  expect(linked.props.href).toBe(`/synthetic-project/${generation}/guides/setup/reference.md`);
+  expect(unlinked.props.href).toBeUndefined();
+});
+
 it('shows account controls in the public reader when a visitor is signed in', async () => {
   state.auth.mockResolvedValueOnce({ user: { id: 'synthetic-user' } });
   const result = await Reader(route());
   expect(readerNavHasAccountControls(result)).toBe(true);
+  const layout = elements(result).find(node => node.type === state.docsLayout)!;
+  const layoutProps = layout.props as { themeSwitch: { enabled: boolean }; sidebar: { banner?: ReactNode; footer: ReactNode; components: { Folder: unknown; Item: unknown } } };
+  expect(layoutProps.themeSwitch).toEqual({ enabled: false });
+  expect(layoutProps.sidebar.components).toEqual({ Folder: RuntimeSidebarFolder, Item: RuntimeSidebarItem });
+  const banner = elements(layoutProps.sidebar.banner);
+  const footer = elements(layoutProps.sidebar.footer);
+  expect(banner.some(node => node.type === state.accountControls)).toBe(false);
+  expect(banner.some(node => node.type === ProjectSearch)).toBe(false);
+  expect(footer.some(node => node.type === ProjectSearch)).toBe(true);
+  expect(footer.find(node => node.type === state.accountControls)?.props).toMatchObject({ compact: true });
+  expect(footer.find(node => node.type === ThemeSwitch)?.props.className).toContain('rounded-full');
+  const actionGroup = footer.find(node => node.props['data-reader-sidebar-actions'] === true);
+  expect(actionGroup).toBeDefined();
+  const actionItems = elements(actionGroup!.props.children);
+  expect(actionItems.some(node => node.type === ProjectSearch)).toBe(true);
+  expect(actionItems.some(node => node.type === Link && node.props['aria-label'] === 'Home')).toBe(true);
+  const nav = elements(readerNav(result));
+  expect(nav.some(node => node.type === Link && node.props['aria-label'] === 'Home')).toBe(true);
+  expect(layoutProps.sidebar.banner).toBeUndefined();
+  expect(nav.some(node => node.type === ProjectSearch)).toBe(true);
 });
 
 it('wraps private rendering only while role freshness is present and returns safe metadata when denied', async () => {

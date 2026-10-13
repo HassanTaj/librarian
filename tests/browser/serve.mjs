@@ -53,13 +53,15 @@ async function addProject(db, { slug, title, visibility, repoId, files, links = 
     documents, assets, metadata: metadataFiles };
   const manifestBytes = Buffer.from(JSON.stringify(manifest));
   await writeFile(join(generationRoot, 'manifest.json'), manifestBytes);
+  const syncJobId = `manual:${catalogId}:${uuid()}`;
   await db.collection('catalogs').insertOne({
     _id: catalogId, slug, title, visibility, github: { repositoryId: repoId, installationId: 456, owner: 'synthetic', name: slug, branch: 'main', docsPath: 'docs' },
     publicDescription: `Configured synthetic description for ${title}.`, readerRole: `docs:${slug}:reader`, enabled: true,
     approvalRef: visibility === 'public' ? 'synthetic-owner-approval' : null, accessState: 'ready', configRevision: 1, authEpoch: 1,
-    published: { generationId, commitSha: manifest.commitSha, jobId: `manual:${catalogId}:${uuid()}`, fence: 1, configRevision: 1,
+    published: { generationId, commitSha: manifest.commitSha, jobId: syncJobId, fence: 1, configRevision: 1,
       manifestDigest: digest(manifestBytes), publishedAt: now }, publicationRevision: 1, retained: [], lease: null, leaseFence: 1,
-    readPins: [], admissionReservations: 0, rateWindow: { window: now, count: 0 }, lastSuccess: null, lastFailure: null,
+    readPins: [], admissionReservations: 0, rateWindow: { window: now, count: 0 },
+    lastSuccess: { at: now, jobId: syncJobId, commitSha: manifest.commitSha }, lastFailure: null,
     createdAt: now, updatedAt: now,
   });
   return { catalogId, generationId };
@@ -134,7 +136,7 @@ async function prepare() {
     files: [['index.md', md('Synthetic Portal', '# Synthetic Portal\n\nRead the [setup guide](guides/setup.md#first-step).\n\n![Synthetic pixel](pixel.png)\n\n| Check | State |\n| --- | --- |\n| Fixture | Ready |\n\n- [x] Public fixture loaded'), 'markdown'],
       ['guides/setup.md', md('Setup', '# First step\n\nSetup fixture content.'), 'markdown'], ['pixel.png', pixel, 'asset']],
     links: { 'index.md': ['guides/setup.md#first-step', 'pixel.png'] },
-    metadata: [['guides/meta.json', Buffer.from('{"title":"Guides","pages":["setup"],"defaultOpen":true}')]],
+    metadata: [['guides/meta.json', Buffer.from('{"title":"Guides","pages":["setup"],"defaultOpen":false}')]],
   });
   await addProject(db, { slug: 'other-project', title: 'Other Project', visibility: 'public', repoId: 2,
     files: [['index.md', md('Other Project', '# Other Project\n\nOnly in another repository: telescope.'), 'markdown']] });

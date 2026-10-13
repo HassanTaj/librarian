@@ -64,9 +64,36 @@ it.each(['![remote](https://synthetic.invalid/image.png)', '![not-raster](notes.
 
 it('allows bounded navigation for existing pages and rejects unsafe metadata', () => {
   expect(validateMeta('meta.json', Buffer.from('{"title":"Synthetic navigation","pages":["index","guide"]}'), ['index.md', 'guide.md'])).toEqual({ title: 'Synthetic navigation', pages: ['index', 'guide'] });
+  expect(validateMeta('meta.json', Buffer.from('{"pages":["guide.mdx"]}'), ['guide.mdx'])).toEqual({ pages: ['guide.mdx'] });
   for (const json of ['{"pages":["missing"]}', '{"pages":["../outside"]}', '{"pages":["https://synthetic.invalid"]}', '{"unknown":true}', '{"title":3}', 'not JSON', JSON.stringify({ title: 'x'.repeat(16 * 1024) })]) {
     expect(() => validateMeta('meta.json', Buffer.from(json), ['index.md'])).toThrow();
   }
+});
+
+it('accepts safe static Fumadocs MDX components and rejects executable or unknown syntax', () => {
+  const page = validateMarkdown('guides/quickstart.mdx', Buffer.from('---\ntitle: Quickstart\n---\n# Quickstart\n\nA **safe** MDX page.'));
+  expect(page.title).toBe('Quickstart');
+  expect(validateCandidate([file('index.mdx', '# Home'), file('guide.mdx', '# Guide')]).documents.map(item => item.path))
+    .toEqual(['index.mdx', 'guide.mdx']);
+  const components = '<Info>Details</Info>\n\n<Columns cols={2}><Card title="Guide" icon="book" href="/guides/setup">Open</Card></Columns>\n\n<Steps><Step title="One">Start here.</Step></Steps>';
+  expect(validateMarkdown('guide.mdx', Buffer.from(components)).links).toEqual([]);
+  for (const source of [
+    'import Example from "./example";\n# Page',
+    'export const value = 1;\n# Page',
+    '# Page\n\n{process.env.SECRET}',
+    '<Callout>Unknown component</Callout>',
+    '<Info onClick="run">Unknown prop</Info>',
+    '<Columns cols={process.env.COLS}>Dynamic value</Columns>',
+    '<Card title="Unsafe" href="javascript:alert(1)">Bad link</Card>',
+    '<Card title="Unsafe" href={location.href}>Dynamic link</Card>',
+    '<script>unsafe HTML</script>',
+  ]) expect(() => validateMarkdown('guide.mdx', Buffer.from(source))).toThrow();
+});
+
+it('rejects unsupported document extensions and Card links to attachment files', () => {
+  expect(() => validateMarkdown('notes.txt', Buffer.from('# Not a document'))).toThrow('invalid_content');
+  expect(() => validateMarkdown('guide.mdx', Buffer.from('<Card title="Download" href="attachment.pdf">Open</Card>')))
+    .toThrow('invalid_content');
 });
 
 it('accepts attachments only as safe MIME types and rejects executable or mislabeled assets', () => {
@@ -142,7 +169,8 @@ it('checks individual byte limits at limit minus one, the limit, and limit plus 
   }
   expect(() => validateMeta('meta.json', Buffer.alloc(LIMITS.maxMetadataBytes + 1, 'x'), [])).toThrow();
   for (const source of ['', '---\ntitle: Incomplete', '---\ntitle:\n---\nBody', '---\nfull: [a, b]\n---\nBody', '---\n? [a, b]\n: value\n---\nBody']) expect(() => validateMarkdown('guide.md', Buffer.from(source))).toThrow();
-  expect(() => validateMarkdown('guide.mdx', Buffer.from('# Unsupported'))).toThrow();
+  expect(validateMarkdown('guide.mdx', Buffer.from('x'.repeat(LIMITS.maxMarkdownBytes))).body.length).toBe(LIMITS.maxMarkdownBytes);
+  expect(() => validateMarkdown('guide.mdx', Buffer.alloc(LIMITS.maxMarkdownBytes + 1, 'x'))).toThrow();
 });
 
 it('validates derived and grouped navigation, wildcards and bounded metadata structure', () => {

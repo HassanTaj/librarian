@@ -18,7 +18,7 @@ it('validates all synthetic catalog records and defaults creation to private, un
 
 it.each([
   { _id: 'not-a-uuid' }, { slug: 'Uppercase' }, { slug: 'a'.repeat(64) }, { slug: '1invalid' },
-  ...['admin', 'api', '_next', 'auth', 'health', 'favicon.ico', 'robots.txt', 'sitemap.xml'].map(slug => ({ slug })),
+  ...['admin', 'api', '_next', 'auth', 'health', 'repositories', 'favicon.ico', 'robots.txt', 'sitemap.xml'].map(slug => ({ slug })),
   { title: '' }, { title: 'x'.repeat(121) }, { publicDescription: 'x'.repeat(501) },
   { readerRole: '' }, { readerRole: 'x'.repeat(201) }, { readerRole: 'docs:\u0000reader' },
   { enabled: 'true' }, { visibility: 'unknown' }, { accessState: 'unknown' },
@@ -64,11 +64,14 @@ it('validates publication, lease, pin and sanitized status records with exact bo
   ]) expect(CatalogSchema.safeParse({ ...record, ...patch }).success).toBe(false);
 });
 
-it('projects only configured public metadata, including unpublished catalogs, and omits disabled catalogs', () => {
+it('projects safe directory metadata and keeps never-synced catalogs non-openable', () => {
   for (const catalog of catalogs) {
-    expect(toDirectoryCard(catalog)).toEqual({ slug: catalog.slug, title: catalog.title, publicDescription: catalog.publicDescription, visibility: catalog.visibility, url: `/${catalog.slug}` });
+    expect(toDirectoryCard(catalog)).toEqual({ id: catalog._id, slug: catalog.slug, title: catalog.title,
+      publicDescription: catalog.publicDescription, visibility: catalog.visibility, canOpen: false, url: `/${catalog.slug}` });
     expect(toDirectoryCard({ ...catalog, enabled: false })).toBeNull();
   }
+  const successful = { ...catalogs[0], lastSuccess: { at: now, jobId: 'manual:00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-000000000099', commitSha: 'a'.repeat(40) } };
+  expect(toDirectoryCard(successful)?.canOpen).toBe(true);
 });
 
 it('preserves publication for safe metadata edits and fences incompatible source/permission changes', () => {

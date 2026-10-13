@@ -63,6 +63,21 @@ and at most 64 KiB. Auth and webhook secrets must each contain at least 32 UTF-8
 The optional approval manifest is also limited to 64 KiB; when configured, the loader requires
 it to exist outside `public` and `CONTENT_ROOT`. Without it, public catalog registration fails
 closed while private catalogs remain available. The loader does not connect to any provider.
+Make the manifest readable by the Next.js Node server. In v1, Next instrumentation starts the
+sync worker inside that same application process and container, so restarting the server process
+restarts both the API and worker after changing `PUBLIC_CATALOG_APPROVALS_FILE`. The worker
+captures the configured path at startup and reads the manifest contents during approval checks.
+In development, it starts only when `LIBRARIAN_WORKER_ENABLED=1`; in production, it starts unless
+`LIBRARIAN_WORKER_ENABLED=0`.
+
+### Owner-approved public catalogs
+
+Public visibility requires owner approval for the exact source scope and reviewed content. The
+GitHub App installation grants read access; it does not approve publication. Follow the
+[Public catalog approval guide](public-catalog-approval.md) before creating a public catalog,
+switching a private catalog to Public, or changing a public catalog's source, branch, docs folder,
+or slug. The guide covers the manifest, matching rules, operator steps, and recovery from
+`public_approval_required`.
 
 ## 3. Generate application-owned secrets
 

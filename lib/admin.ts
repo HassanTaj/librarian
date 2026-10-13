@@ -3,16 +3,16 @@ import { CatalogSchema, type Catalog } from './catalog';
 import { SyncJobSchema, type SyncJob } from './sync/jobs';
 
 function publicStatus(catalog: Catalog, job: SyncJob | null) {
-  if (catalog.accessState === 'blocked') return { status: 'failed' as const, error: 'access_lost' };
-  if (job?.state === 'running') return { status: 'running' as const, error: null };
+  if (catalog.accessState === 'blocked') return { status: 'failed' as const, error: 'access_lost', isSyncing: false };
+  if (job?.state === 'running') return { status: 'running' as const, error: null, isSyncing: true };
   if (job && ['queued', 'retry_wait'].includes(job.state)) return {
-    status: 'pending' as const, error: null, nextAttemptAt: job.state === 'retry_wait' ? job.availableAt : null,
+    status: 'pending' as const, error: null, isSyncing: true, nextAttemptAt: job.state === 'retry_wait' ? job.availableAt : null,
   };
   if (job?.state === 'failed' || job?.state === 'cancelled') return {
-    status: 'failed' as const, error: job.result?.kind === 'failure' ? job.result.code : 'sync_failed',
+    status: 'failed' as const, error: job.result?.kind === 'failure' ? job.result.code : 'sync_failed', isSyncing: false,
   };
-  if (job?.state === 'succeeded' || catalog.lastSuccess || catalog.published) return { status: 'succeeded' as const, error: null };
-  return { status: 'pending' as const, error: catalog.lastFailure?.code ?? null };
+  if (job?.state === 'succeeded' || catalog.lastSuccess || catalog.published) return { status: 'succeeded' as const, error: null, isSyncing: false };
+  return { status: 'pending' as const, error: catalog.lastFailure?.code ?? null, isSyncing: false };
 }
 
 export async function adminCatalogSummary(db: Db, value: unknown) {
@@ -38,5 +38,8 @@ export async function listDirectorySyncStatuses(db: Db, slugs: string[]) {
   if (!slugs.length) return [];
   const values = await db.collection<Catalog>('catalogs')
     .find({ enabled: true, accessState: 'ready', slug: { $in: slugs } }).sort({ title: 1 }).limit(20).toArray();
-  return Promise.all(values.map(async value => ({ slug: value.slug, status: (await adminCatalogSummary(db, value)).status })));
+  return Promise.all(values.map(async value => {
+    const summary = await adminCatalogSummary(db, value);
+    return { slug: value.slug, status: summary.status, error: summary.error, isSyncing: summary.isSyncing };
+  }));
 }

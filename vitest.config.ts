@@ -20,7 +20,7 @@ export default defineConfig({
       return { code: result.code, map: JSON.stringify(result.map) };
     }
   } }],
-  resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)), 'next/server': fileURLToPath(new URL('./node_modules/next/server.js', import.meta.url)) } },
+  resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)), 'next/server': fileURLToPath(new URL('./node_modules/next/server.js', import.meta.url)), 'next/image': fileURLToPath(new URL('./tests/client/mocks/next-image.tsx', import.meta.url)) } },
   optimizeDeps: { include: ['next/link'] },
   test: {
     retry: 0,
