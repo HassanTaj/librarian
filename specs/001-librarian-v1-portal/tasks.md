@@ -1,7 +1,7 @@
 # Tasks: Librarian v1 Git-connected Documentation Portal
 
 **Feature**: `001-librarian-v1-portal` | **Generated**: 2026-10-11
-**Status**: 82/92 tasks are checked. Current-source local verification passed 638/638 unit/integration/client tests, global and C1-C6 four-metric coverage, artifact validation, typecheck, repository-wide lint, and production build; the Chromium E2E suite passed 24/24. T022, T027, T068, T069, T072, and T075 are now checked. T050 remains open because Firefox/WebKit privacy acceptance was not run; T079, T082, and T086-T092 remain open for aggregate story acceptance, source provenance, measured workload, infrastructure/recovery, and separately approved publication/deployment. The 2026-10-13 DEV catalog sync reports Succeeded at commit `d82a7d26487af66f37d91cdea8e828f133564806`, but exact provenance against the inspected local source checkout remains open in T082. No production delivery is claimed complete.
+**Status**: 86/92 tasks are checked. The latest full local coverage collection passed 640 tests with all global and C1-C6 statement, branch, function, and line thresholds; the 72/72 Chromium, Firefox, and WebKit browser suite; typecheck; repository-wide lint; artifact validation; production build; and fresh-image container acceptance also passed. After correcting the direct start script, all 404 unit tests passed, the focused build-config suite passed 10/10, and the standalone server started on localhost; its database-backed auth route returned `storage_unavailable` because the local Docker Desktop service was stopped. T050, T079, T082, and T092 are complete. T086-T091 remain open for measured workload, infrastructure revalidation, live DEV/recovery, and separately approved publication/deployment. The previously recorded DEV sync reports Succeeded at commit `d82a7d26487af66f37d91cdea8e828f133564806`; its live state was not rechecked during this work. No production delivery is claimed complete.
 **Git branch**: `main`, unchanged. Feature identifier is not a newly created branch.
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md),
 [data-model.md](data-model.md), [contracts/http.md](contracts/http.md), [quickstart.md](quickstart.md).
@@ -11,6 +11,10 @@
 This list retains all five stories and six delivery stages. Original task generation changed only
 planning artifacts; local implementation evidence is recorded below. Later operational tasks
 document required work and do not grant approval for publication or deployment.
+
+Dated progress entries below are historical snapshots; the consolidated verification at the end is
+the current status when statements conflict. Historical `/admin` references describe the former UI
+route, now `/repositories`; `/api/admin/...` remains the API route prefix.
 
 ## Incremental sync follow-up — 2026-10-13
 
@@ -123,7 +127,7 @@ Depends on Phase 1. Complete shared boundaries before story implementation; fixt
 ### Mandatory Tests for US1
 
 - [X] T021 [P] [US1] Write homepage/reader HTTP contracts in tests/integration/discovery.test.ts for US1.1-3,5: safe enabled catalog cards/badges/routes, case-insensitive title-only filter, disabled exclusion, Mongo error distinct from empty, unpublished/missing pages and no source-derived private metadata.
-- [X] T022 [P] [US1] Write phone/tablet/desktop, keyboard/focus/theme/reader tests in tests/browser/discovery-reader.spec.ts for US1.4: supported public Markdown/GFM rendering, readable content, Documentation Directory heading, generated app icon/shared footer branding, Public/Private labels and lower-right sync badges, first-sync failure non-navigation with expandable issue, and accessible loading/empty/not-found/error states with observable assertions.
+- [X] T022 [P] [US1] Write phone/tablet/desktop, keyboard/focus/theme/reader tests in tests/browser/discovery-reader.spec.ts for US1.4: supported public Markdown/GFM rendering, readable content, Documentation Directory heading, generated app icon/shared footer branding, Public/Private labels and bottom-left sync badges, first-sync failure non-navigation with expandable issue, and accessible loading/empty/not-found/error states with observable assertions.
 ### Implementation and Integration for US1
 
 - [X] T023 [US1] Implement safe query in lib/catalog.ts and app/page.tsx/components/directory.tsx: Perspective V / Docs, Documentation Directory, configured Public/Private cards with status-only sync indicators, title filter and one/two/three responsive columns; only successful publications navigate.
@@ -179,7 +183,7 @@ Depends on Phase 1. Complete shared boundaries before story implementation; fixt
 - [X] T047 [US2] Complete local session revocation first, cross-tab broadcast/private state clearing/hard replacement in auth.ts, lib/auth/authorization.ts, components/private-content-guard.tsx and account controls; expose sign-out for authenticated directory/admin/public/restricted readers, preserve the safe private-content behavior if revocation fails, and test concurrent refresh/expiry.
 - [X] T048 [US2] Implement read-only operator approval manifest validation in lib/catalog.ts with tests/integration/admin.test.ts and tests/unit/public-approvals.test.ts: exact approved repo/branch/folder/slug, reviewed commit/digest and explicit future same-scope updates; "A client Boolean claiming approval or librarian-admin role is insufficient." Scope changes require review, upstream visibility never auto-publishes; synthetic approvals only. Approval record contains approval ID/version, owner date/reference, repository ID, branch/docsPath/slug, reviewed commit/candidate digest and explicit future updates for that scope; no secret/body or admin-write approval API.
 - [X] T049 [US2] Add 899.999/900/>900-second tests in tests/integration/auth-roles.test.ts for renewed session, removed/empty roles, failed refresh and contention; current verification precedes delivery at deadline and expiry cannot extend verifiedAt.
-- [ ] T050 [US2] Run ST-01/02/03/04/10/13 and US1/US3 regressions, three-browser privacy, global/C2/affected scopes gates, typecheck/lint/production build; record in specs/001-librarian-v1-portal/tasks.md. Stage 3 may proceed locally; private production delivery awaits live DEV/approval gates.
+- [X] T050 [US2] Run ST-01/02/03/04/10/13 and US1/US3 regressions, three-browser privacy, global/C2/affected scopes gates, typecheck/lint/production build; record in specs/001-librarian-v1-portal/tasks.md. Stage 3 may proceed locally; private production delivery awaits live DEV/approval gates.
 
 **Checkpoint**: Run this story's explicit gate and retain unresolved integrated/live evidence.
 
@@ -222,7 +226,7 @@ Depends on Phase 1. Complete shared boundaries before story implementation; fixt
 ### Mandatory Tests for US5
 
 - [X] T068 [P] [US5] Verify tests/integration/admin.test.ts for GET view/list, POST registration, PATCH/DELETE If-Match, sync UUID Idempotency-Key, confirmed removal, active lease/read-pin conflicts, snapshot cleanup/retry and retained replay history; identities/CSRF/exact Origin/unknown fields/32 KiB/slug/path/default-private/approval/quota/stale revision rejected without partial mutation.
-- [X] T069 [P] [US5] Verify tests/browser/admin.spec.ts and tests/browser/discovery-reader.spec.ts for mobile/keyboard/themes/focus/skeleton-loading/denied/error, every configuration field, circular top-left view/edit/delete/sync actions, read-only card expansion, delete disabled during edit, Repository type Private/Public, administration bottom-right sync status, shortened commit with tooltip, directory circular checkboxes, visible selected count, button-based toolbar/card sync controls and lower-right status placement, Home/Repositories navigation, authenticated sign-out, disabled Sync now explanation and admin-only private denial.
+- [X] T069 [P] [US5] Verify tests/browser/admin.spec.ts and tests/browser/discovery-reader.spec.ts for mobile/keyboard/themes/focus/skeleton-loading/denied/error, every configuration field, circular top-left view/edit/delete/sync actions, read-only card expansion, delete disabled during edit, Repository type Private/Public, administration and directory bottom-left sync status, shortened commit with tooltip, directory circular checkboxes, visible selected count, button-based toolbar/card sync controls, Home/Repositories navigation, authenticated sign-out, disabled Sync now explanation and admin-only private denial.
 ### Implementation and Integration for US5
 
 - [X] T070 [US5] Implement registration/update/indexes in lib/catalog.ts/lib/mongo.ts with all foundation model constraints: stable read-only App ID lookup, private-source default, public approval, unique source/slug, <=20 monotonic creation reservations/safe overcount, optimistic If-Match and metadata-only publication preservation; deletion does not recycle lifetime quota.
@@ -230,11 +234,11 @@ Depends on Phase 1. Complete shared boundaries before story implementation; fixt
 - [X] T072 [US5] Verify app/api/admin/repos/route.ts and app/api/admin/repos/[id]/route.ts contract GET/POST/PATCH/DELETE: bounded allowed fields/summaries, unknown/unsafe/stale preconditions reject, deletion uses admin/CSRF, active lease/pins block it, and no credentials/private bodies/physical paths appear in admin responses.
 - [X] T073 [US5] Implement configuration transitions in lib/catalog.ts with tests/integration/admin.test.ts: metadata-only preserve, source/slug/role/visibility increment configRevision/authEpoch/fence/remove incompatible selectable pointers; disabled blocks caches/delivery; access-loss reenable requires validated access and compatible sync/review.
 - [X] T074 [US5] Implement app/api/admin/repos/[id]/sync/route.ts via lib/sync/jobs.ts: guarded UUID key/durable 202, duplicate stored outcome/conflicting scope 409, disabled/capacity/rate failures explicit; automatic current-head/lease/content/publication rules unchanged.
-- [X] T075 [US5] Verify app/repositories/page.tsx and components/admin-console.tsx: Configure toggle; safe collapsed repository summary and view-only expansion before Edit/Delete; delete disabled during edit; circular actions and lower-right status; commit tooltip; Repository type Private/Public ordering; bottom description textarea; save closes form with success notice/refreshed cards while failure preserves form with collapsible error; all settings/default role/approval/enable controls and accessible states; cannot provision owner approval or expose source bodies.
+- [X] T075 [US5] Verify app/repositories/page.tsx and components/admin-console.tsx: Configure toggle; safe collapsed repository summary and view-only expansion before Edit/Delete; delete disabled during edit; circular actions and bottom-left status; commit tooltip; Repository type Private/Public ordering; bottom description textarea; save closes form with success notice/refreshed cards while failure preserves form with collapsible error; all settings/default role/approval/enable controls and accessible states; cannot provision owner approval or expose source bodies.
 - [X] T076 [US5] Implement sync states and bounded refresh in components/admin-console.tsx: four distinct text and color states, retry_wait pending/next-attempt, published commit/last success/readable actionable error, visible prerequisites when Sync now is disabled, accessible Sync now; saving is not ingestion success.
 - [X] T077 [US5] Verify manual sync in tests/integration/admin.test.ts and tests/browser/admin.spec.ts: initial failure/missed webhook/manual recovery, blocked-worker prompt durable ack, duplicate clicks one job and successful retry correct publication; admin gains no reader privilege.
 - [X] T078 [US5] Rerun config/disable/visibility/role/approval and live-worker races in tests/integration/admin.test.ts and tests/browser/private-cache.spec.ts: zero denied bytes, no old incompatible content/stale publication, rejected changes preserve valid state.
-- [ ] T079 [US5] Run US5 and US2/US4 affected regressions, including tests/unit/directory-sync-route.test.ts and tests/client/directory.test.tsx for toolbar/card layout, selection, batch/individual directory sync, status polling, and prior-publication preservation; run tests/client/admin-console.test.tsx for Configure/save/error/read-only/edit/delete behavior; verify route skeletons and reader controls; run global/C1-C6/shared gates, typecheck/lint/production build and record in specs/001-librarian-v1-portal/tasks.md. All prior gates must pass before local story completion.
+- [X] T079 [US5] Run US5 and US2/US4 affected regressions, including tests/unit/directory-sync-route.test.ts and tests/client/directory.test.tsx for toolbar/card layout, selection, batch/individual directory sync, status polling, and prior-publication preservation; run tests/client/admin-console.test.tsx for Configure/save/error/read-only/edit/delete behavior; verify route skeletons and reader controls; run global/C1-C6/shared gates, typecheck/lint/production build and record in specs/001-librarian-v1-portal/tasks.md. All prior gates must pass before local story completion.
 
 **Checkpoint**: Run this story's explicit gate and retain unresolved integrated/live evidence.
 
@@ -244,8 +248,9 @@ All story gates are prerequisites. Local artifact preparation is ordinary DEV wo
 
 - [X] T080 Implement app/api/health/route.ts using lib/operations/health.ts with tests/integration/health.test.ts: 200 only for required storage/content/worker operational or 503 not_ready; no source names/private commits/paths/provider errors/versions/secrets.
 - [X] T081 Implement scripts/validate-artifacts.mjs/tests/unit/artifact-checker.test.ts for FR/QG/ST/SC trace, C1-C6 source inventory and secret/private sentinels in records/errors/logs/responses/static/public bundles/sitemaps/indexes/health; fail missing evidence and copied/private payloads, ST-13.
-- [ ] T082 Stage 4: inspect source provenance and content scope; review `.mdx` against the safe static component allowlist and supported docs/assets; identify only genuinely unsupported constructs for any source-side conversion; record evidence in specs/001-librarian-v1-portal/tasks.md/quickstart.md. Source edits stay in their own confirmed repositories and require scoped authorization; never auto-publish.
-  - Evidence (2026-10-12): Edge tree inspection confirmed `docs/.mintignore`, `docs/index.mdx`, and MDX pages under `docs/runtime`. The restricted DEV catalog saved, but its first sync failed with `github_invalid_content`; the direct NetBird connection to `librarian_dev` and the worker heartbeat were healthy. At that time v1 rejected MDX and unsupported files; no source changes or validation weakening were made. The 2026-10-13 Phase 3 update below supersedes that parser policy. A successful DEV sync is now recorded below; T082 remains open for exact published-tree provenance and content-scope review.
+- [X] T082 Stage 4: inspect source provenance and content scope; review `.mdx` against the safe static component allowlist and supported docs/assets; identify only genuinely unsupported constructs for any source-side conversion; record evidence in specs/001-librarian-v1-portal/tasks.md/quickstart.md. Source edits stay in their own confirmed repositories and require scoped authorization; never auto-publish.
+  - Historical evidence (2026-10-12): Edge tree inspection confirmed `docs/.mintignore`, `docs/index.mdx`, and MDX pages under `docs/runtime`. The restricted DEV catalog saved, but its first sync failed with `github_invalid_content`; the direct NetBird connection to `librarian_dev` and the worker heartbeat were healthy. At that time v1 rejected MDX and unsupported files; no source changes or validation weakening were made. The 2026-10-13 Phase 3 update below supersedes that parser policy and the earlier incomplete status.
+  - Verified provenance/content scope (2026-10-13): the clean `contabo` checkout is on `main` at `d82a7d26487af66f37d91cdea8e828f133564806`, exactly matching the previously recorded DEV published commit. `docs/` tree `7406cc078d8c9496b99f6d800e578d3a06e49bd5` contains 90 regular, non-executable files (74 `.mdx`, 16 `meta.json`; 533,252 bytes total). The largest MDX file is 92,925 bytes and largest metadata file 460 bytes; no other extensions or canonical-path violations were found. Counts fit the existing limits. The recorded DEV success therefore covers this exact source SHA; this review read Git tree metadata only, did not inspect document bodies, and did not modify source repositories or GitHub App settings. The DEV result was not rechecked live during this review.
 - [X] T083 Write tests/integration/container.test.ts for standalone artifacts/nonroot permissions: no copied docs/snapshots/fixtures/secrets/coverage maps, runtime local-md/Shiki files present, no build worker, real server worker/health/restart/overlap and persistent-root access.
 - [X] T084 Stage 5: complete Dockerfile/.dockerignore/next.config.mjs using reviewed pinned Node standalone nonroot app and same-container worker; original approved branding only in public, no blanket images/source copying; build the local image and inspect artifacts before separately approved versioned Gitea publication. Registry publication remains T091.
 - [X] T085 Implement scripts/measure-workload.mjs/tests/unit/workload-checker.test.ts for exact plan corpus/load: 3 catalogs/500 pages+100 assets each/50 KiB average page/10 MiB assets, 10 readers at 20 requests/s for 15 min with sync/restart; report latency/ack/publish/RSS/memory peak/CPU/disk/cache/retries and fail bounds/budget/privacy/correctness/OOM violations.
@@ -255,11 +260,11 @@ All story gates are prerequisites. Local artifact preparation is ordinary DEV wo
 - [ ] T089 After concrete approval/operator Swarm-secret provisioning, execute separate DEV login/refresh/rotation/logout/live role removal at >=15 min/every path-browser/signed GitHub push/manual sync/access loss/no-rebuild proof from quickstart.md; record ST-14/SC-013 actual Auth.js/Zitadel compatibility in specs/001-librarian-v1-portal/tasks.md. Unsupported current-role API blocks release, no stale-claim fallback.
 - [ ] T090 Prepare/test approved infrastructure-owned consistent Mongo/content backup and previous-image/config rollback at confirmed paths recorded by infrastructure preparation; drain/fence intake/requests/worker, isolated DEV restore/manifests/pointers/auth/browser/health, each <=30 min for corpus; record ST-14 in specs/001-librarian-v1-portal/tasks.md. Never use unguarded legacy reader or assume Compose rollback.
 - [ ] T091 Only after complete local/live gates and concrete owner approvals, publish versioned Gitea image and use approved infrastructure-owned ssh contabo deployment procedure in quickstart.md; retain prior image/config/recovery set, verify browser/health/rollback readiness and record approval/image/evidence in specs/001-librarian-v1-portal/tasks.md. No Git branch/commit/push/release/deployment without explicit authorization.
-- [ ] T092 Update specs/001-librarian-v1-portal/spec.md, plan.md, quickstart.md and tasks.md only to reflect verified final behavior/evidence/outstanding blockers; full FR/QG/ST/SC and constitution/architecture recheck, no second state ledger or manufactured reports.
+- [X] T092 Update specs/001-librarian-v1-portal/spec.md, plan.md, quickstart.md and tasks.md only to reflect verified final behavior/evidence/outstanding blockers; full FR/QG/ST/SC and constitution/architecture recheck, no second state ledger or manufactured reports.
 
 **Checkpoint**: Complete applicable tests/gates and preserve authorization/scope boundaries.
 
-## Final Local Verification - 2026-10-12
+## Historical Local Verification - 2026-10-12 (Superseded by the 2026-10-13 consolidated result)
 
 This section supersedes earlier checkpoint notes below when they conflict with the final results.
 
@@ -272,7 +277,7 @@ This section supersedes earlier checkpoint notes below when they conflict with t
 
 ## Phase 3 MDX and Subtree Sync Update - 2026-10-13
 
-- The local `HassanTaj/contabo` checkout has `HEAD` and `origin/main` at `567e6d3`; `git ls-tree` reports 74 entries / 530,249 bytes under `docs/` (72 `.mdx`, one JSON, one `.mintignore`), with the largest page 92,591 bytes. All 72 pages and the complete supported candidate pass validation within current limits. No size/count limit was raised. This does not prove the running app fetched the same ref.
+- Historical snapshot (superseded by the T082 verification above): the local `HassanTaj/contabo` checkout was recorded at `567e6d3`, with 74 entries / 530,249 bytes under `docs/`. The current checkout and published source SHA are recorded above.
 - The importer resolves the configured subtree by immutable Git tree SHA and fetches only supported pages, navigation metadata, and assets by blob SHA; it does not clone or download the repository archive. Unrelated regular file types are omitted before blob fetch. Symlinks, submodules, executable modes, unsafe paths, unsupported MDX syntax, and oversized supported files still fail safely. No source-repository edit, App permission change, or limit change was made.
 - `.mdx` supports Markdown/GFM and static `Info`, `Note`, `Warning`, `Columns`, `Card`, `Steps`, and `Step` components. Only literal string attributes are allowed, except literal `Columns cols={1..4}`. Imports, exports, dynamic expressions, unknown components/attributes, unsafe HTML, and unsafe links remain rejected. Card links are rewritten to the selected catalog and generation route. Focused unit validation/path/admin tests passed 79/79; GitHub importer integration tests passed 23/23; TypeScript and full lint passed. The full unit attempt reported 346 passed and 6 failed: two stale admin assertions were corrected and focused tests passed, while four tests still hit Windows sandbox `EPERM` creating symlinks; the full suite was not rerun. The guarded runtime component-render integration test and refreshed coverage gates remain open. A production build passed with `next build --webpack` using a temporary output directory because the existing `.next` directory was not writable in the sandbox.
 - A manual sync from the local admin page was accepted and visibly transitioned Pending → Running → Failed without a page reload. The final code was `github_invalid_content`; no generation was published. The generic code does not identify which remote tree/blob or validation stage failed, and the running app's loaded worker version was not verified. No GitHub App settings or source files changed.
@@ -562,3 +567,60 @@ This follow-up supersedes earlier T027/T050/T079/T087 pass notes for the updated
 
 - `public_approval_required` now explains the owner-approval gate and points to the manifest setup guide. The guide documents the operator-provisioned record scope, repository ID versus Installation ID, private fallback, and rejected-save behavior. Existing validation-before-write behavior is retained.
 - Verification: admin-auth unit tests (4/4), typecheck, production build, scoped lint, and setup-guide local-link checks passed. Client and integration browser tests did not run because Playwright Chromium and disposable MongoDB/Docker are unavailable. No Edge/live catalog, approval manifest, publication, or deployment was used. Two existing explicit-`any` lint errors remain at `tests/integration/admin.test.ts:190-191`; full coverage and acceptance gates remain open.
+
+## Consolidated Local Verification - 2026-10-13
+
+This is the current local evidence record. The dated entries above remain historical snapshots and are
+superseded where their status differs from this section.
+
+- Story gates T050 and T079 pass locally. The browser suite passed 72/72 across Chromium, Firefox, and
+  WebKit (24 each), including private HTML/RSC/metadata/search/asset identity and cache paths,
+  directory/admin journeys, `/repositories`, bottom-left badge geometry, and skeleton/reader controls.
+  The former `/admin` UI route is not the administration page; `/api/admin/...` remains the API prefix.
+- The latest full `npm run test:coverage` collection passed 640 unit/integration/client tests with no
+  failures or skips. Global raw coverage: statements 3717/3840 (96.80%), branches 2936/3065 (95.79%),
+  functions 614/633 (97.00%), lines 2888/2933 (98.47%). Every C1-C6 scope passes all four independent
+  95% thresholds, and the saved coverage hashes pass `npm run coverage:check`. After the standalone
+  start-script correction, `tests/unit/build-config.test.ts` passed 10/10; the full coverage collection
+  has not been refreshed for that latest test addition.
+- `npm run typecheck`, repository-wide `npm run lint`, and Windows `npm run build` passed. A fresh local
+  standalone image `librarian:codex-local-20261013-cache-fix` (image ID
+  `sha256:658231a161edafe6f9410dd093002d0a41d8cdc128002df1263749841afcfa73`) passed the container
+  acceptance test against a fresh disposable Mongo container, including non-root runtime, artifact
+  boundaries, health, persistent storage, restart, overlap, and the 0.5 CPU / 512 MiB limits. The image
+  was not published.
+- `npm run validate:artifacts` passed: 73 requirements, 92 tasks, 70 executable sources, six scopes, and
+  152 scanned artifacts. `git diff --check` passed. T082 provenance matches the previously recorded
+  DEV publication SHA `d82a7d26487af66f37d91cdea8e828f133564806`; tree `7406cc078d8c9496b99f6d800e578d3a06e49bd5`
+  contains 90 regular non-executable files (74 `.mdx`, 16 `meta.json`; 533,252 bytes), within limits.
+  This was a tree-metadata review; document bodies were not reread and live DEV was not rechecked.
+- T086 remains open: no 15-minute workload, retention-pressure, or measured resource evidence was
+  produced. A fresh synthetic run directory was prepared, but the local Docker Desktop Service was
+  stopped and Windows denied starting it; no valid workload measurement was accepted. The earlier failed
+  run evidence remains diagnostic only. The workload command validates evidence but does not generate
+  the corpus, drive load, measure resources, or exercise container-worker publication. No live GitHub
+  or live data was used.
+- T087 remains open. The literal `npm run start` initially emitted Next.js's warning that `next start`
+  is unsupported with `output: standalone`; `package.json` now runs the generated `.next/standalone/server.js`
+  as specified by the installed Next.js docs, with a regression assertion in `tests/unit/build-config.test.ts`.
+  The corrected command started on localhost, but `/api/auth/providers` returned `storage_unavailable`
+  because MongoDB was unavailable. The focused test passed 10/10, typecheck and lint passed, and the server
+  was stopped. Full quickstart acceptance and refreshed global coverage remain open.
+- T088 remains open. Read-only inspection (2026-10-13) verified the actual infrastructure checkout is
+  the sibling `contabo` repository. Existing reference paths are `swarm/stacks/websites/perspective-v.com/docs.yml`,
+  `swarm/scripts/websites/fumadocs.sh`, `swarm/scripts/common/stack-target.sh`,
+  `swarm/stacks/databases/mongodb.yml`, and `swarm/scripts/databases/database.sh`; DEV templates exist
+  for Fumadocs, Mongo, Zitadel, and Gitea, but no Librarian-specific service descriptor, environment
+  template, or route exists. Remote inspection found one Ready/Leader Swarm node, Fumadocs 1/1 at
+  0.5 CPU/512 MiB on the proxy network without mounts or service secrets, and Mongo 1/1 with a
+  persistent volume, Mongo network, and a referenced secret. No Librarian service or isolated DEV
+  route exists; `dev.perspective-v.com` resolves to the same host as the docs service. These facts do
+  not establish Librarian durability or rollback. Zitadel role API/audience, GitHub App installation
+  permissions, Gitea auth, the remote checkout, and a DEV registry route remain unverified. The existing
+  Fumadocs update rollback policy is not a Librarian data-recovery plan; the documented remote checkout
+  paths also conflict and must be resolved before deployment. No live mutation occurred. T089 and T090
+  still require provisioned credentials or explicit approval for DEV integration and recovery.
+  T091 requires complete gates and explicit publication/deployment approval; no push was made, as
+  requested. No production deployment or live service mutation occurred.
+- T050, T079, T082, and T092 are checked. T086-T091 remain unchecked; the ledger has 86 of 92 tasks
+  checked. Local fixture Mongo used loopback-only synthetic data.

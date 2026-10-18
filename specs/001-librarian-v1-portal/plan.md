@@ -5,22 +5,17 @@
 **Input**: Complete v1 specification; [AGENTS.md](../../AGENTS.md),
 [constitution v2.0.0](../../.specify/memory/constitution.md),
 [agreed brief](../../docs/requirements/v1-requirements.md).
-**Status**: Phase 0 research and Phase 1 design are complete. Prior local implementation and synthetic
-acceptance results are recorded in [tasks.md](tasks.md). The 2026-10-13 Phase 3 update accepts Markdown/GFM
-plus a static Fumadocs MDX component allowlist and fetches supported blobs only from the configured docs
-subtree. The inspected local source checkout's 72 MDX pages fit existing limits; no limit increase was
-made. The first admin sync failed with legacy `github_invalid_content`; a later local DEV sync completed
-successfully. The directory and admin views show Succeeded, with published commit
-`d82a7d26487af66f37d91cdea8e828f133564806` and last successful sync `13/10/2026, 02:51:01`. The inspected
-local checkout is at `567e6d3`, so its validation does not establish byte-for-byte identity with the
-published tree; T082 remains open for exact source provenance/content-scope review. No source-repository
-files, GitHub App settings, or limits changed; no production publication/deployment occurred. Focused
-validation passed 23/23 importer integration tests, 93/93 unit tests, 3/3 batch-route tests, typecheck,
-lint, and a production build using `--webpack` and an ignored temporary output directory. Full coverage
-collection could not complete because the browser sandbox lacks a usable Playwright engine/loopback path;
-three-engine acceptance and refreshed coverage gates remain open. T022/T027/T050/T068/T069/T072/T075/T079/
-T087/T092 and aggregate gates for content provenance, measured workload, recovery, publication, and
-deployment remain open.
+**Status**: Phase 0 research and Phase 1 design are complete. The 2026-10-13 Phase 3 update accepts
+Markdown/GFM plus a static Fumadocs MDX component allowlist and fetches supported blobs only from the
+configured docs subtree. Source provenance is verified: the clean local `contabo` checkout and
+`origin/main` match the previously recorded DEV publication SHA `d82a7d26487af66f37d91cdea8e828f133564806`;
+the `docs/` tree contains 90 regular, non-executable files (74 `.mdx`, 16 `meta.json`) within current
+limits. The tree-metadata review did not reread document bodies or recheck live DEV. Current local gates
+pass: 638 unit/integration/client tests, all global/C1-C6 four-metric coverage thresholds, 72/72
+three-engine browser tests, typecheck, lint, artifact validation, production build, and local container
+acceptance. T050, T079, T082, and T092 are complete. T086-T091 remain open for measured workload,
+infrastructure revalidation, live DEV/recovery, and separately approved publication/deployment. No
+production operation is claimed.
 
 ## Summary
 
@@ -90,8 +85,8 @@ Gate assessments apply to this design, not to the inherited scaffold or unexecut
 | II. Private authorization boundary | PASS: common server checks required for every path | PASS: identity/project/reader checks, exact freshness, cache/browser fence, owner approval; ST-01-04,10,13 required |
 | III. Untrusted content | PASS: bounded parsing, no source-code execution | PASS: allowlisted static MDX AST plus YAML/path/type validation, original-byte signature, scoped tokens/secrets; ST-05-06,10-13 required |
 | IV. Recoverable generations | PASS: immutable candidate, fenced conditional publication | PASS: durable jobs, per-catalog lease, current-ref resolution, restart reconciliation; ST-06-09,11 required |
-| V. Tests and 95% | PASS: functional tests and all four full-v1 thresholds retained; presentation-only exception recorded | PASS: global and every functional capability scope, unexecuted files and anti-gaming rules; no coverage achieved yet |
-| VI. Standard accessible reader | PASS: reuse copied Fumadocs layouts/components | PASS: standard tree/search/page controls plus only required catalog/auth adapters; three-browser and responsive proof pending |
+| V. Tests and 95% | PASS: functional tests and all four full-v1 thresholds retained; presentation-only exception recorded | PASS: global and every functional capability scope, unexecuted files and anti-gaming rules; current global/C1-C6 gates pass |
+| VI. Standard accessible reader | PASS: reuse copied Fumadocs layouts/components | PASS: standard tree/search/page controls plus only required catalog/auth adapters; three-browser and responsive proof pass locally |
 | VII. Bounded/reversible operations | PASS: budget, scoped approvals and existing services | PASS: explicit limits/workload/retention and DEV/recovery/rollback gates; no live readiness asserted |
 | Architecture/workflow | PASS: agreed stack and ownership unchanged | PASS: no added service, no silent alternative stack, infrastructure changes deferred to its repository |
 
@@ -384,11 +379,14 @@ other expressions, unknown components or attributes, and raw HTML are rejected. 
 are rewritten to the selected catalog and generation route. This preserves the untrusted-content
 boundary without converting safe pages to `.md` or executing source-repository code.
 
-The local `HassanTaj/contabo` checkout has `HEAD` and `origin/main` at `567e6d3`; its Git tree for
-`docs/` contains 74 entries and 530,249 bytes: 72 `.mdx` pages, one JSON file, and one `.mintignore`.
-The largest page is 92,591 bytes. All supported local files pass per-file and candidate validation.
-These fit the existing 500-page, 1,000-file, 50 MiB snapshot and 256 KiB page limits, so no limit
-increase is justified. This local ref does not prove the running app fetched the same remote branch.
+The clean local `HassanTaj/contabo` checkout has `HEAD` and `origin/main` at
+`d82a7d26487af66f37d91cdea8e828f133564806`, matching the previously recorded DEV publication commit.
+Its `docs/` Git tree is `7406cc078d8c9496b99f6d800e578d3a06e49bd5` and contains 90 regular,
+non-executable files (74 `.mdx`, 16 `meta.json`; 533,252 bytes total). The largest MDX is 92,925 bytes;
+the largest metadata file is 460 bytes. No other extensions or canonical-path violations were found.
+The counts fit the existing 500-page, 1,000-file, 50 MiB snapshot and 256 KiB page limits, so no limit
+increase is justified. This was a tree-metadata audit; document bodies were not reread and the live DEV
+service was not rechecked. The previously recorded successful sync is evidence for the same SHA.
 The GitHub recursive-tree endpoint itself
 is capped at 100,000 entries and 7 MB; truncated trees must continue to fail safely.
 
@@ -416,20 +414,22 @@ rollback is in scope; code rollback to the prior grammar is local and failed can
 
 ### Responsive Directory and Repository Console UX — 2026-10-13
 
-The directory toolbar keeps search and batch sync controls centered vertically with space between them;
+The UI administration route is `/repositories`; `/api/admin/...` remains the API prefix. The directory
+toolbar keeps search and batch sync controls centered vertically with space between them;
 its outlined Sync button shows the sync icon, selected-source count badge (including zero), and active
 sync state. Cards place a circular selection control at upper left with the same 1px theme border as the
-card, a status badge at lower right, and a smaller icon-only sync button at upper right with no visible
+card, a status badge at lower left, and a smaller icon-only sync button at upper right with no visible
 circle around the icon; its icon spins while the request queues and while status is pending or running.
 Public/Private
 labels stay beside or below a wrapping title. Shared navigation supplies Home and Repositories;
 the Fumadocs reader controls must wrap cleanly on narrow screens. Failed-first-sync cards stay disabled
-and show their sanitized expandable issue. Admin cards use circular actions at upper left, a lower-right
+and show their sanitized expandable issue. Admin cards use circular actions at upper left, a lower-left
 status badge, read-only details before editing/deleting, and shortened commit IDs with the complete value
 available as a tooltip. The Configure form uses a bottom description textarea and ordered visibility field;
 successful creation closes it and refreshes the list, while a failure leaves it available with a collapsible
-error banner. Static route skeletons mirror directory, admin-card, and reader layouts and contain no catalog
-metadata or private content.
+error banner. The homepage and `/repositories` skeletons each show three consistent cards, keep sync status
+at the bottom left, and contain no error placeholders, catalog metadata, or private content. Reader
+skeletons contain no private content.
 
 Affected files: `components/directory.tsx`, `components/admin-console.tsx`,
 `components/site-navigation.tsx`, `app/page.tsx`, `app/repositories/page.tsx`, the directory/admin/reader
@@ -520,10 +520,9 @@ security/recovery requirements. No generic framework, extra service, new provide
 All product/planning choices are recorded; no unresolved design placeholder remains. Manifest peers and
 the synthetic runtime probe are verified. Phase 1 re-check passes at design level.
 
-Still required for aggregate completion/release: inspect actual source-content provenance, run the
-planned 15-minute resource/workload and retention-pressure test, and verify current Zitadel roles,
-live access removal, and recovery/rollback in separately approved DEV. The local Linux standalone
-image build and container artifact/runtime acceptance passed; only the direct Windows `npm run build`
-path retains its trace-assembly `EPERM`. The private path matrix and intake-to-runtime proof are
-covered by automated browser/integration tests. These remaining evidence gates do not weaken the
-project's scope or governance.
+Still required for aggregate completion/release: run the planned 15-minute resource/workload and
+retention-pressure test; revalidate infrastructure and verify current Zitadel roles, live access removal,
+and recovery/rollback in separately approved DEV. The current Windows production build and fresh local
+image/container acceptance passed. The private path matrix and intake-to-runtime proof are covered by
+automated browser/integration tests. These remaining evidence gates do not weaken the project's scope or
+governance.

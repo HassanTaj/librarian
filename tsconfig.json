@@ -113,7 +113,21 @@
     ".local/browser-e69a8486-8695-43cb-b4ee-8cddf6249724/next/types/**/*.ts",
     ".local/browser-e69a8486-8695-43cb-b4ee-8cddf6249724/next/dev/types/**/*.ts",
     ".local/browser-c4ed5878-e52b-43d1-9c23-d7218b453e40/next/types/**/*.ts",
-    ".local/browser-c4ed5878-e52b-43d1-9c23-d7218b453e40/next/dev/types/**/*.ts"
+    ".local/browser-c4ed5878-e52b-43d1-9c23-d7218b453e40/next/dev/types/**/*.ts",
+    ".local/browser-16228a5b-6aa1-4eae-a10c-6a6cfda97534/next/types/**/*.ts",
+    ".local/browser-16228a5b-6aa1-4eae-a10c-6a6cfda97534/next/dev/types/**/*.ts",
+    ".local/browser-fd88e385-7382-4d84-a81f-e575fa239395/next/types/**/*.ts",
+    ".local/browser-fd88e385-7382-4d84-a81f-e575fa239395/next/dev/types/**/*.ts",
+    ".local/browser-996e6c19-a541-4f35-a90b-3a3c8ebfb7a1/next/types/**/*.ts",
+    ".local/browser-996e6c19-a541-4f35-a90b-3a3c8ebfb7a1/next/dev/types/**/*.ts",
+    ".local/browser-2ad647c6-afdf-4e57-a7b1-17e0511f5120/next/types/**/*.ts",
+    ".local/browser-2ad647c6-afdf-4e57-a7b1-17e0511f5120/next/dev/types/**/*.ts",
+    ".local/browser-56152772-365c-441e-b8d4-92a73f3da8c5/next/types/**/*.ts",
+    ".local/browser-56152772-365c-441e-b8d4-92a73f3da8c5/next/dev/types/**/*.ts",
+    ".local/browser-dd72aaff-88b5-4435-8997-91340909a827/next/types/**/*.ts",
+    ".local/browser-dd72aaff-88b5-4435-8997-91340909a827/next/dev/types/**/*.ts",
+    ".local/browser-ac2e09e7-196e-421f-98b6-0d29b9933bf0/next/types/**/*.ts",
+    ".local/browser-ac2e09e7-196e-421f-98b6-0d29b9933bf0/next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

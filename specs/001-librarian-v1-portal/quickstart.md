@@ -1,17 +1,17 @@
 # Quickstart and Validation Guide: Librarian v1
 
-**Status**: The local v1 application is implemented across discovery/reading, private authorization,
-search/assets, GitHub intake, durable synchronization, administration, and health. The prior 2026-10-12
-global/C1-C6 coverage, typecheck, lint, artifact, browser, build, and container gates are recorded below.
-For Phase 3, the inspected source checkout's supported files pass the updated MDX validator and current
-limits; no limit increase was made. The first manual sync failed with legacy `github_invalid_content`;
-a later local DEV sync completed successfully. The directory and admin views show Succeeded, with
-published commit `d82a7d26487af66f37d91cdea8e828f133564806` and last successful sync `13/10/2026, 02:51:01`.
-The inspected local checkout is at `567e6d3`, so exact published-tree provenance/content review remains
-open. Focused importer integration, unit and batch-route tests, typecheck, lint, and production build pass.
-Full coverage evidence and browser acceptance remain open because the sandbox could not launch a usable
-Playwright browser against Vitest's loopback server. Measured workload, recovery, publication, and
-deployment gates also remain open.
+**Status**: Current local verification is recorded below and in [tasks.md](tasks.md). The UI route is
+`/repositories`; `/api/admin/...` is the administration API. Source provenance is verified: the clean
+local `contabo` checkout and `origin/main` match the previously recorded DEV publication at
+`d82a7d26487af66f37d91cdea8e828f133564806`, with 90 regular files under `docs/` (74 `.mdx`, 16
+`meta.json`) and no unsupported file types or canonical-path violations. The audit used Git tree metadata;
+it did not reread document bodies or recheck live DEV. The latest full local coverage collection passed
+640 tests with all global and C1-C6 statement, branch, function, and line thresholds; 72/72 browser tests passed across Chromium,
+Firefox, and WebKit. Typecheck, lint, artifact validation, build, and local container acceptance passed.
+T050, T079, T082, and T092 are complete. The 15-minute resource workload and live infrastructure,
+recovery, publication, and deployment gates remain open; no production delivery is claimed. The direct
+start script now uses the generated standalone server and starts on localhost, but its database-backed
+route probe returned `storage_unavailable` while the local Docker Desktop Service was stopped.
 See [tasks.md](tasks.md) for verified evidence and remaining tasks.
 **References**: [plan](plan.md), [data model](data-model.md), [HTTP contracts](contracts/http.md).
 
@@ -81,7 +81,7 @@ Public official image digests verified read-only on 2026-10-11:
 
 These multi-platform digests identify the selected base/test images, not a live infrastructure image.
 The locally built Librarian image used for current container acceptance is
-`librarian:codex-local-20261012` (`sha256:9cdf658afb70b9af8181b753b45fdc900fb57b4f3101907df330f09975daa103`).
+`librarian:codex-local-20261013-cache-fix` (`sha256:658231a161edafe6f9410dd093002d0a41d8cdc128002df1263749841afcfa73`).
 It has not been published. Recheck base-image security/architecture before a future build. Use only a
 separate disposable loopback test database; never connect these commands to live infrastructure data.
 
@@ -99,22 +99,22 @@ and content directories; never pass secret values through logged command argumen
 |---|---|
 | `npm run typecheck` | Passed after the final test/configuration changes. |
 | `npm run lint` | Passed with no warnings. |
-| `npm run test:coverage` / `npm run coverage:check` | Passed all global and C1-C6 statement/branch/function/line gates; 534 tests passed with no failures or skips. Global raw counts: statements 3054/3164, branches 2305/2420, functions 460/474, lines 2377/2420. |
-| `npm run test:e2e` | 33/33 passed across Chromium, Firefox, and WebKit, including admin screens, private HTML/RSC/metadata/search/assets identity/cache paths and runtime sync visibility. |
-| `npm run validate:artifacts` | Passed before the Phase 3 delta with 73 requirements, 92 tasks, 62 source files, 6 scopes, and 115 scanned artifacts. The 2026-10-13 rerun could not complete because `coverage/evidence.json` is absent; regenerate full coverage evidence before accepting this gate. |
-| `npm run build` | Passed on Windows after granting the local build process filesystem access for Next's standalone trace copy. A Linux standalone production image previously built as `librarian:codex-local-20261012` (`sha256:9cdf658afb70b9af8181b753b45fdc900fb57b4f3101907df330f09975daa103`) and passed container acceptance (see below); that image was not rebuilt for the final sign-in CTA update. |
-| `npm run test:unit`, `npm run test:integration` | Included in the coverage collection and focused integration runs; all required runs passed. |
-| `npm run start` | Not run directly on Windows; the built production image started and passed the container integration test. |
-| `npm run measure:workload` | Validates recorded evidence against the planned corpus, latency, resource, privacy, and recovery bounds. No 15-minute workload evidence or retention-pressure run has been captured; T086 remains open. |
+| `npm run test:coverage` / `npm run coverage:check` | The latest full collection passed 640 unit/integration/client tests with no failures or skips. Global raw coverage: statements 3717/3840 (96.80%), branches 2936/3065 (95.79%), functions 614/633 (97.00%), lines 2888/2933 (98.47%); every C1-C6 scope passes each 95% threshold. The corrected standalone-start regression test was added afterward, so global evidence has not been refreshed for that test addition. |
+| `npm run test:e2e` | 72/72 passed: 24 each in Chromium, Firefox, and WebKit. Includes admin and directory journeys, bottom-left badge geometry, private HTML/RSC/metadata/search/assets identity/cache paths, and runtime sync visibility. |
+| `npm run validate:artifacts` | Passed after the current feature-artifact update; see the consolidated result in tasks.md. |
+| `npm run build` | Passed on Windows with the local filesystem access required for Next's standalone trace copy. A fresh standalone image was built locally as `librarian:codex-local-20261013-cache-fix` (image ID `sha256:658231a161edafe6f9410dd093002d0a41d8cdc128002df1263749841afcfa73`); it was not published. |
+| `npm run test:unit`, `npm run test:integration` | The prior full coverage collection passed all unit/integration tests (640 total); after the start-script correction, `npm run test:unit` passed 404/404 and `tests/unit/build-config.test.ts` passed 10/10. Integration was not rerun because the local Docker Desktop Service was unavailable. |
+| `npm run test:container` | Passed against the fresh local image, including non-root runtime, image contents, health, persistent volume, restart, overlap, and 0.5 CPU/512 MiB container limits. |
+| `npm run start` | The script now runs `.next/standalone/server.js`, as documented by installed Next.js 16. The direct localhost start reached `Ready`; `/api/auth/providers` returned `storage_unavailable` because MongoDB was unavailable. The app was stopped afterward; full T087 acceptance remains open. |
+| `npm run measure:workload` | Validates supplied evidence but does not generate a corpus, drive load, or collect metrics. The fresh run could not start because the local Docker Desktop Service was stopped and Windows denied starting it. No 15-minute workload or retention-pressure evidence was accepted; T086 remains open. |
 
 Coverage maps and reports remain local and are excluded from the Docker context. The checker preserves
 untouched source inventory and enforces each metric separately; every C1-C6 scope passes.
 
 `npm run test:coverage` collects Node, integration, browser-counter, and actual Next server evidence,
 then enforces the strict global and per-scope gates. `npm run coverage:check` verifies the saved
-source hashes and evidence again. The default sandbox denied Next's trace-directory creation; the same
-local production build passed with filesystem access enabled. Earlier Linux Docker production and
-container acceptance also passed.
+source hashes and evidence again. The current local production build passed with filesystem access
+enabled, and fresh-image container acceptance passed. Neither result is workload-capacity evidence.
 
 Acceptance completion runs all relevant commands, not just targeted checks. Every added/changed
 feature has automated tests; each bug fix has a defect-demonstrating regression. No meaningful
@@ -145,8 +145,8 @@ not production bodies. Do not manufacture missing report artifacts or retry a fa
 
 ## Resource and Container Validation
 
-The local standalone image built as `librarian:codex-local-20261012` with image ID
-`sha256:9cdf658afb70b9af8181b753b45fdc900fb57b4f3101907df330f09975daa103`. Container acceptance
+The local standalone image built as `librarian:codex-local-20261013` with image ID
+`sha256:e0c2f2cf56a6a671ffd0c6d67579ddbee1485c3bbef8c648c91c0af92ece9d7d`. Container acceptance
 passed for non-root execution, runtime dependencies/artifact exclusions, worker-backed health, overlap,
 restart, and persistent storage. The full three-catalog, 15-minute workload and retention-pressure
 measurement remains open; basic container acceptance is not capacity evidence.
@@ -185,6 +185,23 @@ This section is a future run guide, not authorization to provision/deploy now.
    unverified Compose command or fall back to an unguarded legacy private reader.
 5. Record results in applicable feature tasks/checklists once those exist. Never mark an unrun live
    check complete or add a second state ledger.
+
+### Read-only Stage 6 snapshot — 2026-10-13
+
+The actual sibling infrastructure checkout is `contabo`. Existing reference paths are
+`swarm/stacks/websites/perspective-v.com/docs.yml`, `swarm/scripts/websites/fumadocs.sh`,
+`swarm/scripts/common/stack-target.sh`, `swarm/stacks/databases/mongodb.yml`, and
+`swarm/scripts/databases/database.sh`. DEV templates exist for Fumadocs, Mongo, Zitadel, and Gitea;
+there is no Librarian-specific service descriptor, environment template, or route.
+
+Read-only Swarm inspection found one Ready/Leader node, the Fumadocs service at 1/1 with 0.5 CPU and
+512 MiB on the proxy network and no service mounts/secrets, and Mongo at 1/1 with a persistent volume,
+Mongo network, and a referenced secret. No Librarian service or isolated DEV route exists. The current
+`dev.perspective-v.com` route resolves to the same host as `docs.perspective-v.com`, so it is not a
+separate Librarian DEV target. Provider-side Zitadel role API/audience, GitHub App installation
+permissions, Gitea auth, the remote checkout, and a DEV registry route remain unverified. The existing
+Fumadocs update rollback policy does not establish Mongo/content recovery. Resolve the conflicting
+documented remote checkout paths before deployment. T088 remains open; no live mutation was made.
 
 ## Expected Evidence at Handoff
 

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node node_modules/next/dist/bin/next dev --webpack",
     "build": "node node_modules/next/dist/bin/next build --webpack",
-    "start": "node node_modules/next/dist/bin/next start --hostname 0.0.0.0",
+    "start": "node .next/standalone/server.js",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
     "lint": "node node_modules/eslint/bin/eslint.js .",
     "test:unit": "node node_modules/vitest/vitest.mjs run --project unit",

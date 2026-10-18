@@ -1,21 +1,17 @@
 <!--
-Sync Impact Report (temporary review material; remove before committing)
-Version change: 1.0.0 -> 2.0.0 (owner-approved amendment, 2026-10-13)
-Amended principle:
-- V. Functional Features Ship with Tests and At Least 95% Coverage
-Unchanged principles: I. Git Is the Documentation Source of Truth; II. Private Content Has a Single
-Server Authorization Boundary; III. Repository Content and External Inputs Are Untrusted;
-IV. Synchronization Publishes Complete, Recoverable Generations; VI. Use Standard Components and
-Accessible Reader Behavior; VII. Operations Must Be Bounded, Observable, and Reversible.
-Amendment: Principle V and the development gates now exempt isolated, presentation-only UI changes
-from test authoring, test execution, and coverage completion gates unless the owner asks for them.
-Functional, security, data-integrity, ingestion, and release gates remain in force.
-Reason: the owner directed that UI presentation work stay focused and all tests be deferred until requested.
-Migration impact: this directory presentation follow-up does not close any open v1 behavior, security,
-or release tasks; test work for this presentation slice is deferred until the owner requests it.
-Updated sections: Principle V; Development Workflow and Quality Gates; amendment history.
-Synchronized artifacts: AGENTS.md and the active feature spec, plan, and task ledger.
-Product, security, data-integrity, and release scope are unchanged. Follow-up TODOs: none.
+Sync Impact Report — 2026-10-19
+Version change: 2.0.0 -> 3.0.0, explicit owner approval in D1/D2 responses.
+Affected principle: III, provider-credential storage and instance authority.
+Provider credentials/private keys: authenticated-encrypted MongoDB instance bundles.
+Database/root/session/OAuth/bootstrap secrets: host-managed scoped Swarm secrets.
+Instance Settings: explicit issuer/subject binding AND librarian-instance-admin.
+Legacy enrollment: protected operator plus verified catalog and instance admin roles.
+Unchanged: private reader boundary, source/content validation, 95% gates, resources,
+same-container worker, original v1 obligations and live-operation approvals.
+Synchronized: AGENTS.md and 002 spec, checklist, reconciliation and planning artifacts.
+Migration: deliberate owner-confirmed import, independent keys, coherent fencing and
+consistent recovery; no live credential change or migration executed by this amendment.
+Historical 001 artifacts and installed skills/templates are preserved.
 -->
 
 # Librarian Constitution
@@ -85,10 +81,26 @@ branch before queuing work. The GitHub App MUST have read-only Contents access a
 only the webhook subscriptions and installations required for selected repositories.
 Installation tokens MUST be short-lived.
 
-Administration mutations MUST require `librarian-admin`, server-side validation,
-and CSRF/origin protection. Secrets and tokens MUST NOT appear in repository
-records, source control, client payloads, logs, or user-visible errors. Production
-credentials MUST be provided through scoped Swarm secrets.
+Catalog administration mutations MUST require `librarian-admin`, server-side
+validation, and CSRF/origin protection. Instance Settings operations MUST require
+an explicit instance-scoped issuer/subject binding AND the currently verified
+Zitadel project role `librarian-instance-admin`. Neither permission grants private
+reading or the other administration permission implicitly. Legacy first-owner
+enrollment additionally requires protected operator authorization and a currently
+verified `librarian-admin` identity.
+
+Secrets and tokens MUST NOT appear in repository records, source control, client
+payloads, logs, or user-visible errors. Eligible instance provider credentials
+(Zitadel client secret, GitHub App private key, and webhook signing secrets) MUST
+be stored in MongoDB under authenticated encryption, separate from catalog records,
+bound to instance, purpose, and envelope version. Database credentials, instance
+encryption keys, Auth.js session secrets, OAuth token encryption keys, and bootstrap
+authority MUST remain host-managed through scoped Swarm secrets in production.
+Encryption keys MUST NOT be stored beside the ciphertext in MongoDB. Preserve
+existing OAuth ciphertext compatibility; provider rotation, key migration, and
+consistent backup/restore MUST preserve recoverable previous credentials without
+plaintext secret history. Legacy file-backed operation remains supported until an
+explicitly authorized migration activates database-managed provider credentials.
 
 ### IV. Synchronization Publishes Complete, Recoverable Generations
 
@@ -298,6 +310,29 @@ never represented as successful checks.
 
 ### Amendment history
 
+#### 2026-10-19 — Version 3.0.0
+
+- **Owner approval**: In response to the explicit production secret-policy choice,
+  the owner directed "keep keys in MongoDB" and selected a dedicated Zitadel
+  instance-admin role as well as owner binding, with protected operator and verified
+  catalog-administrator authorization for legacy enrollment.
+- **Reason**: Support durable self-hosted integration configuration and credential
+  replacement through instance Settings while separating root trust from stored
+  provider credentials and keeping instance authority explicit.
+- **Affected rules**: Principle III credential storage and administration authority.
+- **Change**: Encrypted eligible provider credentials may replace production
+  file-backed provider credentials; root encryption/database/session/OAuth/bootstrap
+  secrets remain host-managed. Instance administration requires both binding and
+  `librarian-instance-admin`; catalog and private-reader permissions remain separate.
+- **Migration/remediation impact**: No automatic credential import or live change.
+  Require owner-confirmed migration, independent instance-secret key, authenticated
+  encryption with context binding, revision fencing, recoverable rotation, and
+  consistent database/content recovery with separately protected keys. Legacy
+  OAuth ciphertext and original v1 artifacts remain intact. Testing, coverage,
+  deployment approvals, and content restrictions are unchanged.
+- **Versioning**: MAJOR because this replaces the file-only production provider
+  credential rule. No other constitutional exception is granted.
+
 #### 2026-10-13 — Version 2.0.0
 
 - **Owner approval**: The owner explicitly requested updating the testing rules and deferring all tests until requested.
@@ -306,4 +341,4 @@ never represented as successful checks.
 - **Change**: Isolated presentation-only changes no longer require new automated tests, test execution, or coverage gates. Functional, security, data-integrity, ingestion, and v1 release requirements remain.
 - **Migration impact**: The current directory UI follow-up has no test or coverage completion gate until requested; existing open v1 acceptance, security, and release tasks remain open.
 
-**Version**: 2.0.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-13
+**Version**: 3.0.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-19

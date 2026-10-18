@@ -48,25 +48,28 @@ test('keyboard search and directory-based project switching stay within the sele
   expect(await page.locator('body').innerText()).not.toContain('SYNTHETIC_PRIVATE_BROWSER_SENTINEL');
 });
 
-test('mobile sidebar search opens a focused dialog within the viewport', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 850 });
-  await page.goto('/public-project');
-  await page.getByRole('button', { name: 'Open Sidebar' }).click();
+test.describe('mobile sidebar search', () => {
+  test.use({ viewport: { width: 390, height: 850 } });
 
-  const drawer = page.locator('#nd-sidebar-mobile');
-  await drawer.getByRole('button', { name: 'Close Sidebar' }).click();
-  await page.getByRole('button', { name: 'Open Search' }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  const input = dialog.getByRole('combobox', { name: 'Search' });
-  await expect(input).toBeVisible();
-  await expect(input).toBeFocused();
-  const bounds = await input.evaluate(element => {
-    const { left, right, top, bottom } = element.getBoundingClientRect();
-    return { left, right, top, bottom, width: window.innerWidth, height: window.innerHeight };
+  test('mobile sidebar search opens a focused dialog within the viewport', async ({ page }) => {
+    await page.goto('/public-project');
+    await page.getByRole('button', { name: 'Open Sidebar' }).click();
+
+    const drawer = page.locator('#nd-sidebar-mobile');
+    await drawer.getByRole('button', { name: 'Close Sidebar' }).click();
+    await page.getByRole('button', { name: 'Open Search' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    const input = dialog.getByRole('combobox', { name: 'Search' });
+    await expect(input).toBeVisible();
+    await expect(input).toBeFocused();
+    const bounds = await input.evaluate(element => {
+      const { left, right, top, bottom } = element.getBoundingClientRect();
+      return { left, right, top, bottom, width: window.innerWidth, height: window.innerHeight };
+    });
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(bounds.width);
+    expect(bounds.top).toBeGreaterThanOrEqual(0);
+    expect(bounds.bottom).toBeLessThanOrEqual(bounds.height);
   });
-  expect(bounds.left).toBeGreaterThanOrEqual(0);
-  expect(bounds.right).toBeLessThanOrEqual(bounds.width);
-  expect(bounds.top).toBeGreaterThanOrEqual(0);
-  expect(bounds.bottom).toBeLessThanOrEqual(bounds.height);
 });

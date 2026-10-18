@@ -67,14 +67,16 @@ async function recoverLock(directory: string) {
   if (Date.now() - info.mtimeMs > LIMITS.attemptTimeoutMs * 2) await unlink(join(directory, 'lock'));
 }
 
-async function prune(directory: string, revision: number, maximum: number, reserve = 0, reserveFile = false) {
-  const all = await entries(directory);
+async function prune(directory: string, revision: number, maximum: number, reserve = 0, reserveFile = false,
+  inventory?: Map<string, Awaited<ReturnType<typeof entries>>[number]>) {
+  const all = inventory ? [...inventory.values()] : await entries(directory);
   let bytes = all.reduce((total, file) => total + file.size, 0);
   let count = all.filter(file => key.test(file.name)).length;
   for (const file of all.filter(file => file.name !== 'lock').sort((a, b) => a.modified - b.modified || a.name.localeCompare(b.name))) {
     const reusable = file.name.startsWith(`${revision}-`) && key.test(file.name);
     if (reusable && bytes + reserve <= maximum && count + Number(reserveFile) <= LIMITS.maxFiles) continue;
     await unlink(join(directory, file.name));
+    inventory?.delete(file.name);
     bytes -= file.size;
     if (key.test(file.name)) count--;
   }
@@ -105,6 +107,8 @@ export function createBlobCache(contentRoot: string, catalogId: string, revision
   z.number().int().positive().parse(revision);
   const budget = Math.max(0, Math.min(LIMITS.maxSnapshotBytes, maximum));
   let queue = Promise.resolve();
+  // One fenced worker writes each catalog; the per-write lock still serializes and fences mutations.
+  let inventory: Map<string, Awaited<ReturnType<typeof entries>>[number]> | undefined;
   return {
     async get(sha, size) {
       if (!/^[a-f0-9]{40}$/.test(sha) || !Number.isSafeInteger(size) || size < 0 || size > LIMITS.maxSnapshotBytes) throw unsafe();
@@ -133,10 +137,16 @@ export function createBlobCache(contentRoot: string, catalogId: string, revision
         try {
           directory = await cacheDirectory(contentRoot, catalogId, true);
           await withLock(directory, signal, async () => {
+            inventory ??= new Map((await entries(directory)).map(file => [file.name, file]));
             const target = `${revision}-${sha}`;
-            const existing = (await entries(directory)).find(file => file.name === target);
-            if (existing) await unlink(join(directory, target));
-            const used = await prune(directory, revision, budget, bytes.length, true);
+            const existing = inventory.get(target);
+            if (existing) {
+              const current = await lstat(join(directory, target)).catch(error => { if (!missing(error)) throw error; return undefined; });
+              if (current && (current.isSymbolicLink() || !current.isFile())) throw unsafe();
+              if (current) await unlink(join(directory, target));
+              inventory.delete(target);
+            }
+            const used = await prune(directory, revision, budget, bytes.length, true, inventory);
             if (used + bytes.length > budget) return;
             const temp = `tmp-${randomUUID()}`;
             try {
@@ -146,6 +156,7 @@ export function createBlobCache(contentRoot: string, catalogId: string, revision
               if (!await canWrite()) return;
               signal.throwIfAborted();
               await rename(join(directory, temp), join(directory, target));
+              inventory.set(target, { name: target, size: bytes.length, modified: Date.now() });
             } finally { await unlink(join(directory, temp)).catch(error => { if (!missing(error)) throw error; }); }
           });
         } catch (error) { fallback(error, signal); }

@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { Catalog } from '../../lib/catalog';
 import { getMDXComponents } from '../../mdx-components';
+import { searchContent } from '../../lib/content/search';
 import { withRuntimeContent } from '../../lib/content/source';
 import { validateMarkdown } from '../../lib/content/validate';
 import { seedRuntimeCatalog } from './runtime-fixtures';
@@ -68,6 +69,42 @@ it('renders validated safe Fumadocs MDX components through the guarded loader', 
     expect(output.body).toContain('No destination card.');
     expect(output.body).toContain('Begin here.');
   } finally { await storage.close(); }
+});
+
+it('reports only numeric cache high-water bytes when workload metrics are opted in', async () => {
+  vi.stubEnv('LIBRARIAN_WORKLOAD_METRICS', '0');
+  const unmeasured = await seedRuntimeCatalog();
+  const measured = await seedRuntimeCatalog();
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const privateMarker = 'PRIVATE-SYNTHETIC-CONTENT';
+  try {
+    await withRuntimeContent(unmeasured.db, unmeasured.contentRoot, unmeasured.catalog.slug, undefined, async () => privateMarker);
+    expect(log).not.toHaveBeenCalled();
+
+    vi.stubEnv('LIBRARIAN_WORKLOAD_METRICS', '1');
+    const result = await withRuntimeContent(measured.db, measured.contentRoot, measured.catalog.slug, undefined, async content => {
+      await searchContent(content, 'setup');
+      return privateMarker;
+    });
+    expect(result).toBe(privateMarker);
+    expect(log).toHaveBeenCalledTimes(2);
+    const values = log.mock.calls.map(([event, ...extra]) => {
+      expect(extra).toHaveLength(0);
+      expect(typeof event).toBe('string');
+      expect(event).toMatch(/^LIBRARIAN_CACHE_PEAK_BYTES=\d+$/);
+      expect(event).not.toContain(privateMarker);
+      expect(event).not.toContain(measured.catalog.slug);
+      const bytes = Number((event as string).slice('LIBRARIAN_CACHE_PEAK_BYTES='.length));
+      expect(Number.isSafeInteger(bytes)).toBe(true);
+      expect(bytes).toBeGreaterThan(0);
+      return bytes;
+    });
+    expect(values[1]).toBeGreaterThan(values[0]);
+  } finally {
+    log.mockRestore();
+    vi.unstubAllEnvs();
+    await Promise.all([unmeasured.close(), measured.close()]);
+  }
 });
 
 it('denies private catalogs before reading even a missing generation manifest', async () => {

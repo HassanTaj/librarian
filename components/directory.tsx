@@ -259,7 +259,7 @@ export function Directory({ cards, unavailable = false, showSignIn = false, show
                         <p className="mt-2 text-xs text-muted-foreground">Issue code: <code>{error}</code>. Share this code when reporting the issue.</p>
                       </div>
                     </details> : null}
-                    <div className="mt-auto pt-3" style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end' }}><SyncStatusBadge status={status} /></div>
+                    <div className="mt-auto pt-3" style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-start' }}><SyncStatusBadge status={status} /></div>
                   </article>
                 </li>;
               })}

@@ -8,6 +8,15 @@ import { blobSha } from '../../lib/sync/github';
 import { LIMITS } from '../../lib/limits';
 import { deleteCatalogSnapshot, stageGeneration } from '../../lib/content/generations';
 
+const filesystemStats = vi.hoisted(() => ({ lstatCalls: 0 }));
+vi.mock('node:fs/promises', async importOriginal => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return { ...actual, lstat: vi.fn((...args: Parameters<typeof actual.lstat>) => {
+    filesystemStats.lstatCalls++;
+    return actual.lstat(...args);
+  }) };
+});
+
 const roots: string[] = [];
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
@@ -68,6 +77,15 @@ it('enforces the file-count bound, including zero-byte blobs', async () => {
   await f.cache.put(blobSha(bytes), bytes);
   expect((await readdir(f.directory)).length).toBe(LIMITS.maxFiles);
   expect(await f.cache.get(blobSha(bytes), bytes.length)).toEqual(bytes);
+});
+
+it('keeps cache inventory metadata work linear across writes', async () => {
+  const f = await setup();
+  filesystemStats.lstatCalls = 0;
+  const blobs = Array.from({ length: 64 }, (_, i) => Buffer.from(`blob-${i}`));
+  for (const bytes of blobs) await f.cache.put(blobSha(bytes), bytes);
+  expect(filesystemStats.lstatCalls).toBeLessThanOrEqual(blobs.length * 4);
+  expect(await f.cache.get(blobSha(blobs[0]), blobs[0].length)).toEqual(blobs[0]);
 });
 
 it('fails safely when cache storage is not a directory', async () => {

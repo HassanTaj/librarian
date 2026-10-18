@@ -120,6 +120,11 @@ async function setDirectoryMode(mode) {
 
 function startControlServer() {
   controlServer = createServer(async (request, response) => {
+    if (request.method === 'POST' && request.url === '/shutdown') {
+      response.writeHead(204).end();
+      setImmediate(() => void cleanup().then(() => process.exit(0), () => process.exit(1)));
+      return;
+    }
     const mode = /^\/directory\/(normal|empty|storage-error)$/.exec(request.url ?? '')?.[1];
     if (request.method !== 'POST' || !mode) {
       response.writeHead(404).end();

@@ -18,7 +18,7 @@ and acceptance tests and the existing global/feature four-metric 95% gates are m
 
 **Created**: 2026-10-11
 
-**Status**: Updated 2026-10-13 for safe static Fumadocs MDX components and docs-subtree-only blob fetching. `.mdx` allows Markdown/GFM plus `Info`, `Note`, `Warning`, `Columns`, `Card`, `Steps`, and `Step` with static attributes, except constant `Columns cols={1..4}`. The inspected local `contabo` checkout at `main` / `567e6d3` contains 72 `.mdx` files plus two unrelated files (74 total, 530,249 bytes; largest page 92,591 bytes); its supported candidate passes existing limits, so no limit increase was made. The first DEV sync failed with legacy `github_invalid_content`; a later sync completed successfully. The current directory and admin views show Succeeded, and admin reports published commit `d82a7d26487af66f37d91cdea8e828f133564806` at `13/10/2026, 02:51:01`. The locally inspected checkout SHA differs from that published commit, so its counts and validation are not evidence about the exact published tree; source provenance and content-scope review remain open. No source files or GitHub App settings were changed. Targeted tests, typecheck, lint, and production build passed; full coverage and three-engine browser acceptance, measured workload, recovery, publication, and deployment evidence remain open.
+**Status**: Updated 2026-10-13 for safe static Fumadocs MDX components and docs-subtree-only blob fetching. `.mdx` allows Markdown/GFM plus `Info`, `Note`, `Warning`, `Columns`, `Card`, `Steps`, and `Step` with static attributes, except constant `Columns cols={1..4}`. The clean local `contabo` checkout and `origin/main` match the previously recorded DEV publication at `d82a7d26487af66f37d91cdea8e828f133564806`. Its `docs/` tree is `7406cc078d8c9496b99f6d800e578d3a06e49bd5`: 90 regular, non-executable files (74 `.mdx`, 16 `meta.json`; 533,252 bytes total), within existing limits. This provenance review used tree metadata; it did not reread document bodies or recheck the live DEV service. Local coverage passed with 638 tests and all global/C1-C6 statement, branch, function, and line thresholds; 72/72 browser tests passed across Chromium, Firefox, and WebKit. Typecheck, lint, artifact validation, production build, and local container acceptance passed. The measured workload and live infrastructure, recovery, publication, and deployment gates remain open; no production delivery is claimed.
 
 **Input**: Create one specification for the complete agreed Librarian v1 portal, with
 prioritized discovery, authorization, project-scoped reading, synchronization, and
@@ -58,7 +58,7 @@ directory metadata only.
 
 1. **Given** enabled public and private catalogs, **When** a reader opens the homepage,
    **Then** cards show configured safe titles, descriptions, routes, Public/Private labels beside the title,
-   and text-labelled pending/running/succeeded/failed sync status at the lower right, without exposing
+   and text-labelled pending/running/succeeded/failed sync status at the lower left, without exposing
    document bodies; the heading is Documentation Directory, and generated application and Perspective V
    branding appear in navigation and the footer;
    the header identifies Perspective V / Docs, offers theme controls, shows an in-place Zitadel
@@ -278,7 +278,7 @@ manual resync without granting the administrator private reader permission.
 14. **Given** an administrator reviews a configured repository, **When** its card is collapsed or expanded,
     **Then** small circular view, edit, delete, and sync actions are shown at the upper left; view expands
     read-only details, edit opens the form, and delete stays disabled while editing. The sync badge sits
-    at the lower right, and a long published commit is shortened with its full value available by tooltip.
+    at the lower left, and a long published commit is shortened with its full value available by tooltip.
 15. **Given** an administrator opens Configure or submits a repository form, **When** the save succeeds or
     fails, **Then** configuration can be shown or hidden on demand, the creation form closes with a success
     banner and refreshed list on success, and remains available with a collapsible error banner on failure.
@@ -325,7 +325,7 @@ and measurable outcomes define acceptance together.
   folder, and one unique route slug. Reading MUST use that catalog's published documentation.
 - **FR-003**: The homepage and project selector MUST expose only explicitly configured safe directory
   metadata for enabled catalogs, identify Public/Private entries beside or below each title, and support
-  directory name filtering. Cards MUST place sync status at lower right; an administrator's selection
+  directory name filtering. Cards MUST place sync status at lower left; an administrator's selection
   control and circular per-card sync action MUST occupy the card's upper left and upper right respectively.
   The directory toolbar MUST align search and batch actions with vertical centering and space between them.
   A catalog without a successful publication MUST appear as a non-navigable card; a sanitized,
@@ -410,7 +410,7 @@ and measurable outcomes define acceptance together.
   current-version-checked action that removes the settings document and its UUID-scoped snapshot.
   Removal MUST wait for no active worker lease or live reader pin and MUST retain permanent sync and
   replay receipts. Repository cards MUST provide small circular read-only view, edit, delete, and sync
-  actions; delete MUST be disabled during editing. Sync status MUST appear at the card's lower right,
+  actions; delete MUST be disabled during editing. Sync status MUST appear at the card's lower left,
   and long commit identifiers MUST be visually shortened while keeping the full identifier available.
   The configuration form MUST be toggleable, close after successful creation with a success notice and
   refreshed cards, and stay open after failure with a collapsible error notice. Its description MUST be
@@ -432,7 +432,7 @@ and measurable outcomes define acceptance together.
   without a page reload. Accepted directory sync notices MUST use an info banner that dismisses after
   10 seconds; failures MUST use a red error banner and offer sanitized, expandable issue details.
   Administration MUST place its refresh action in an accessible icon-only button, show compact circular
-  card actions, and place sync status at the lower right. A configured-repositories section heading MUST
+  card actions, and place sync status at the lower left. A configured-repositories section heading MUST
   not be repeated when the page heading already identifies that list.
 - **FR-033**: All reader/admin controls MUST support keyboard access, visible focus, accessible
   names, and usable mobile layouts. Shared navigation MUST provide Home and call the admin destination

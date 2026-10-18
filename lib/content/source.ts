@@ -16,12 +16,22 @@ type SearchApi = ReturnType<typeof import('fumadocs-core/search/server').createF
 export type RuntimeContent = { manifest: Manifest; generation: GenerationPin['generation']; loader: RuntimeLoader;
   cacheKey: string; sourceBytes: number; searchBytes: number; searchApi?: SearchApi };
 const cache = createBoundedLru<RuntimeContent>(LIMITS.maxCacheEntries, LIMITS.maxCacheBytes, LIMITS.cacheIdleMs);
+let cachePeakBytes = 0;
+
+function reportCachePeakBytes() {
+  if (process.env.LIBRARIAN_WORKLOAD_METRICS !== '1') return;
+  const bytes = cache.stats().bytes;
+  if (bytes <= cachePeakBytes) return;
+  cachePeakBytes = bytes;
+  console.log(`LIBRARIAN_CACHE_PEAK_BYTES=${cachePeakBytes}`);
+}
 
 export function cacheRuntimeSearch(content: RuntimeContent, searchApi: SearchApi, searchBytes: number) {
   if (content.searchApi) return true;
   if (!cache.updateSize(content.cacheKey, content.sourceBytes + searchBytes)) return false;
   content.searchApi = searchApi;
   content.searchBytes = searchBytes;
+  reportCachePeakBytes();
   return true;
 }
 async function checkedFile(root: string, file: { path: string; size: number; sha256: string }, signal: AbortSignal) {
@@ -75,7 +85,10 @@ export async function withRuntimeContent<T>(db: Db, contentRoot: string, slug: s
         abort.throwIfAborted();
         content = { manifest, generation: pin.generation, loader, cacheKey: key,
           sourceBytes: manifest.normalizedBytes, searchBytes: 0 };
-        if (cache.set(key, content, content.sourceBytes)) lease = cache.acquire(key);
+        if (cache.set(key, content, content.sourceBytes)) {
+          lease = cache.acquire(key);
+          reportCachePeakBytes();
+        }
       }
       return read(content, abort, authorization);
     }, signal);

@@ -7,6 +7,11 @@ import lintConfig from '../../eslint.config.mjs';
 
 afterEach(() => { vi.unstubAllEnvs(); vi.resetModules(); });
 
+it('starts production using the generated standalone server', async () => {
+  const manifest = JSON.parse(await readFile(resolve('package.json'), 'utf8'));
+  expect(manifest.scripts.start).toBe('node .next/standalone/server.js');
+});
+
 it.each(['0', '1'])('keeps production maps private and enables original-source instrumentation only for coverage builds (%s)', async value => {
   vi.stubEnv('LIBRARIAN_COVERAGE_BUILD', value);
   vi.resetModules();

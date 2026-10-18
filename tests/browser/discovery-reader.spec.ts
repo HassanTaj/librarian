@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+test.use({ viewport: { width: 1280, height: 850 } });
+
 test('directory links to the protected repositories page', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Sign in with Zitadel' })).toBeVisible();
@@ -34,7 +36,6 @@ test('sign-in appears only when signed out and starts Zitadel without an Auth.js
 });
 
 test('reader sign-out and theme controls sit together in the neutral sidebar footer', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 850 });
   await page.context().addCookies([{ name: 'authjs.session-token', value: 'synthetic-browser-admin-session', url: 'http://127.0.0.1:3100' }]);
   await page.goto('/public-project');
 
@@ -140,7 +141,6 @@ test('missing reader pages show a safe not-found outcome', async ({ page }) => {
 });
 
 test('directory selection is circular, sync controls are buttons, and statuses sit at card bottoms', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 850 });
   await page.setExtraHTTPHeaders({ cookie: 'authjs.session-token=synthetic-browser-admin-session' });
   await page.goto('/');
 
@@ -190,7 +190,7 @@ test('directory selection is circular, sync controls are buttons, and statuses s
   expect(Math.abs(checkboxBounds!.y - cardBounds!.y - 20)).toBeLessThanOrEqual(4);
   expect(Math.abs(cardSyncBounds!.x + cardSyncBounds!.width - cardBounds!.x - cardBounds!.width + 20)).toBeLessThanOrEqual(1);
   expect(Math.abs((titleBounds!.y + titleBounds!.height / 2) - (cardSyncBounds!.y + cardSyncBounds!.height / 2))).toBeLessThanOrEqual(2);
-  expect(Math.abs(statusBounds!.x + statusBounds!.width - cardBounds!.x - cardBounds!.width + 20)).toBeLessThanOrEqual(1);
+  expect(Math.abs(statusBounds!.x - cardBounds!.x - 20)).toBeLessThanOrEqual(1);
   expect(Math.abs(statusBounds!.y + statusBounds!.height - cardBounds!.y - cardBounds!.height + 20)).toBeLessThanOrEqual(1);
 
   await checkbox.locator('xpath=..').click();
@@ -225,29 +225,37 @@ test('public Markdown renders with the active theme and a safe private route', a
   await expect(page.locator('html')).toHaveClass(/dark/);
 });
 
-test('reader navigation fits a phone viewport and keeps Home and search accessible', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 850 });
-  await page.goto('/public-project');
+test.describe('mobile reader navigation', () => {
+  test.use({ viewport: { width: 390, height: 850 } });
 
-  await expect(page.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
-  const search = page.getByRole('button', { name: 'Open Search' });
-  await expect(search).toBeVisible();
-  const searchBounds = await search.boundingBox();
-  expect(searchBounds).not.toBeNull();
-  expect(searchBounds!.x + searchBounds!.width).toBeLessThanOrEqual(390);
-  const header = page.locator('#nd-subnav');
-  const dimensions = await header.evaluate(element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
-  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
+  test('reader navigation fits a phone viewport and keeps Home and search accessible', async ({ page, browser }) => {
+    await page.goto('/public-project');
 
-  await page.getByRole('button', { name: 'Open Sidebar' }).click();
-  const drawer = page.locator('#nd-sidebar-mobile');
-  await expect(drawer.locator('summary[aria-label^="Select project"]')).toHaveCount(0);
-  await expect(drawer.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
-  await expect(search).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+    const search = page.locator('#nd-subnav').getByRole('button', { name: 'Open Search' });
+    await expect(search).toBeVisible();
+    const searchBounds = await search.boundingBox();
+    expect(searchBounds).not.toBeNull();
+    expect(searchBounds!.x + searchBounds!.width).toBeLessThanOrEqual(390);
+    const header = page.locator('#nd-subnav');
+    const dimensions = await header.evaluate(element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
+    expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
 
-  await page.setViewportSize({ width: 1280, height: 850 });
-  await page.goto('/public-project');
-  const sidebar = page.locator('#nd-sidebar');
-  await expect(sidebar.locator('summary[aria-label^="Select project"]')).toHaveCount(0);
-  await expect(sidebar.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Open Sidebar' }).click();
+    const drawer = page.locator('#nd-sidebar-mobile');
+    await expect(drawer.locator('summary[aria-label^="Select project"]')).toHaveCount(0);
+    await expect(drawer.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+    await expect(search).toBeVisible();
+
+    const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 850 } });
+    try {
+      const desktop = await desktopContext.newPage();
+      await desktop.goto('/public-project');
+      const sidebar = desktop.locator('#nd-sidebar');
+      await expect(sidebar.locator('summary[aria-label^="Select project"]')).toHaveCount(0);
+      await expect(sidebar.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+    } finally {
+      await desktopContext.close();
+    }
+  });
 });

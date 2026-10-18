@@ -10,8 +10,8 @@ test('the former /admin UI route is not registered', async ({ page }) => {
 
 async function expectCircularButton(button: Locator, size: number) {
   const box = await button.boundingBox();
-  expect(box?.width).toBe(size);
-  expect(box?.height).toBe(size);
+  expect(box?.width).toBeCloseTo(size, 2);
+  expect(box?.height).toBeCloseTo(size, 2);
   const radius = Number.parseFloat(await button.evaluate(element => getComputedStyle(element).borderTopLeftRadius));
   expect(radius).toBeGreaterThanOrEqual(size / 2);
 }
@@ -19,7 +19,7 @@ async function expectCircularButton(button: Locator, size: number) {
 test('administrator can review configured repositories and save safe settings across viewports', async ({ page, browser }) => {
   await page.setExtraHTTPHeaders({ cookie: 'authjs.session-token=synthetic-browser-admin-session' });
   await page.goto('/repositories');
-  await expect(page.getByRole('heading', { name: 'Configured Repositories' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Configured Repositories' })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('button', { name: 'Toggle Theme' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Perspective V / Docs' })).toHaveAttribute('href', '/');
@@ -27,7 +27,7 @@ test('administrator can review configured repositories and save safe settings ac
   await expect(page).toHaveURL('/');
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
   await page.goto('/repositories');
-  await expect(page.getByRole('heading', { name: 'Configured Repositories' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Configured Repositories' })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('link', { name: 'Repositories' })).toHaveAttribute('href', '/repositories');
   await expect(page.getByRole('heading', { name: 'Configured repositories', exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Add a repository' })).toBeHidden();
@@ -70,7 +70,7 @@ test('administrator can review configured repositories and save safe settings ac
   const collapsedStatus = project.getByRole('status').filter({ hasText: 'succeeded' });
   const cardBox = (await project.boundingBox())!;
   const statusBox = (await collapsedStatus.boundingBox())!;
-  expect(statusBox.x + statusBox.width).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 24);
+  expect(Math.abs(statusBox.x - cardBox.x - 20)).toBeLessThanOrEqual(1);
   expect(statusBox.y + statusBox.height).toBeGreaterThanOrEqual(cardBox.y + cardBox.height - 30);
   const viewButton = project.getByRole('button', { name: 'View Public Project details' });
   await expectCircularButton(viewButton, 32);

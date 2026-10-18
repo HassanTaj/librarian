@@ -383,7 +383,7 @@ export function AdminConsole() {
             {!catalog.enabled || catalog.accessState !== 'ready' ? <p className="text-sm text-muted-foreground sm:col-span-2 lg:col-span-3" role="note">Sync requires this repository to be enabled and GitHub App access to be ready.</p> : null}
           </form> : null}
           </div>
-          <div className="mt-4" style={{ display: 'flex', justifyContent: 'flex-end' }}><SyncStatusBadge status={catalog.status} /></div>
+          <div className="mt-4" style={{ display: 'flex', justifyContent: 'flex-start' }}><SyncStatusBadge status={catalog.status} /></div>
         </article>;
         })}
       </div>

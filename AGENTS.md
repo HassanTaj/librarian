@@ -139,7 +139,9 @@ repository scripts or install source repository dependencies.
 Never expose credentials, tokens, keys, private document bodies, database dumps,
 volume archives, or live environment values in Git, logs, command output, plans,
 documentation, or responses. Tracked environment examples MUST contain placeholders.
-Production credentials MUST use scoped Swarm secrets. Verify ignore rules before
+Production root/database/session/OAuth/bootstrap secrets MUST use scoped Swarm
+secrets. Eligible provider credentials use the constitution's authenticated-encrypted
+MongoDB storage and explicit legacy migration policy. Verify ignore rules before
 writing local secret files; ignored files are not automatically safe to print.
 
 Do not fabricate missing secrets or ask for their values in chat. Request provisioning
