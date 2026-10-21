@@ -13,7 +13,7 @@ type Candidate = {
   preferences: { displayName: string; description: string; docsFolder: string };
   publicOrigin: string;
   zitadel: { issuer: string; clientId: string; projectId: string; audience: string };
-  github: { appId: string };
+  github: { appId: string; webhookUrl?: string };
   checks: Check[];
   ownerVerified: boolean;
   impact: { confirmationNonce: string } | null;
@@ -146,6 +146,7 @@ export function InstanceSetup() {
   const [projectId, setProjectId] = useState('');
   const [audience, setAudience] = useState('');
   const [appId, setAppId] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState('');
   const [displayName, setDisplayName] = useState('Librarian');
   const [description, setDescription] = useState('');
   const [docsFolder, setDocsFolder] = useState('docs');
@@ -165,6 +166,7 @@ export function InstanceSetup() {
     setProjectId(data.candidate.zitadel.projectId);
     setAudience(data.candidate.zitadel.audience);
     setAppId(data.candidate.github.appId);
+    setWebhookUrl(data.candidate.github.webhookUrl ?? data.webhookUrl);
     setDisplayName(data.candidate.preferences.displayName);
     setDescription(data.candidate.preferences.description);
     setDocsFolder(data.candidate.preferences.docsFolder);
@@ -187,6 +189,7 @@ export function InstanceSetup() {
       setProjectId(data.candidate.zitadel.projectId);
       setAudience(data.candidate.zitadel.audience);
       setAppId(data.candidate.github.appId);
+    setWebhookUrl(data.candidate.github.webhookUrl ?? data.webhookUrl);
       setDisplayName(data.candidate.preferences.displayName);
       setDescription(data.candidate.preferences.description);
       setDocsFolder(data.candidate.preferences.docsFolder);
@@ -309,7 +312,11 @@ export function InstanceSetup() {
       if (audience !== candidate.zitadel.audience) zitadel.apiAudience = audience;
       return Object.keys(zitadel).length ? { zitadel } : {};
     }
-    if (step === 3) return appId !== candidate.github.appId ? { github: { appId } } : {};
+    if (step === 3) {
+      const github = { ...(appId !== candidate.github.appId ? { appId } : {}),
+        ...(webhookUrl !== (candidate.github.webhookUrl ?? snapshot.webhookUrl) ? { webhookUrl } : {}) };
+      return Object.keys(github).length ? { github } : {};
+    }
     if (step === 4) return {
       ...(displayName !== candidate.preferences.displayName ? { displayName } : {}),
       ...(description !== candidate.preferences.description ? { description } : {}),
@@ -395,6 +402,7 @@ export function InstanceSetup() {
         </fieldset> : null}
         {step === 3 ? <fieldset className="grid gap-4"><legend className="text-xl font-semibold">GitHub App</legend>
           <label className="grid gap-1 text-sm">GitHub App ID<input aria-label="GitHub App ID" inputMode="numeric" value={appId} onChange={event => setAppId(event.target.value)} className="rounded-md border bg-background px-3 py-2" /></label>
+          <label className="grid gap-1 text-sm">Webhook URL<input aria-label="Webhook URL" type="url" value={webhookUrl} onChange={event => setWebhookUrl(event.target.value)} className="rounded-md border bg-background px-3 py-2" /></label>
           <label className="grid gap-1 text-sm">GitHub private key<textarea aria-label="GitHub private key" autoComplete="off" rows={7} value={privateKey} onChange={event => setPrivateKey(event.target.value)} className="rounded-md border bg-background px-3 py-2 font-mono text-xs" /></label>
           <label className="grid gap-1 text-sm">Webhook secret<input aria-label="Webhook secret" type="password" autoComplete="new-password" value={webhookSecret} onChange={event => setWebhookSecret(event.target.value)} className="rounded-md border bg-background px-3 py-2" /></label>
           <p className="text-xs text-muted-foreground">Keys are write-only and encrypted on the server. Leave a field blank to retain its configured value.</p>

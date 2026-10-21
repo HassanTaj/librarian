@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { createCipheriv, randomBytes, randomUUID } from 'node:crypto';
 import { encryptOAuthToken, decryptOAuthToken } from '../../lib/auth/tokens';
-import { beginInstanceKeyRotation, decryptInstanceSecret, encryptInstanceSecret, rotateInstanceBundles, serializeInstanceKeyring, verifyInstanceBundles } from '../../lib/instance/secrets';
+import { beginInstanceKeyRotation, decryptInstanceBundle, decryptInstanceSecret, encryptInstanceBundle, encryptInstanceSecret, rotateInstanceBundles, serializeInstanceKeyring, verifyInstanceBundles } from '../../lib/instance/secrets';
 import { readyInstance } from '../fixtures/instance';
 
 it('binds authenticated envelopes to instance, purpose, key and credential version without altering OAuth', () => {
@@ -50,6 +50,25 @@ it('enforces each credential size and rejects authenticated invalid UTF-8 before
       nonce: nonce.toString('base64'), tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64'), updatedAt: new Date() };
     expect(() => decryptInstanceSecret(invalidUtf8, context, keyring)).toThrow('instance_secret_invalid');
   }
+});
+
+it('seals the entire logical configuration bundle and rejects context substitution or tampering', () => {
+  const control = readyInstance();
+  const keyring = { activeKeyId: 'root-1', keys: { 'root-1': randomBytes(32) } };
+  const bundle = control.active!;
+  const context = { instanceId: control.instanceId, bundleVersion: bundle.version };
+  const envelope = encryptInstanceBundle(bundle, context, keyring);
+  expect(JSON.stringify(envelope)).not.toContain(bundle.runtime!.authSecret);
+  expect(JSON.stringify(envelope)).not.toContain(bundle.runtime!.oauthTokenEncryptionKey);
+  expect(JSON.stringify(envelope)).not.toContain(bundle.runtime!.mongodbUri);
+  expect(JSON.stringify(envelope)).not.toContain(bundle.publicOrigin);
+  expect(JSON.stringify(envelope)).not.toContain(bundle.zitadel.issuer);
+  expect(JSON.stringify(envelope)).not.toContain(bundle.preferences.displayName);
+  expect(decryptInstanceBundle(envelope, context, keyring)).toEqual(bundle);
+  expect(() => decryptInstanceBundle(envelope, { ...context, instanceId: randomUUID() }, keyring)).toThrow('instance_secret_invalid');
+  expect(() => decryptInstanceBundle(envelope, { ...context, bundleVersion: bundle.version + 1 }, keyring)).toThrow('instance_secret_invalid');
+  const ciphertext = Buffer.from(envelope.ciphertext, 'base64'); ciphertext[0] ^= 1;
+  expect(() => decryptInstanceBundle({ ...envelope, ciphertext: ciphertext.toString('base64') }, context, keyring)).toThrow('instance_secret_invalid');
 });
 
 it('rotates every retained provider envelope while preserving old backup keys and resumable rotation metadata', () => {

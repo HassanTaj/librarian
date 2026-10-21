@@ -27,6 +27,10 @@ function withCookie(response: Response, value: string) {
 }
 
 async function handle(request: NextRequest, method: 'GET' | 'POST') {
+  // Candidate login proves ownership; it never creates a browser application session.
+  if (method === 'GET' && new URL(request.url).pathname === '/api/instance/auth/session') {
+    return Response.json(null, { headers: { 'Cache-Control': 'private, no-store' } });
+  }
   let client: Awaited<ReturnType<typeof connectMongo>>['client'] | undefined;
   try {
     const host = await readInstanceHost();

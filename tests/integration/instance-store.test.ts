@@ -1,12 +1,32 @@
 import { expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { Db } from 'mongodb';
-import { createStorageHarness } from './http-harness';
+import { createStorageHarness, insertInstanceControl } from './http-harness';
 import { instanceControl, readyInstance } from '../fixtures/instance';
-import { initializeInstance, readInstance, updateInstance, drainInstanceAudit, type InstanceControl } from '../../lib/instance/store';
+import { initializeInstance, readInstance, updateInstance, drainInstanceAudit, type StoredInstanceControl } from '../../lib/instance/store';
 import { createInstanceHarness } from './instance-harness';
 import { readInstanceHost } from '../../lib/instance/bootstrap';
 import { writeFile, readFile } from 'node:fs/promises';
+
+it('stores the active logical configuration only as authenticated ciphertext', async () => {
+  const storage = await createStorageHarness();
+  try {
+    const control = readyInstance();
+    await insertInstanceControl(storage.db, control);
+    const stored = await storage.db.collection<StoredInstanceControl>('instance_configuration').findOne({ _id: 'instance' });
+    expect(stored?.active?.configuration).toMatchObject({ formatVersion: 2, algorithm: 'aes-256-gcm', bundleVersion: control.active!.version });
+    const rawConfiguration = JSON.stringify(stored?.active);
+    for (const value of ['https://portal.example.test', 'https://identity.example.test', 'Synthetic', '"synthetic"']) expect(rawConfiguration).not.toContain(value);
+    await expect(readInstance(storage.db, control.instanceId)).resolves.toEqual(control);
+
+    const ciphertext = Buffer.from(stored!.active!.configuration.ciphertext, 'base64');
+    ciphertext[0] ^= 1;
+    await storage.db.collection<StoredInstanceControl>('instance_configuration').updateOne({ _id: 'instance' }, {
+      $set: { 'active.configuration.ciphertext': ciphertext.toString('base64') },
+    });
+    await expect(readInstance(storage.db, control.instanceId)).rejects.toThrow('instance_unavailable');
+  } finally { await storage.close(); }
+});
 
 function faultDb(db: Db, failure: 'audit-ack' | 'audit-index') {
   let armed = true;
@@ -15,6 +35,7 @@ function faultDb(db: Db, failure: 'audit-ack' | 'audit-index') {
   const blocked = new Promise<void>(resolve => { release = resolve; });
   const reached = new Promise<void>(resolve => { entered = resolve; });
   const wrapped = {
+    client: db.client,
     collection(name: string) {
       const collection = db.collection(name);
       const intercept = failure === 'audit-ack' ? name === 'instance_configuration' : name === 'instance_audit_events';
@@ -184,7 +205,7 @@ it('preserves first-owner identity and consumed bootstrap state across durable e
   const storage = await createStorageHarness();
   try {
     const control = readyInstance();
-    await storage.db.collection<InstanceControl>('instance_configuration').insertOne(control);
+    await insertInstanceControl(storage.db, control);
     await expect(updateInstance(storage.db, control.instanceId, 0, value => {
       value.administrators[0].subject = 'different-owner';
       return value;

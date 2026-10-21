@@ -1,0 +1,44 @@
+.page {
+  width: min(100% - 2.5rem, 72rem);
+  margin-inline: auto;
+  padding-block: 2.5rem;
+}
+.settings { margin-top: 1.75rem; }
+.overview { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+.overview h2 { font-size: 1.125rem; font-weight: 600; }
+.overview p, .hint { color: var(--color-fd-muted-foreground); font-size: .875rem; line-height: 1.6; }
+.overview p { margin-top: .375rem; }
+.badge { display: inline-flex; align-items: center; padding: .25rem .625rem; border: 1px solid var(--color-fd-border); border-radius: 999px; color: var(--color-fd-muted-foreground); font-size: .75rem; white-space: nowrap; }
+.badge[data-status='passed'] { color: var(--color-fd-secondary); border-color: color-mix(in srgb, var(--color-fd-secondary) 35%, transparent); background: color-mix(in srgb, var(--color-fd-secondary) 8%, transparent); }
+.badge[data-status='warning'] { color: var(--color-fd-warning, #d7a34b); }
+.badge[data-status='failed'] { color: var(--color-fd-error, #ef6868); }
+.tabList { display: flex; gap: 1.25rem; overflow-x: auto; border-bottom: 1px solid var(--color-fd-border); }
+.tab { flex-shrink: 0; border-bottom: 2px solid transparent; padding: .75rem .125rem; color: var(--color-fd-muted-foreground); font-size: .875rem; font-weight: 500; cursor: pointer; }
+.tab:hover { color: var(--color-fd-foreground); }
+.tab[data-state='active'] { color: var(--color-fd-primary); border-bottom-color: var(--color-fd-primary); }
+.tab:focus-visible, .button:focus-visible, .input:focus-visible { outline: 2px solid var(--color-fd-primary); outline-offset: 3px; }
+.panel { margin-top: 1.5rem; border: 1px solid var(--color-fd-border); border-radius: .75rem; background: var(--color-fd-card); }
+.panel[hidden], .actions[hidden] { display: none; }
+.group { display: grid; gap: 1.25rem; padding: 1.5rem; min-width: 0; border: 0; }
+.legend { float: left; width: 100%; font-size: 1rem; font-weight: 600; padding: 0; }
+.group h2 { font-size: 1rem; font-weight: 600; }
+.group label { display: grid; gap: .5rem; font-size: .875rem; line-height: 1.5; }
+.group label:has(input[type='checkbox']) { display: flex; align-items: center; gap: .625rem; }
+.group input[type='checkbox'] { accent-color: var(--color-fd-primary); }
+.group p { color: var(--color-fd-muted-foreground); font-size: .875rem; line-height: 1.6; overflow-wrap: anywhere; }
+.input { width: 100%; min-width: 0; border: 1px solid var(--color-fd-border); border-radius: .5rem; background: var(--color-fd-background); color: var(--color-fd-foreground); padding: .625rem .75rem; font-size: .875rem; }
+textarea.input { min-height: 6rem; resize: vertical; }
+.actions { display: flex; flex-wrap: wrap; gap: .625rem; margin-top: 1.25rem; }
+.button { display: inline-flex; align-items: center; justify-content: center; justify-self: start; gap: .5rem; border: 1px solid var(--color-fd-border); border-radius: .5rem; padding: .5rem .875rem; background: var(--color-fd-background); font-size: .875rem; cursor: pointer; transition: background 150ms; }
+.button:hover:enabled { background: var(--color-fd-muted); }
+.button:disabled { cursor: not-allowed; opacity: .45; }
+.actions > .button:first-child { background: var(--color-fd-primary); color: var(--color-fd-primary-foreground); border-color: var(--color-fd-primary); }
+.feedback { margin-block: 1rem; padding: .75rem 1rem; border: 1px solid var(--color-fd-border); border-radius: .5rem; font-size: .875rem; }
+.feedback:empty { display: none; }
+.feedback[role='alert'] { color: var(--color-fd-error, #ef6868); }
+.checkList { display: grid; }
+.checkRow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: .75rem; align-items: center; padding-block: 1rem; border-bottom: 1px solid var(--color-fd-border); font-size: .875rem; }
+.checkRow:last-child { border-bottom: 0; }
+.checkRow small { display: block; margin-top: .25rem; color: var(--color-fd-muted-foreground); font-size: .75rem; }
+@media (min-width: 48rem) { .group { max-width: 52rem; } }
+@media (max-width: 35rem) { .checkRow { grid-template-columns: minmax(0, 1fr) auto; } .checkRow .button { grid-column: 1 / -1; } .group { padding: 1rem; } }

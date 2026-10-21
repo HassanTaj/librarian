@@ -9,7 +9,7 @@ import { issueSetupOwnerProof } from '../../lib/instance/access';
 import { commitInitialInstance, reconcileInitialAdoption } from '../../lib/instance/activation';
 import { encryptInstanceSecret } from '../../lib/instance/secrets';
 import { initializeInstance, readInstance, updateInstance } from '../../lib/instance/store';
-import { loadConfig } from '../../lib/config';
+import { loadConfig, loadHostConfig, instanceRuntimeInputs } from '../../lib/config';
 import { instanceControl, readyInstance } from '../fixtures/instance';
 import { catalogs } from '../fixtures/catalogs';
 import { createInstanceHarness } from './instance-harness';
@@ -52,6 +52,7 @@ it('rejects an undrained migration, preserves legacy authority before cutover, a
     const control = instanceControl(instanceId, now);
     control.bootstrap.verifierHash = createHash('sha256').update('SYNTHETIC_MIGRATION_OPERATOR').digest('hex');
     const candidate = structuredClone(ready.active!);
+    candidate.runtime = instanceRuntimeInputs(await loadHostConfig(harness.env), harness.env);
     const encodedKeyring = JSON.parse(await readFile(harness.env.INSTANCE_KEYRING_FILE, 'utf8')) as { activeKeyId: string; keys: Record<string, string> };
     const keyring = { activeKeyId: encodedKeyring.activeKeyId,
       keys: Object.fromEntries(Object.entries(encodedKeyring.keys).map(([id, value]) => [id, Buffer.from(value, 'base64')])) };

@@ -189,7 +189,7 @@ export async function acquireInstanceAdmission(db: Db, instanceId: string, purpo
   const live = { $filter: { input: '$admissions', as: 'pin', cond: { $gt: ['$$pin.expiresAt', now] } } };
   const matching = { $filter: { input: live, as: 'pin', cond: { $eq: ['$$pin.purpose', purpose] } } };
   const result = await db.collection<InstanceControl>('instance_configuration').updateOne({
-    _id: 'instance', instanceId, schemaVersion: 1, lifecycle: current.lifecycle, 'gate.state': 'open', securityEpoch: current.securityEpoch,
+    _id: 'instance', instanceId, schemaVersion: 2, lifecycle: current.lifecycle, 'gate.state': 'open', securityEpoch: current.securityEpoch,
     recoveryEpoch: current.recoveryEpoch, 'active.version': current.active?.version ?? null,
     $expr: { $and: [{ $lt: [{ $size: matching }, purpose === 'request' ? LIMITS.maxInstanceRequestPins : 1] }, { $lt: ['$revision', Number.MAX_SAFE_INTEGER] }] },
   }, [{ $set: { admissions: { $concatArrays: [live, [{ $literal: pin }]] }, revision: { $add: ['$revision', 1] }, updatedAt: { $max: ['$updatedAt', { $literal: now }] } } }], { writeConcern: { w: 1, j: true } });
@@ -288,6 +288,8 @@ const errors: Record<string, { status: number; code: string; message: string; re
   instance_setup_incomplete: { status: 409, code: 'setup_incomplete', message: 'Current provider checks and owner verification are required.' },
   instance_migration_conflict: { status: 409, code: 'migration_conflict', message: 'The legacy configuration changed. Review it and try again.' },
   instance_owner_continuity_required: { status: 409, code: 'owner_continuity_required', message: 'Current owner confirmation is required.' },
+  instance_database_mismatch: { status: 409, code: 'database_mismatch', message: 'This connection must reach the current instance database and its latest revision. Data migration to another database is a separate operation.' },
+  instance_database_not_empty: { status: 409, code: 'database_not_empty', message: 'Initial setup requires an empty database. Existing data has been retained.' },
   instance_host_unavailable: { status: 503, code: 'configuration_unavailable', message: 'Host configuration is temporarily unavailable.' },
   instance_operator_required: { status: 409, code: 'operator_required', message: 'A host operator must prepare the requested origin and verify both callbacks before activation.' },
   instance_unavailable: { status: 503, code: 'storage_unavailable', message: 'Instance configuration is temporarily unavailable.' },
@@ -381,7 +383,7 @@ export async function authorizeInstanceSetup(db: Db, instanceId: string, credent
   });
   const liveSlots = { $filter: { input: '$bootstrap.sessionSlots', as: 'slot', cond: { $gt: ['$$slot.expiresAt', now] } } };
   const reserved = await db.collection<InstanceControl>('instance_configuration').updateOne({
-    _id: 'instance', instanceId, schemaVersion: 1, lifecycle: { $in: recovery ? ['maintenance'] : enrollment ? ['legacy_migrating'] : ['configuring', 'awaiting_owner'] },
+    _id: 'instance', instanceId, schemaVersion: 2, lifecycle: { $in: recovery ? ['maintenance'] : enrollment ? ['legacy_migrating'] : ['configuring', 'awaiting_owner'] },
     'bootstrap.epoch': control.bootstrap.epoch, 'bootstrap.verifierHash': control.bootstrap.verifierHash,
     'bootstrap.consumedAt': recovery ? control.bootstrap.consumedAt : null, 'bootstrap.expiresAt': { $gt: now },
     $expr: { $and: [{ $lt: [{ $size: liveSlots }, LIMITS.maxInstanceSetupSessions] }, { $lt: [{ $size: '$auditOutbox' }, LIMITS.maxInstanceAuditOutbox] },

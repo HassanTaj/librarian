@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { createStorageHarness } from './http-harness';
+import { createStorageHarness, insertInstanceControl } from './http-harness';
 import { readyInstance } from '../fixtures/instance';
 import { acquireInstanceAdmission, verifyInstanceAdmission, releaseInstanceAdmission, requireInstanceAuthority, consumeInstanceRate, withInstanceAdmission, runInstanceEffect } from '../../lib/instance/access';
 import { parseInstanceControl, type InstanceControl } from '../../lib/instance/store';
@@ -11,7 +11,7 @@ it('bounds admissions, excludes new work during cutover and denies expired or ol
   const storage = await createStorageHarness();
   try {
     const fixture = readyInstance(); const control = parseInstanceControl(fixture, fixture.instanceId);
-    await storage.db.collection<typeof control>('instance_configuration').insertOne(control);
+    await insertInstanceControl(storage.db, control);
     const now = fixture.createdAt;
     await expect(acquireInstanceAdmission(storage.db, fixture.instanceId, 'invalid' as 'worker', now)).rejects.toThrow('instance_invalid');
     await expect(acquireInstanceAdmission(storage.db, fixture.instanceId, 'worker', new Date(NaN))).rejects.toThrow('instance_invalid');
@@ -44,7 +44,7 @@ it('reuses one nested admission and refuses effects after the admitted lifecycle
   const storage = await createStorageHarness();
   try {
     const fixture = readyInstance(); const control = parseInstanceControl(fixture, fixture.instanceId);
-    await storage.db.collection<typeof control>('instance_configuration').insertOne(control);
+    await insertInstanceControl(storage.db, control);
     await expect(withInstanceAdmission(storage.db, fixture.instanceId, 'request', async outer => {
       await withInstanceAdmission(storage.db, fixture.instanceId, 'request', async nested => {
         expect(nested.id).toBe(outer.id);
@@ -100,7 +100,7 @@ it('refreshes roles at the exact 15-minute deadline and fails closed when refres
   const storage = await createStorageHarness();
   try {
     const fixture = readyInstance(); const control = parseInstanceControl(fixture, fixture.instanceId);
-    await storage.db.collection<typeof control>('instance_configuration').insertOne(control);
+    await insertInstanceControl(storage.db, control);
     await ensureAuthIndexes(storage.db);
     const identity = { issuer: fixture.active!.zitadel.issuer, subject: 'synthetic-owner', projectId: 'project' };
     const verifiedAt = fixture.createdAt;

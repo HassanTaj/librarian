@@ -6,7 +6,7 @@ import { readInstanceHost } from '@/lib/instance/bootstrap';
 import { withInstanceProviderCheck, consumeInstanceRate, instanceErrorResponse, readInstanceJson, readInstanceSetupSession } from '@/lib/instance/access';
 import { createProviderCheckRunner } from '@/lib/instance/validation';
 import { decryptInstanceSecret } from '@/lib/instance/secrets';
-import { INSTANCE_CHECK_TYPES, recordInstanceCheck, type InstanceCheck, type InstanceControl } from '@/lib/instance/store';
+import { INSTANCE_CHECK_TYPES, readInstance, recordInstanceCheck, type InstanceCheck, type InstanceControl } from '@/lib/instance/store';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -48,7 +48,7 @@ export async function POST(request: Request) {
       await consumeInstanceRate(storage.db, host.instanceId, host.instanceId, 'setup_check');
       const parsed = inputSchema.safeParse(await readInstanceJson(request));
       if (!parsed.success) throw new Error('instance_invalid');
-      const control = await storage.db.collection<InstanceControl>('instance_configuration').findOne({ _id: 'instance', instanceId: host.instanceId });
+      const control = await readInstance(storage.db, host.instanceId);
       const candidate = control?.candidate;
       if (!control || !candidate || !['configuring', 'awaiting_owner'].includes(control.lifecycle) || control.bootstrap.consumedAt) throw new Error('instance_unavailable');
       if (request.headers.get('if-match') !== `"${control.editRevision}"` || parsed.data.candidateVersion !== candidate.version) throw new Error('instance_conflict');

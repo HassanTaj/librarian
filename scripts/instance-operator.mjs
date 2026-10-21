@@ -62,6 +62,12 @@ function validateSetupOrigin(value, nodeEnv = process.env.NODE_ENV) {
 
 async function protectedValue(env, setting, cwd, forbiddenRoots) {
   try {
+    const direct = setting.replace(/_FILE$/, '');
+    if (Object.hasOwn(env, direct)) {
+      const value = env[direct]?.trim();
+      if (!value || Buffer.byteLength(value) > 64 * 1024) fail('operator_host_prerequisite_missing');
+      return value;
+    }
     if (!env[setting]) fail('operator_host_prerequisite_missing');
     const file = resolve(cwd, env[setting]);
     const info = await lstat(file);
@@ -77,9 +83,9 @@ async function protectedValue(env, setting, cwd, forbiddenRoots) {
   }
 }
 
-async function hostPrerequisites(env, cwd, root) {
+async function hostPrerequisites(env, cwd, root, devTarget) {
   const database = env.MONGODB_DATABASE;
-  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,62}$/.test(database ?? '') || ['admin', 'local', 'config', 'librarian_dev'].includes(database)) fail('operator_invalid_database');
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,62}$/.test(database ?? '') || ['admin', 'local', 'config'].includes(database) || database === 'librarian_dev' && !devTarget) fail('operator_invalid_database');
   let contentRoot;
   let publicRoot;
   try {
@@ -103,8 +109,11 @@ async function hostPrerequisites(env, cwd, root) {
   const uriPath = uri.replace(/^mongodb(?:\+srv)?:\/\/[^/]+/, '').split('?')[0];
   if (uriPath && uriPath !== '/' && client.options.dbName !== database) fail('operator_invalid_database');
   const hosts = client.options.hosts;
-  if (client.options.srvHost || hosts.length !== 1 || !['127.0.0.1', '::1'].includes(hosts[0].host)) fail('operator_database_not_loopback');
-  return { client, database, contentRoot, publicRoot, authSecret, oauthKey };
+  if (devTarget) {
+    if (env.NODE_ENV !== 'development' || database !== 'librarian_dev' || devTarget.database !== database ||
+        client.options.srvHost || hosts.length !== 1 || hosts[0].host !== devTarget.host) fail('operator_invalid_database');
+  } else if (client.options.srvHost || hosts.length !== 1 || !['127.0.0.1', '::1'].includes(hosts[0].host)) fail('operator_database_not_loopback');
+  return { client, database, contentRoot, publicRoot, authSecret, oauthKey, mongodbUri: uri };
 }
 
 async function assertSafeDestination(root, cwd) {
@@ -173,13 +182,51 @@ async function databaseIsEmpty(db) {
   } catch { fail('operator_storage_unavailable'); }
 }
 
-export async function prepareInstance({ root = '.local/instance', origin, env = process.env, cwd = process.cwd(), now = new Date(), mode = 'prepare', legacyDrained = false }) {
+async function provisionInstanceHost(absoluteRoot, setupOrigin, mode, now, host) {
+    await protectDirectory(absoluteRoot);
+    const instanceId = randomUUID();
+    const keyId = randomUUID();
+    let rootKey = randomBytes(32);
+    while (host && (rootKey.equals(host.oauthKey) || rootKey.equals(Buffer.from(host.authSecret)) || rootKey.toString('base64url') === host.authSecret)) rootKey = randomBytes(32);
+    const issuedAt = new Date(now);
+    const expiresAt = new Date(issuedAt.getTime() + 24 * hour);
+    const credential = randomBytes(32).toString('base64url');
+    const verifierHash = createHash('sha256').update(credential).digest('hex');
+    await writeProtected(absoluteRoot, 'instance-keyring.json', JSON.stringify({ activeKeyId: keyId, keys: { [keyId]: rootKey.toString('base64') } }));
+    await writeProtected(absoluteRoot, 'instance-operator-auth.json', JSON.stringify({ instanceId, purpose: mode === 'enroll' ? 'enroll' : 'bootstrap', epoch: 1, credential, expiresAt: expiresAt.toISOString() }));
+    const envFile = {
+      INSTANCE_DATABASE_FILE: resolve(absoluteRoot, 'instance-database.json'),
+      INSTANCE_ID: instanceId,
+      INSTANCE_SETUP_ORIGIN: setupOrigin,
+      INSTANCE_STATE_FILE: resolve(absoluteRoot, 'instance-state.json'),
+      INSTANCE_KEYRING_FILE: resolve(absoluteRoot, 'instance-keyring.json'),
+      INSTANCE_OPERATOR_AUTH_FILE: resolve(absoluteRoot, 'instance-operator-auth.json'),
+    };
+    if (host) await writeProtected(absoluteRoot, 'instance-database.json', JSON.stringify({ mongodbUri: host.mongodbUri, mongodbDatabase: host.database }));
+    await writeProtected(absoluteRoot, 'instance.env', Object.entries(envFile).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n'));
+    await syncDirectory(absoluteRoot);
+    await writeProtected(absoluteRoot, 'instance-state.json', JSON.stringify({ instanceId, phase: host ? 'sealed' : 'prepared', recoveryEpoch: 1 }));
+    await syncDirectory(absoluteRoot);
+
+    return { instanceId, issuedAt, expiresAt, verifierHash };
+}
+
+export async function prepareInstance({ root = '.local/instance', origin, env = process.env, cwd = process.cwd(), now = new Date(), mode = 'prepare', legacyDrained = false, deferDatabase = false, devTarget = /** @type {{ host: string, database: string } | undefined} */ (undefined) }) {
   const absoluteRoot = await canonicalDestination(resolve(cwd, root));
   const setupOrigin = validateSetupOrigin(origin, env.NODE_ENV);
   if (!Number.isFinite(now.getTime())) fail('operator_invalid_arguments');
   await assertSafeDestination(absoluteRoot, cwd);
   await inspectEmptyDirectory(absoluteRoot);
-  const host = await hostPrerequisites(env, cwd, absoluteRoot);
+  if (deferDatabase) {
+    if (mode !== 'prepare' || devTarget) fail('operator_invalid_arguments');
+    const content = await realpath(resolve(cwd, env.CONTENT_ROOT ?? ''));
+    if (!(await stat(content)).isDirectory() || inside(absoluteRoot, content) || inside(content, absoluteRoot) ||
+        inside(absoluteRoot, resolve(cwd, 'public')) || inside(resolve(cwd), absoluteRoot)) fail('operator_storage_not_private');
+    await provisionInstanceHost(absoluteRoot, setupOrigin, mode, now, undefined);
+    return { actionId: randomUUID() };
+  }
+  if (devTarget && mode !== 'enroll') fail('operator_invalid_arguments');
+  const host = await hostPrerequisites(env, cwd, absoluteRoot, devTarget);
   const client = host.client;
   try {
     await client.connect();
@@ -191,31 +238,10 @@ export async function prepareInstance({ root = '.local/instance', origin, env = 
     if (mode === 'enroll' && (!legacyDrained || await db.collection('instance_configuration').findOne({ _id: 'instance' }) || !['AUTH_URL', 'AUTH_ZITADEL_ISSUER', 'AUTH_ZITADEL_ID', 'ZITADEL_PROJECT_ID', 'ZITADEL_API_AUDIENCE', 'GITHUB_APP_ID'].every(key => typeof env[key] === 'string' && env[key].length > 0))) fail('operator_invalid_arguments');
     if (mode === 'enroll' && await db.collection('catalogs').findOne({ slug: 'instance' })) fail('operator_invalid_arguments');
 
-    await protectDirectory(absoluteRoot);
-    const instanceId = randomUUID();
-    const keyId = randomUUID();
-    let rootKey = randomBytes(32);
-    while (rootKey.equals(host.oauthKey) || rootKey.equals(Buffer.from(host.authSecret)) || rootKey.toString('base64url') === host.authSecret) rootKey = randomBytes(32);
-    const issuedAt = new Date(now);
-    const expiresAt = new Date(issuedAt.getTime() + 24 * hour);
-    const credential = randomBytes(32).toString('base64url');
-    const verifierHash = createHash('sha256').update(credential).digest('hex');
-    await writeProtected(absoluteRoot, 'instance-keyring.json', JSON.stringify({ activeKeyId: keyId, keys: { [keyId]: rootKey.toString('base64') } }));
-    await writeProtected(absoluteRoot, 'instance-operator-auth.json', JSON.stringify({ instanceId, purpose: mode === 'enroll' ? 'enroll' : 'bootstrap', epoch: 1, credential, expiresAt: expiresAt.toISOString() }));
-    const envFile = {
-      INSTANCE_ID: instanceId,
-      INSTANCE_SETUP_ORIGIN: setupOrigin,
-      INSTANCE_STATE_FILE: resolve(absoluteRoot, 'instance-state.json'),
-      INSTANCE_KEYRING_FILE: resolve(absoluteRoot, 'instance-keyring.json'),
-      INSTANCE_OPERATOR_AUTH_FILE: resolve(absoluteRoot, 'instance-operator-auth.json'),
-    };
-    await writeProtected(absoluteRoot, 'instance.env', Object.entries(envFile).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n'));
-    await syncDirectory(absoluteRoot);
-    await writeProtected(absoluteRoot, 'instance-state.json', JSON.stringify({ instanceId, phase: 'sealed', recoveryEpoch: 1 }));
-    await syncDirectory(absoluteRoot);
+    const { instanceId, issuedAt, expiresAt, verifierHash } = await provisionInstanceHost(absoluteRoot, setupOrigin, mode, now, host);
 
     const control = {
-      _id: 'instance', instanceId, schemaVersion: 1, revision: 0, editRevision: 0, nextBundleVersion: 1,
+      _id: 'instance', instanceId, schemaVersion: 2, revision: 0, editRevision: 0, nextBundleVersion: 1,
       lifecycle: mode === 'enroll' ? 'legacy_migrating' : 'configuring', createdAt: issuedAt, updatedAt: issuedAt, initializedAt: null,
       bootstrap: { epoch: 1, verifierHash, expiresAt, consumedAt: null, sessionSlots: [] },
       securityEpoch: 1, recoveryEpoch: 1, active: null, previous: null, candidate: null, administrators: [],
@@ -243,9 +269,9 @@ async function main() {
       process.stdout.write(`${JSON.stringify(result)}\n`);
       return;
     }
-    const { values, positionals } = parseArgs({ args: process.argv.slice(3), options: { root: { type: 'string' }, origin: { type: 'string' }, 'legacy-drained': { type: 'boolean' } }, strict: true, allowPositionals: true });
+    const { values, positionals } = parseArgs({ args: process.argv.slice(3), options: { root: { type: 'string' }, origin: { type: 'string' }, 'legacy-drained': { type: 'boolean' }, 'defer-database': { type: 'boolean' }, 'dev-host': { type: 'string' }, 'dev-database': { type: 'string' } }, strict: true, allowPositionals: true });
     if (positionals.length || !values.origin) fail('operator_invalid_arguments');
-    const result = await prepareInstance({ root: values.root, origin: values.origin, mode: command, legacyDrained: values['legacy-drained'] });
+    const result = await prepareInstance({ root: values.root, origin: values.origin, mode: command, legacyDrained: values['legacy-drained'], deferDatabase: values['defer-database'], devTarget: values['dev-host'] || values['dev-database'] ? { host: values['dev-host'], database: values['dev-database'] } : undefined });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     const code = error instanceof Error && safeErrors.has(error.message) ? error.message : 'operator_invalid_arguments';

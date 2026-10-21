@@ -1,3 +1,6 @@
+import { InstanceDatabaseSetup } from '@/components/instance-database-setup';
+import { needsInstanceDatabaseSetup } from '@/lib/instance/bootstrap';
+import styles from '@/components/instance-settings.module.css';
 import type { Metadata } from 'next';
 import { SessionProvider } from 'next-auth/react';
 import { InstanceSetup, InstanceLegacyEnrollment, InstanceRecovery } from '@/components/instance-setup';
@@ -19,6 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function SetupPage() {
+  if (await needsInstanceDatabaseSetup()) return <main className={styles.page}><h1 className="text-3xl font-semibold">Instance setup</h1><InstanceDatabaseSetup /></main>;
   const status = await readInstanceSetupStatus();
   if (status.namespaceAvailable === false) return ExistingCatalogReader(collisionRoute);
   if (await hasInstanceRecovery().catch(() => false)) return <main className="mx-auto max-w-3xl px-5 py-10">

@@ -9,16 +9,19 @@ const metrics = ['statements', 'branches', 'functions', 'lines'];
 // Exact union in 002/plan.md; planned files join coverage as soon as they exist.
 export const instanceCoverageFiles = `
 lib/instance/bootstrap.ts
+lib/instance/database.ts
 lib/instance/store.ts
 lib/instance/secrets.ts
 lib/instance/access.ts
 lib/instance/validation.ts
 lib/instance/activation.ts
 components/instance-setup.tsx
+components/instance-database-setup.tsx
 components/instance-settings.tsx
 app/instance/setup/page.tsx
 app/instance/settings/page.tsx
 app/api/instance/status/route.ts
+app/api/instance/database/route.ts
 app/api/instance/setup/authorize/route.ts
 app/api/instance/setup/route.ts
 app/api/instance/setup/check/route.ts

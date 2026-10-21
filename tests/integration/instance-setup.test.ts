@@ -1,14 +1,15 @@
+import { loadHostConfig, instanceRuntimeInputs } from '../../lib/config';
 import { expect, it } from 'vitest';
 import { createHash, createHmac, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createStorageHarness, startNextHarness } from './http-harness';
+import { createStorageHarness, insertInstanceControl, startNextHarness } from './http-harness';
 import { createInstanceHarness } from './instance-harness';
 import { instanceControl, readyInstance } from '../fixtures/instance';
 import { catalogs } from '../fixtures/catalogs';
-import { initializeInstance, InstanceControlSchema, readInstance, updateInstance, type InstanceControl } from '../../lib/instance/store';
+import { attachInstanceKeyring, initializeInstance, InstanceControlSchema, StoredInstanceControlSchema, readInstance, serializeInstanceControl, updateInstance, type StoredInstanceControl } from '../../lib/instance/store';
 import { issueBootstrapCredential, readInstanceHost, readInstanceSetupStatus } from '../../lib/instance/bootstrap';
 import { commitInitialInstance } from '../../lib/instance/activation';
 import { authorizeInstanceSetup, readInstanceSetupSession, type InstanceSetupSession } from '../../lib/instance/access';
@@ -34,9 +35,11 @@ async function createSetupApiFixture(port: number, withCandidate = false) {
       const keyring = { activeKeyId: 'setup-test-key', keys: { 'setup-test-key': key } };
       await writeFile(fixture.env.INSTANCE_KEYRING_FILE!, JSON.stringify({ activeKeyId: keyring.activeKeyId,
         keys: { 'setup-test-key': key.toString('base64') } }));
+      attachInstanceKeyring(fixture.storage.db, keyring);
       const ready = readyInstance(fixture.instanceId, now);
       const candidate = structuredClone(ready.active);
       if (!candidate) throw new Error('Synthetic candidate unavailable');
+      candidate.runtime = instanceRuntimeInputs(await loadHostConfig(fixture.env), fixture.env);
       candidate.createdBy = 'synthetic-operator';
       candidate.publicOrigin = setupOrigin;
       candidate.secrets = {
@@ -76,7 +79,10 @@ async function createSetupApiFixture(port: number, withCandidate = false) {
     const authorized = await fetch(`${server.origin}/api/instance/setup/authorize`, { method: 'POST', headers: {
       'content-type': 'application/json', origin: setupOrigin, cookie: preSessionCookie, 'x-csrf-token': preSessionCsrf,
     }, body: JSON.stringify({ credential: operator.credential }) });
-    if (authorized.status !== 200) throw new Error('Setup API session fixture failed');
+    if (authorized.status !== 200) {
+      const failure = await authorized.json().catch(() => null) as { error?: { code?: string } } | null;
+      throw new Error(`Setup API session fixture failed: ${failure?.error?.code ?? authorized.status}`);
+    }
     const sessionCookie = authorized.headers.get('set-cookie')?.match(/(?:^|,\s*)(__Host-librarian_setup=[^;,]+)/)?.[1];
     if (!sessionCookie) throw new Error('Setup API session cookie missing');
     const session = await authorized.json() as { csrfToken: string };
@@ -158,7 +164,7 @@ it('rejects missing, expired, malformed and closed setup authorities with fixed 
   const ready = await createStorageHarness();
   try {
     const control = readyInstance();
-    await ready.db.collection<InstanceControl>('instance_configuration').insertOne(control);
+    await insertInstanceControl(ready.db, control);
     await expect(authorizeInstanceSetup(ready.db, control.instanceId, 'untrusted')).rejects.toThrow('instance_setup_closed');
   } finally { await ready.close(); }
 });
@@ -322,7 +328,7 @@ it('seals protected host authority before initializing one empty loopback instan
     const marker = JSON.parse(await readFile(files.marker, 'utf8')) as { instanceId: string; phase: string; recoveryEpoch: number };
     const operator = JSON.parse(await readFile(files.operator, 'utf8')) as { instanceId: string; purpose: string; epoch: number; credential: string; expiresAt: string };
     const runtimeEnv = await readFile(join(absoluteHostRoot, 'instance.env'), 'utf8');
-    const record = InstanceControlSchema.parse(await storage.db.collection<InstanceControl>('instance_configuration').findOne({ _id: 'instance' }));
+    const record = StoredInstanceControlSchema.parse(await storage.db.collection<StoredInstanceControl>('instance_configuration').findOne({ _id: 'instance' }));
     expect(marker).toMatchObject({ instanceId: record.instanceId, phase: 'sealed', recoveryEpoch: record.recoveryEpoch });
     expect(operator).toMatchObject({ instanceId: record.instanceId, purpose: 'bootstrap', epoch: record.bootstrap.epoch, expiresAt: record.bootstrap.expiresAt.toISOString() });
     expect(record).toMatchObject({ lifecycle: 'configuring', revision: 0, editRevision: 0, initializedAt: null,
@@ -618,14 +624,20 @@ it('records a bounded signed setup ping as proof without admitting operational w
     let limited = false;
     for (let attempt = 0; attempt < 14 && !limited; attempt++) limited = (await deliver(randomUUID())).status === 429;
     expect(limited).toBe(true); expect((await deliver()).status).toBe(200);
-    const controls = api.fixture.storage.db.collection<InstanceControl>('instance_configuration');
+    const controls = api.fixture.storage.db.collection<StoredInstanceControl>('instance_configuration');
     const saved = (await controls.findOne({ _id: 'instance' }))!;
-    await controls.updateOne({ _id: 'instance' }, { $set: { 'candidate.secrets.githubWebhookSecret.tag': 'A'.repeat(22) } });
+    const ciphertext = Buffer.from(saved.candidate!.configuration.ciphertext, 'base64');
+    ciphertext[0] ^= 1;
+    await controls.updateOne({ _id: 'instance' }, { $set: { 'candidate.configuration.ciphertext': ciphertext.toString('base64') } });
     expect((await deliver()).status).toBe(503);
     await controls.replaceOne({ _id: 'instance' }, saved);
-    await controls.updateOne({ _id: 'instance' }, { $set: { 'candidate.secrets.githubWebhookSecret': null } });
+    let logical = (await readInstance(api.fixture.storage.db, api.fixture.instanceId))!;
+    let at = new Date(logical.updatedAt.getTime() + 1);
+    logical = await updateInstance(api.fixture.storage.db, api.fixture.instanceId, logical.revision, value => ({ ...value,
+      candidate: { ...value.candidate!, secrets: { ...value.candidate!.secrets, githubWebhookSecret: null } } }), at);
     expect((await deliver()).status).toBe(403);
-    await controls.updateOne({ _id: 'instance' }, { $set: { candidate: null, lifecycle: 'configuring' } });
+    at = new Date(logical.updatedAt.getTime() + 1);
+    await updateInstance(api.fixture.storage.db, api.fixture.instanceId, logical.revision, value => ({ ...value, candidate: null, lifecycle: 'configuring' }), at);
     expect((await deliver()).status).toBe(403);
     await controls.replaceOne({ _id: 'instance' }, { ...saved, lifecycle: 'maintenance' });
     expect((await deliver()).status).toBe(503);
@@ -711,8 +723,14 @@ it('does not reopen a committed-but-unadopted instance or add another owner', as
     committed.editRevision = current!.editRevision + 1;
     committed.updatedAt = new Date(current!.updatedAt.getTime() + 1);
     committed.gate.state = 'maintenance';
-    const valid = InstanceControlSchema.parse(committed);
-    await api.fixture.storage.db.collection<InstanceControl>('instance_configuration').replaceOne({ _id: 'instance', instanceId: api.fixture.instanceId }, valid);
+    const keyData = JSON.parse(await readFile(api.fixture.env.INSTANCE_KEYRING_FILE!, 'utf8')) as { activeKeyId: string; keys: Record<string, string> };
+    const keyring = { activeKeyId: keyData.activeKeyId, keys: Object.fromEntries(Object.entries(keyData.keys).map(([id, value]) => [id, Buffer.from(value, 'base64')])) };
+    const secretValues = { zitadelClientSecret: 'SYNTHETIC_CLIENT_SECRET', githubPrivateKey: setupAppKey, githubWebhookSecret: 'SYNTHETIC_WEBHOOK_SECRET' };
+    for (const purpose of Object.keys(secretValues) as (keyof typeof secretValues)[]) committed.active!.secrets[purpose] = encryptInstanceSecret(secretValues[purpose], {
+      instanceId: api.fixture.instanceId, purpose, credentialVersion: randomUUID(),
+    }, keyring, committed.updatedAt);
+    const stored = await serializeInstanceControl(InstanceControlSchema.parse(committed), api.fixture.instanceId, keyring);
+    await api.fixture.storage.db.collection<StoredInstanceControl>('instance_configuration').replaceOne({ _id: 'instance', instanceId: api.fixture.instanceId }, stored);
 
     const response = await fetch(`${api.server.origin}/api/instance/setup/finalize`, { method: 'POST', headers: api.headers({
       'content-type': 'application/json', 'if-match': '"1"',

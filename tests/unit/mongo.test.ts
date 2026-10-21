@@ -1,9 +1,11 @@
+import { LIMITS } from '../../lib/limits';
 import { afterEach, expect, it, vi } from 'vitest';
 import { MongoClient } from 'mongodb';
 import { connectMongo, getMongo, closeMongo } from '../../lib/mongo';
 import * as config from '../../lib/config';
 import * as catalog from '../../lib/catalog';
 import * as syncJobs from '../../lib/sync/jobs';
+import * as instanceStore from '../../lib/instance/store';
 
 afterEach(async () => { await closeMongo().catch(() => {}); vi.restoreAllMocks(); });
 
@@ -54,6 +56,19 @@ it('shares one lazy connection, closes it, and allows retry after host configura
   expect(mock.close).toHaveBeenCalledOnce();
 });
 
+it('attaches the instance keyring when a cached connection is reused with lifecycle-validated settings', async () => {
+  const settings = { mongodbUri: 'mongodb://127.0.0.1:27018', mongodbDatabase: 'librarian_test_keyring' };
+  driver({ isWritablePrimary: true, maxWireVersion: 13 });
+  const first = await getMongo(settings);
+  const keyring = { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1) } };
+  const attach = vi.spyOn(instanceStore, 'attachInstanceKeyring').mockImplementation(() => undefined);
+
+  const reused = await getMongo({ ...settings, instanceKeyring: keyring });
+
+  expect(reused).toBe(first);
+  expect(attach).toHaveBeenCalledWith(first.db, keyring);
+});
+
 it('does not open normal runtime storage without lifecycle-validated configuration', async () => {
   const load = vi.spyOn(config, 'loadConfig').mockRejectedValue(new Error('Instance setup is not ready.'));
   const mock = driver({ isWritablePrimary: true, maxWireVersion: 13, setName: 'synthetic' });
@@ -64,4 +79,19 @@ it('does not open normal runtime storage without lifecycle-validated configurati
 
 it('sanitizes driver construction failures without opening a connection', async () => {
   await expect(connectMongo({ mongodbUri: 'invalid://synthetic-secret', mongodbDatabase: 'librarian_test_invalid' })).rejects.toThrow('storage_unavailable');
+});
+
+it('uses an activated connection immediately and retires the old pool after bounded readers finish', async () => {
+  vi.useFakeTimers();
+  try {
+    const mock = driver({ isWritablePrimary: true, maxWireVersion: 13 });
+    const settings = { mongodbUri: 'mongodb://127.0.0.1:27018', mongodbDatabase: 'librarian_test_connection_update' };
+    const first = await getMongo(settings);
+    const next = await getMongo({ ...settings, mongodbUri: settings.mongodbUri + '/?appName=synthetic-update' });
+    expect(next.client).not.toBe(first.client);
+    expect(mock.close).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(LIMITS.instanceRequestPinMs);
+    expect(mock.close).toHaveBeenCalledOnce();
+    expect((await getMongo({ ...settings, mongodbUri: settings.mongodbUri + '/?appName=synthetic-update' })).client).toBe(next.client);
+  } finally { vi.useRealTimers(); }
 });

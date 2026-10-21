@@ -1,6 +1,6 @@
 # Validation Guide: Secure Installation and Instance Settings
 
-**Status — 2026-10-21**: The local automated gates and synthetic journeys below pass: 1,022 coverage tests, 99/99 Chromium/Firefox/WebKit cases, the production build, artifact validation, and one disposable image/container acceptance. T085 previous-image compatibility and BG-01/02/03 remain open. These results do not prove genuine provider, workload, DEV, or production behavior.
+**Status — 2026-10-21**: The local automated gates and synthetic journeys below pass: 1,023 coverage tests, 99/99 Chromium/Firefox/WebKit cases, the production build, artifact validation, a parent-revision image swap, and a consistent synthetic restore. Image compatibility was exercised in legacy mode with a locally source-built parent revision; this does not prove rollback from an activated v2 configuration or a deployed image. BG-01/02/03 remain open and require separate workload, live DEV, and release evidence.
 
 ## Prerequisites and isolation
 
@@ -29,13 +29,15 @@ For container acceptance, build a disposable local image using the existing Dock
 
 ```powershell
 $env:LIBRARIAN_TEST_IMAGE = "librarian:local-acceptance-$([guid]::NewGuid().ToString('N'))"
+$env:LIBRARIAN_PREVIOUS_TEST_IMAGE = "librarian:parent-acceptance"
 docker build --tag $env:LIBRARIAN_TEST_IMAGE .
 npm run test:container
-docker image rm $env:LIBRARIAN_TEST_IMAGE
+docker image rm $env:LIBRARIAN_TEST_IMAGE $env:LIBRARIAN_PREVIOUS_TEST_IMAGE
 Remove-Item Env:LIBRARIAN_TEST_IMAGE
+Remove-Item Env:LIBRARIAN_PREVIOUS_TEST_IMAGE
 ```
 
-This is a local-only procedure. The container harness creates uniquely named test containers and a volume, then removes only those resources. Do not start/recreate shared Docker services. `npm run validate:artifacts` validates both selected feature 002 and historical feature 001 without weakening original requirements or task counts. `git diff --check` reports whitespace errors while Git may still print line-ending notices.
+Build `LIBRARIAN_PREVIOUS_TEST_IMAGE` from the parent revision in a separate temporary source context, as CI does with `git archive HEAD^`. This is a local-only procedure. The container harness creates uniquely named test containers and a volume, then removes only those resources. Do not start/recreate shared Docker services. `npm run validate:artifacts` validates both selected feature 002 and historical feature 001 without weakening original requirements or task counts. `git diff --check` reports whitespace errors while Git may still print line-ending notices.
 
 ## Acceptance journeys
 
@@ -60,3 +62,28 @@ Capture sanitized pass/fail counts, exact versions/revisions, gate timings, race
 Before production, BG-01 must measure the declared corpus/resource/latency/ingestion/recovery workload with v2 overhead under 0.5 CPU/512 MB. BG-02 requires separately approved DEV hostname/provider/DB/storage login, refresh, logout, role removal, all private delivery boundaries, signed GitHub sync and consistent restore/previous-image rollback. Full recovery/rollback target is <=30 minutes for that corpus. BG-03 requires explicit image/private-content/infrastructure/deployment approvals, prior image/config/keys and coherent backups, actual infrastructure checkout/provider revalidation, DEV before production, health and browser checks. T087 quickstart completion is not inferred from saved coverage.
 
 Mocked fixtures and this document prove none of those live gates. Do not run remote restarts, sender/role/secret mutations, volume deletion, image publication or deployment during the plan workflow.
+
+
+## Database-first installation and connection editing
+
+Create the persistent CONTENT_ROOT and supply that path in the protected host
+environment. In local PowerShell, set NODE_ENV to development before preparing an
+HTTP localhost origin. Run the installed operator explicitly:
+
+```text
+node scripts/instance-operator.mjs prepare --defer-database --origin http://localhost:3000
+```
+
+Copy the generated instance.env references into the ignored .env.local, start the
+app, and visit /instance/setup. Enter the protected operator credential and an
+empty Mongo database connection. Existing data is refused; do not use this flow
+to reinitialize or import a populated instance. Continue through the existing
+provider and owner checks. The Mongo URI stays write-only and the startup locator
+is stored privately beside the instance marker.
+
+For an initialized instance, Settings has separate General, Authentication, GitHub,
+Database, Documentation, Security, Validation and Audit tabs. Change the webhook
+receiver URL in GitHub and update the sender separately. To update the existing
+Mongo connection, use the Database tab as the verified owner, explicitly replace
+the URI, save a draft, run its database/provider checks and activate that revision.
+The target must expose the same live instance; data migration is not implicit.

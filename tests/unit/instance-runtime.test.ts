@@ -72,7 +72,7 @@ it('preserves legacy runtime only while a valid uninitialized migration remains 
   control.migration = { sourceDigest: 'b'.repeat(64), mode: 'import', at: control.createdAt, verificationSummary: ['legacy_drained'] };
   doubles.host = { ...(doubles.host as object), marker: { instanceId, phase: 'sealed', recoveryEpoch: 1 } };
   doubles.control = control;
-  expect((await loadConfig(env, cwd)).githubAppId).toBe('456');
+  await expect(loadConfig(env, cwd)).resolves.toMatchObject({ githubAppId: '456', instanceKeyring: keyring });
   control.gate.state = 'maintenance'; await expect(loadConfig(env, cwd)).rejects.toThrow('Instance setup is not ready.');
   doubles.control = { ...readyInstance(instanceId), lifecycle: 'maintenance', migration: control.migration };
   await expect(loadConfig(env, cwd)).rejects.toThrow('Instance setup is not ready.');
@@ -81,6 +81,9 @@ it('preserves legacy runtime only while a valid uninitialized migration remains 
 it('loads the ready active bundle instead of stale provider environment values', async () => {
   const control = readyInstance(instanceId);
   const active = control.active!;
+  active.runtime!.authSecret = 'active-auth-secret-with-at-least-32-bytes';
+  active.runtime!.oauthTokenEncryptionKey = Buffer.alloc(32, 9).toString('base64');
+  active.runtime!.mongodbUri = 'mongodb://stored-copy.example.test/librarian';
   active.publicOrigin = 'https://active.example.test';
   active.zitadel.clientId = 'active-client';
   active.github.appId = '789';
@@ -90,10 +93,11 @@ it('loads the ready active bundle instead of stale provider environment values',
   doubles.control = control;
   const withoutProviderEnv = { ...env };
   for (const key of ['AUTH_URL', 'AUTH_ZITADEL_ID', 'AUTH_ZITADEL_ISSUER', 'ZITADEL_PROJECT_ID', 'ZITADEL_API_AUDIENCE', 'GITHUB_APP_ID',
-    'AUTH_ZITADEL_SECRET_FILE', 'GITHUB_APP_PRIVATE_KEY_FILE', 'GITHUB_WEBHOOK_SECRET_FILE']) delete withoutProviderEnv[key];
+    'AUTH_ZITADEL_SECRET_FILE', 'GITHUB_APP_PRIVATE_KEY_FILE', 'GITHUB_WEBHOOK_SECRET_FILE', 'AUTH_SECRET_FILE', 'OAUTH_TOKEN_ENCRYPTION_KEY_FILE']) delete withoutProviderEnv[key];
 
   await expect(loadConfig(withoutProviderEnv, cwd)).resolves.toMatchObject({ authUrl: active.publicOrigin, zitadelClientId: 'active-client',
     zitadelIssuer: active.zitadel.issuer, zitadelProjectId: active.zitadel.projectId, zitadelApiAudience: active.zitadel.audience,
+    mongodbUri: 'mongodb://127.0.0.1:27018/librarian', authSecret: active.runtime!.authSecret, oauthTokenEncryptionKey: Buffer.from(active.runtime!.oauthTokenEncryptionKey, 'base64'),
     zitadelSecret: 'active-client-secret', githubAppId: '789', githubPrivateKey: privateKey, githubWebhookSecret: 'active-webhook-secret',
     contentRoot: (doubles.host as { config: { contentRoot: string } }).config.contentRoot });
 }, 15_000);
@@ -113,6 +117,15 @@ it('fails closed for a maintenance record even when legacy provider values remai
   const control = readyInstance(instanceId);
   control.lifecycle = 'maintenance';
   control.gate = { state: 'maintenance', activationId: null, deadline: null };
+  doubles.control = control;
+  await expect(loadConfig(env, cwd)).rejects.toThrow('Instance setup is not ready.');
+});
+
+it('fails closed if an activated bundle lacks runtime secrets instead of using legacy files', async () => {
+  const control = readyInstance(instanceId);
+  delete (control.active as { runtime?: unknown }).runtime;
+  control.active!.secrets.githubPrivateKey = encryptInstanceSecret(privateKey,
+    { instanceId, purpose: 'githubPrivateKey', credentialVersion: randomUUID() }, keyring);
   doubles.control = control;
   await expect(loadConfig(env, cwd)).rejects.toThrow('Instance setup is not ready.');
 });

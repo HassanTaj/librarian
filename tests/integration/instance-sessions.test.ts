@@ -5,7 +5,7 @@ import { createLibrarianAdapter } from '../../lib/auth/adapter';
 import { LIMITS } from '../../lib/limits';
 import type { InstanceControl } from '../../lib/instance/store';
 import { readyInstance, instanceControl } from '../fixtures/instance';
-import { createStorageHarness } from './http-harness';
+import { createStorageHarness, insertInstanceControl } from './http-harness';
 
 it('rejects damaged or stale instance sessions before renewal and deletes them before delivery', async () => {
   const storage = await createStorageHarness();
@@ -13,7 +13,7 @@ it('rejects damaged or stale instance sessions before renewal and deletes them b
     const now = Date.now(); const control = readyInstance(undefined, new Date(now));
     vi.stubEnv('INSTANCE_ID', control.instanceId);
     const controls = storage.db.collection<InstanceControl>('instance_configuration');
-    await controls.insertOne(control);
+    await insertInstanceControl(storage.db, control);
     const adapter = await createLibrarianAdapter(storage.client, storage.db, control.active!.zitadel.issuer, Buffer.alloc(32, 7), () => now);
     const user = await adapter.createUser!({ id: new ObjectId().toHexString(), name: null, email: 'synthetic-session@example.invalid', emailVerified: null, image: null });
     const sessions = storage.db.collection('sessions');

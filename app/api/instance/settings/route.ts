@@ -17,7 +17,7 @@ export async function GET(request: Request) {
       activation: { state: control.activation?.phase ?? (control.candidate ? 'draft' : 'active'), restartRequired: false },
       runtimeCallbackUrl: new URL('/api/auth/callback/zitadel', control.candidate?.publicOrigin ?? control.active!.publicOrigin).href,
       candidateCallbackUrl: new URL('/api/instance/auth/callback/zitadel', control.candidate?.publicOrigin ?? control.active!.publicOrigin).href,
-      webhookUrl: new URL('/api/webhooks/github', control.candidate?.publicOrigin ?? control.active!.publicOrigin).href,
+      webhookUrl: (control.candidate ?? control.active)!.github.webhookUrl ?? new URL('/api/webhooks/github', control.candidate?.publicOrigin ?? control.active!.publicOrigin).href,
     }, { headers: { 'Cache-Control': 'private, no-store', ETag: `"${control.editRevision}"` } });
   } catch (error) { return instanceErrorResponse(error); }
 }
@@ -29,6 +29,8 @@ export async function PATCH(request: Request) {
       await consumeInstanceRate(db, host.instanceId, binding.bindingId, 'mutation');
       const parsed = InstanceDraftPatchSchema.safeParse(await readInstanceJson(request));
       if (!parsed.success) throw new Error('instance_invalid');
+      if (parsed.data.changes.database && binding.kind !== 'owner') throw new Error('instance_forbidden');
+      if (parsed.data.changes.database && !process.env.INSTANCE_DATABASE_FILE) throw new Error('instance_operator_required');
       const control = await readInstance(db, host.instanceId);
       if (!control) throw new Error('instance_unavailable');
       if (request.headers.get('if-match') !== `"${control.editRevision}"` || parsed.data.candidateVersion !== (control.candidate?.version ?? 0)) throw new Error('instance_conflict');

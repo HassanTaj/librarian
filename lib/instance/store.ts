@@ -1,7 +1,9 @@
-import { BSON, type Db } from 'mongodb';
+import { BSON, type Db, type MongoClient } from 'mongodb';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { LIMITS } from '../limits';
+import type { InstanceKeyring } from './secrets';
+import { InstanceDatabaseSchema } from './database';
 
 const counter = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const identifier = z.string().min(1).max(200).regex(/^[\w.:-]+$/);
@@ -17,6 +19,13 @@ function isOrigin(value: string) {
   catch { return false; }
 }
 const origin = z.string().refine(isOrigin);
+function isWebhookUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return isOrigin(url.origin) && url.href === value && !url.username && !url.password && !url.search && !url.hash && !/[\\\s\p{Cc}]/u.test(value);
+  } catch { return false; }
+}
+const webhookUrl = z.string().max(2048).refine(isWebhookUrl).optional();
 const text = (max: number) => z.string().refine(value => [...value].length <= max && !/[\p{Cc}<>]/u.test(value));
 const folder = z.string().max(1024).refine(value => Buffer.byteLength(value) <= 1024 && value.split('/').length <= 32 && !/[\\\p{Cc}<>]/u.test(value) && value.split('/').every(segment => !!segment && segment !== '.' && segment !== '..'));
 const binary = z.string().min(1).refine(value => Buffer.from(value, 'base64').toString('base64') === value);
@@ -26,6 +35,11 @@ export const InstanceEnvelopeSchema = z.strictObject({
   credentialVersion: z.uuid(), nonce: binary.refine(value => Buffer.from(value, 'base64').length === 12),
   tag: binary.refine(value => Buffer.from(value, 'base64').length === 16), ciphertext: binary.max(24 * 1024), updatedAt: date,
 });
+export const InstanceBundleEnvelopeSchema = z.strictObject({
+  formatVersion: z.literal(2), algorithm: z.literal('aes-256-gcm'), keyId: identifier,
+  bundleVersion: counter, nonce: binary.refine(value => Buffer.from(value, 'base64').length === 12),
+  tag: binary.refine(value => Buffer.from(value, 'base64').length === 16), ciphertext: binary.max(176 * 1024), updatedAt: date,
+});
 const binding = z.strictObject({ bindingId: z.uuid(), issuer: origin, subject: z.string().min(1).max(200).refine(value => !/\p{Cc}/u.test(value)), projectId: identifier,
   kind: z.enum(['owner', 'administrator']), status: z.enum(['active', 'retired']), boundAt: date, boundByActionId: z.uuid() });
 const proof = z.strictObject({ instanceId: z.uuid(), candidateVersion: counter, issuer: origin, subject: z.string().min(1).max(200), projectId: identifier,
@@ -33,21 +47,29 @@ const proof = z.strictObject({ instanceId: z.uuid(), candidateVersion: counter, 
 const check = z.strictObject({ type: z.enum(INSTANCE_CHECK_TYPES),
   candidateVersion: counter, at: date, status: z.enum(['not_run', 'passed', 'failed', 'warning']), code: z.enum(INSTANCE_CHECK_CODES) });
 export type InstanceCheck = z.infer<typeof check>;
+export const InstanceRuntimeSchema = z.strictObject({
+  authSecret: z.string().max(64 * 1024).refine(value => Buffer.byteLength(value) >= 32 && Buffer.byteLength(value) <= 64 * 1024),
+  oauthTokenEncryptionKey: z.string().refine(value => Buffer.from(value, 'base64').length === 32 && Buffer.from(value, 'base64').toString('base64') === value),
+  mongodbUri: z.string().min(1).max(64 * 1024), mongodbDatabase: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,62}$/),
+  trustHost: z.boolean(), workerEnabled: z.boolean(),
+});
 export const InstanceBundleSchema = z.strictObject({
   version: counter, createdAt: date, createdBy: identifier,
   preferences: z.strictObject({ displayName: text(120).refine(value => value.trim().length > 0), description: text(500), docsFolder: folder }),
   publicOrigin: origin,
+  runtime: InstanceRuntimeSchema,
   zitadel: z.strictObject({ issuer: origin, clientId: z.string().min(1).max(200).regex(/^[\w.:@-]+$/), projectId: identifier, audience: identifier }),
-  github: z.strictObject({ provider: z.literal('github'), appId: z.string().regex(/^[1-9]\d*$/).max(200) }),
+  github: z.strictObject({ provider: z.literal('github'), appId: z.string().regex(/^[1-9]\d*$/).max(200), webhookUrl }),
   secrets: z.strictObject({ zitadelClientSecret: InstanceEnvelopeSchema, githubPrivateKey: InstanceEnvelopeSchema, githubWebhookSecret: InstanceEnvelopeSchema,
     previousWebhook: z.strictObject({ envelope: InstanceEnvelopeSchema, acceptUntil: date }).nullable() }),
   checks: z.array(check).max(12), ownerProof: proof.nullable(),
-  impact: z.strictObject({ categories: z.array(z.enum(['preferences', 'origin', 'identity', 'github', 'webhook'])).max(5), securityEpochIncrement: z.boolean(), revalidateSources: z.boolean(), confirmationNonce: z.uuid() }).nullable(),
+  impact: z.strictObject({ categories: z.array(z.enum(['preferences', 'origin', 'identity', 'github', 'webhook', 'database'])).max(6), securityEpochIncrement: z.boolean(), revalidateSources: z.boolean(), confirmationNonce: z.uuid() }).nullable(),
   previousUntil: date.nullable(),
 });
 export const InstanceCandidateSchema = InstanceBundleSchema.extend({
+  runtime: InstanceRuntimeSchema.optional(),
   zitadel: z.strictObject({ issuer: z.string().refine(value => value === '' || isOrigin(value)), clientId: z.string().max(200), projectId: z.string().max(200), audience: z.string().max(200) }),
-  github: z.strictObject({ provider: z.literal('github'), appId: z.string().max(200) }),
+  github: z.strictObject({ provider: z.literal('github'), appId: z.string().max(200), webhookUrl }),
   secrets: z.strictObject({ zitadelClientSecret: InstanceEnvelopeSchema.nullable(), githubPrivateKey: InstanceEnvelopeSchema.nullable(), githubWebhookSecret: InstanceEnvelopeSchema.nullable(),
     previousWebhook: z.strictObject({ envelope: InstanceEnvelopeSchema, acceptUntil: date }).nullable() }),
 });
@@ -56,7 +78,7 @@ const audit = z.strictObject({ _id: z.uuid(), instanceId: z.uuid(), at: date, ac
   operation: z.enum(['candidate_saved', 'setup_finalized', 'activated', 'rollback', 'owner_enrolled', 'owner_transferred', 'recovered', 'key_rotated']),
   fromVersion: counter.nullable(), toVersion: counter.nullable(), resultCode: identifier, requestId: z.uuid() });
 export const InstanceControlSchema = z.strictObject({
-  _id: z.literal('instance'), instanceId: z.uuid(), schemaVersion: z.literal(1), revision: counter, editRevision: counter, nextBundleVersion: counter,
+  _id: z.literal('instance'), instanceId: z.uuid(), schemaVersion: z.literal(2), revision: counter, editRevision: counter, nextBundleVersion: counter,
   lifecycle: z.enum(['configuring', 'awaiting_owner', 'ready', 'maintenance', 'legacy_migrating']), createdAt: date, updatedAt: date, initializedAt: date.nullable(),
   bootstrap: z.strictObject({ epoch: counter, verifierHash: hash, expiresAt: date, consumedAt: date.nullable(), sessionSlots: z.array(sessionSlot).max(LIMITS.maxInstanceSetupSessions) }),
   securityEpoch: counter, recoveryEpoch: counter,
@@ -102,10 +124,70 @@ export const InstanceControlSchema = z.strictObject({
 });
 export type InstanceControl = z.infer<typeof InstanceControlSchema>;
 
+const StoredBundleSchema = z.strictObject({ version: counter, configuration: InstanceBundleEnvelopeSchema });
+export const StoredInstanceControlSchema = z.strictObject({ ...InstanceControlSchema.shape,
+  active: StoredBundleSchema.nullable(), previous: StoredBundleSchema.nullable(), candidate: StoredBundleSchema.nullable() });
+type StoredBundle = z.infer<typeof StoredBundleSchema>;
+export type StoredInstanceControl = z.infer<typeof StoredInstanceControlSchema>;
+
+const instanceKeyrings = new WeakMap<MongoClient, InstanceKeyring>();
+
+export function attachInstanceKeyring(db: Db, keyring?: InstanceKeyring) {
+  if (keyring) instanceKeyrings.set(db.client, keyring);
+}
+
+function keyringFor(db: Db) {
+  const keyring = instanceKeyrings.get(db.client);
+  if (!keyring) throw new Error('instance_unavailable');
+  return keyring;
+}
+
 export function parseInstanceControl(input: unknown, instanceId: string): InstanceControl {
   const parsed = InstanceControlSchema.safeParse(input);
   if (!parsed.success || parsed.data.instanceId !== instanceId || BSON.calculateObjectSize(parsed.data) > LIMITS.maxInstanceControlBytes) throw new Error('instance_invalid');
   return parsed.data;
+}
+
+type PriorControl = { control: InstanceControl; stored: StoredInstanceControl };
+
+export async function serializeInstanceControl(input: unknown, instanceId: string, keyring: InstanceKeyring, prior?: PriorControl): Promise<StoredInstanceControl> {
+  const control = parseInstanceControl(input, instanceId);
+  const { encryptInstanceBundle } = await import('./secrets');
+  const storeBundle = (bundle: InstanceControl['active'] | InstanceControl['candidate'] | InstanceControl['previous'], previous: PriorControl['control']['active'] | PriorControl['control']['candidate'] | PriorControl['control']['previous'], stored: StoredBundle | null): StoredBundle | null => bundle
+    ? previous && stored && BSON.EJSON.stringify(bundle) === BSON.EJSON.stringify(previous) ? stored
+      : { version: bundle.version, configuration: encryptInstanceBundle(bundle, { instanceId, bundleVersion: bundle.version }, keyring, control.updatedAt) }
+    : null;
+  const result = StoredInstanceControlSchema.parse({ ...control,
+    active: storeBundle(control.active, prior?.control.active ?? null, prior?.stored.active ?? null),
+    previous: storeBundle(control.previous, prior?.control.previous ?? null, prior?.stored.previous ?? null),
+    candidate: storeBundle(control.candidate, prior?.control.candidate ?? null, prior?.stored.candidate ?? null) });
+  if (BSON.calculateObjectSize(result) > LIMITS.maxInstanceControlBytes) throw new Error('instance_invalid');
+  return result;
+}
+
+async function deserializeInstanceControl(input: unknown, instanceId: string, keyring: InstanceKeyring): Promise<InstanceControl> {
+  const stored = StoredInstanceControlSchema.safeParse(input);
+  if (!stored.success || stored.data.instanceId !== instanceId || BSON.calculateObjectSize(stored.data) > LIMITS.maxInstanceControlBytes) throw new Error('instance_invalid');
+  const { decryptInstanceBundle } = await import('./secrets');
+  const load = (bundle: StoredBundle | null) => {
+    if (!bundle) return null;
+    try {
+      const value = decryptInstanceBundle(bundle.configuration, { instanceId, bundleVersion: bundle.version }, keyring);
+      if (value.version !== bundle.version) throw new Error();
+      return value;
+    } catch { throw new Error('instance_unavailable'); }
+  };
+  return parseInstanceControl({ ...stored.data, active: load(stored.data.active), previous: load(stored.data.previous), candidate: load(stored.data.candidate) }, instanceId);
+}
+
+async function loadStoredInstance(db: Db, instanceId: string): Promise<PriorControl | null> {
+  const stored = await db.collection<StoredInstanceControl>('instance_configuration').findOne({ _id: 'instance', instanceId });
+  if (!stored) {
+    if (await db.collection<StoredInstanceControl>('instance_configuration').findOne({ _id: 'instance' })) throw new Error('instance_mismatch');
+    return null;
+  }
+  const control = await deserializeInstanceControl(stored, instanceId, keyringFor(db));
+  return { control, stored };
 }
 
 export async function initializeInstance(db: Db, input: unknown) {
@@ -114,22 +196,19 @@ export async function initializeInstance(db: Db, input: unknown) {
   const instanceId = identity.data;
   const control = parseInstanceControl(input, instanceId);
   if (control.lifecycle !== 'configuring' || control.revision !== 0 || control.editRevision !== 0 || control.initializedAt !== null || control.active || control.previous || control.administrators.length || control.bootstrap.consumedAt || control.bootstrap.sessionSlots.length) throw new Error('instance_invalid');
-  await db.collection<InstanceControl>('instance_configuration').insertOne(control, { writeConcern: { w: 1, j: true } });
+  const stored = await serializeInstanceControl(control, instanceId, keyringFor(db));
+  await db.collection<StoredInstanceControl>('instance_configuration').insertOne(stored, { writeConcern: { w: 1, j: true } });
   return control;
 }
 
 export async function readInstance(db: Db, instanceId: string) {
   if (!z.uuid().safeParse(instanceId).success) throw new Error('instance_invalid');
-  const control = await db.collection<InstanceControl>('instance_configuration').findOne({ _id: 'instance', instanceId });
-  if (!control) {
-    if (await db.collection<InstanceControl>('instance_configuration').findOne({ _id: 'instance' })) throw new Error('instance_mismatch');
-    return null;
-  }
-  return parseInstanceControl(control, instanceId);
+  return (await loadStoredInstance(db, instanceId))?.control ?? null;
 }
 
 export async function updateInstance(db: Db, instanceId: string, revision: number, mutate: (control: InstanceControl) => unknown, now = new Date(), options: { allowFullAuditOutbox?: boolean } = {}) {
-  const current = await readInstance(db, instanceId);
+  const prior = await loadStoredInstance(db, instanceId);
+  const current = prior?.control ?? null;
   if (!current || current.revision !== revision) throw new Error('instance_conflict');
   if (!Number.isFinite(now.getTime()) || now < current.updatedAt) throw new Error('instance_invalid');
   if (current.auditOutbox.length >= LIMITS.maxInstanceAuditOutbox && !options.allowFullAuditOutbox) throw new Error('instance_unavailable');
@@ -150,7 +229,8 @@ export async function updateInstance(db: Db, instanceId: string, revision: numbe
   if ((current.initializedAt && (next.initializedAt?.getTime() !== current.initializedAt.getTime() || !next.bootstrap.consumedAt || ['configuring', 'awaiting_owner'].includes(next.lifecycle))) ||
       next.securityEpoch < current.securityEpoch || next.recoveryEpoch < current.recoveryEpoch || next.bootstrap.epoch < current.bootstrap.epoch ||
       next.nextBundleVersion < current.nextBundleVersion || (current.bootstrap.consumedAt && (!next.bootstrap.consumedAt || next.bootstrap.consumedAt.getTime() !== current.bootstrap.consumedAt.getTime()))) throw new Error('instance_invalid');
-  const result = await db.collection<InstanceControl>('instance_configuration').replaceOne({ _id: 'instance', instanceId, revision }, next, { writeConcern: { w: 1, j: true } });
+  const stored = await serializeInstanceControl(next, instanceId, keyringFor(db), prior!);
+  const result = await db.collection<StoredInstanceControl>('instance_configuration').replaceOne({ _id: 'instance', instanceId, revision }, stored, { writeConcern: { w: 1, j: true } });
   if (result.matchedCount !== 1) throw new Error('instance_conflict');
   return next;
 }
@@ -159,7 +239,8 @@ export async function recordInstanceCheck(db: Db, instanceId: string, result: In
   const parsed = check.parse(result);
   if (parsed.at > new Date()) throw new Error('instance_invalid');
   for (let attempt = 0; attempt < 3; attempt++) {
-    const current = await readInstance(db, instanceId);
+    const prior = await loadStoredInstance(db, instanceId);
+    const current = prior?.control ?? null;
     if (current && current.auditOutbox.length >= LIMITS.maxInstanceAuditOutbox) throw new Error('instance_unavailable');
     const candidate = current?.candidate;
     if (!current || !candidate || !['configuring', 'awaiting_owner', 'ready'].includes(current.lifecycle) || current.gate.state !== 'open' ||
@@ -170,7 +251,8 @@ export async function recordInstanceCheck(db: Db, instanceId: string, result: In
     const checks = [...candidate.checks.filter(item => item.type !== result.type), parsed];
     const next = parseInstanceControl({ ...current, revision: current.revision + 1, updatedAt: current.updatedAt > result.at ? current.updatedAt : result.at,
       candidate: { ...candidate, checks } }, instanceId);
-    const saved = await db.collection<InstanceControl>('instance_configuration').replaceOne({ _id: 'instance', instanceId, revision: current.revision }, next,
+    const stored = await serializeInstanceControl(next, instanceId, keyringFor(db), prior!);
+    const saved = await db.collection<StoredInstanceControl>('instance_configuration').replaceOne({ _id: 'instance', instanceId, revision: current.revision }, stored,
       { writeConcern: { w: 1, j: true } });
     if (saved.matchedCount === 1) return next;
   }
@@ -203,7 +285,7 @@ export async function drainInstanceAudit(db: Db, instanceId: string) {
     }
     for (const event of current.auditOutbox) await events.updateOne({ _id: event._id, instanceId }, { $setOnInsert: event }, { upsert: true, writeConcern: { w: 1, j: true } });
     if (ids.length) {
-      const ack = await db.collection<InstanceControl>('instance_configuration').updateOne({ _id: 'instance', instanceId, revision: { $lt: Number.MAX_SAFE_INTEGER } },
+  const ack = await db.collection<StoredInstanceControl>('instance_configuration').updateOne({ _id: 'instance', instanceId, revision: { $lt: Number.MAX_SAFE_INTEGER } },
         { $pull: { auditOutbox: { _id: { $in: ids } } }, $inc: { revision: 1 } }, { writeConcern: { w: 1, j: true } });
       if (ack.matchedCount !== 1) throw new Error('instance_busy');
     }
@@ -216,7 +298,8 @@ export function instanceSnapshot(control: InstanceControl) {
     const secret = (envelope: NonNullable<typeof value.secrets.zitadelClientSecret> | null) => envelope
       ? { configured: true, updatedAt: envelope.updatedAt } : { configured: false, updatedAt: null };
     return { version: value.version, preferences: value.preferences, publicOrigin: value.publicOrigin, zitadel: value.zitadel, github: value.github,
-      checks: value.checks, secrets: {
+      checks: value.checks, runtime: value.runtime ? { mongodbDatabase: value.runtime.mongodbDatabase, trustHost: value.runtime.trustHost,
+        workerEnabled: value.runtime.workerEnabled, authSecretConfigured: true, oauthTokenEncryptionKeyConfigured: true, mongodbUriConfigured: true } : null, secrets: {
         zitadelClientSecret: secret(value.secrets.zitadelClientSecret),
         githubPrivateKey: secret(value.secrets.githubPrivateKey),
         githubWebhookSecret: secret(value.secrets.githubWebhookSecret),
@@ -227,7 +310,8 @@ export function instanceSnapshot(control: InstanceControl) {
 }
 
 export async function cleanupInstanceState(db: Db, instanceId: string, now = new Date()) {
-  const control = await readInstance(db, instanceId);
+  const prior = await loadStoredInstance(db, instanceId);
+  const control = prior?.control ?? null;
   if (!control || control.gate.state !== 'open' || control.activation) return;
   const previousExpired = control.previous?.previousUntil !== null && control.previous?.previousUntil !== undefined && control.previous.previousUntil <= now;
   const webhookExpired = control.active?.secrets.previousWebhook && control.active.secrets.previousWebhook.acceptUntil <= now;
@@ -236,7 +320,8 @@ export async function cleanupInstanceState(db: Db, instanceId: string, now = new
     previous: previousExpired ? null : control.previous,
     active: webhookExpired ? { ...control.active!, secrets: { ...control.active!.secrets, previousWebhook: null } } : control.active,
   }, instanceId);
-  await db.collection<InstanceControl>('instance_configuration').replaceOne({ _id: 'instance', instanceId, revision: control.revision }, next, { writeConcern: { w: 1, j: true } });
+  const stored = await serializeInstanceControl(next, instanceId, keyringFor(db), prior!);
+  await db.collection<StoredInstanceControl>('instance_configuration').replaceOne({ _id: 'instance', instanceId, revision: control.revision }, stored, { writeConcern: { w: 1, j: true } });
 }
 
 function validOrigin(value: string) {
@@ -256,7 +341,8 @@ const changesSchema = z.strictObject({
     projectId: z.string().min(1).max(200).regex(/^[\w.:-]+$/).optional(),
     apiAudience: z.string().min(1).max(200).regex(/^[\w.:-]+$/).optional(),
   }).partial().optional(),
-  github: z.strictObject({ appId: z.string().regex(/^[1-9]\d*$/).max(200).optional() }).partial().optional(),
+  database: z.strictObject({ mongodbUri: z.string().min(1).max(16 * 1024).optional(), mongodbDatabase: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,62}$/).optional() }).optional(),
+  github: z.strictObject({ appId: z.string().regex(/^[1-9]\d*$/).max(200).optional(), webhookUrl }).partial().optional(),
 }).refine(value => Object.values(value).every(item => !item || typeof item !== 'object' || Object.keys(item).length > 0));
 const replacement = (max: number) => z.strictObject({ action: z.literal('replace'), value: z.string().min(1).max(max) });
 export const InstanceDraftPatchSchema = z.strictObject({
@@ -295,7 +381,15 @@ export async function buildInstanceDraft(control: InstanceControl, setupOrigin: 
       if (changes.zitadel?.clientId !== undefined) candidate.zitadel.clientId = changes.zitadel.clientId;
       if (changes.zitadel?.projectId !== undefined) candidate.zitadel.projectId = changes.zitadel.projectId;
       if (changes.zitadel?.apiAudience !== undefined) candidate.zitadel.audience = changes.zitadel.apiAudience;
+      if (changes.database) {
+        if (!candidate.runtime) throw new Error('instance_invalid');
+        const locator = InstanceDatabaseSchema.safeParse({ mongodbUri: changes.database.mongodbUri ?? candidate.runtime.mongodbUri,
+          mongodbDatabase: changes.database.mongodbDatabase ?? candidate.runtime.mongodbDatabase });
+        if (!locator.success) throw new Error('instance_invalid');
+        Object.assign(candidate.runtime, locator.data);
+      }
       if (changes.github?.appId !== undefined) candidate.github.appId = changes.github.appId;
+      if (changes.github?.webhookUrl !== undefined) candidate.github.webhookUrl = changes.github.webhookUrl;
       for (const purpose of ['zitadelClientSecret', 'githubPrivateKey', 'githubWebhookSecret'] as const) {
         const replacement = secretReplacements?.[purpose];
         if (replacement) candidate.secrets[purpose] = encryptInstanceSecret(replacement.value, {
@@ -305,11 +399,12 @@ export async function buildInstanceDraft(control: InstanceControl, setupOrigin: 
 
       const active = control.active;
       const categories = active ? [
+        ...(candidate.runtime?.mongodbUri !== active.runtime?.mongodbUri || candidate.runtime?.mongodbDatabase !== active.runtime?.mongodbDatabase ? ['database' as const] : []),
         ...(candidate.preferences.displayName !== active.preferences.displayName || candidate.preferences.description !== active.preferences.description || candidate.preferences.docsFolder !== active.preferences.docsFolder ? ['preferences' as const] : []),
         ...(candidate.publicOrigin !== active.publicOrigin ? ['origin' as const] : []),
         ...(candidate.zitadel.issuer !== active.zitadel.issuer || candidate.zitadel.clientId !== active.zitadel.clientId || candidate.zitadel.projectId !== active.zitadel.projectId || candidate.zitadel.audience !== active.zitadel.audience || candidate.secrets.zitadelClientSecret?.credentialVersion !== active.secrets.zitadelClientSecret.credentialVersion ? ['identity' as const] : []),
         ...(candidate.github.appId !== active.github.appId || candidate.secrets.githubPrivateKey?.credentialVersion !== active.secrets.githubPrivateKey.credentialVersion ? ['github' as const] : []),
-        ...(candidate.secrets.githubWebhookSecret?.credentialVersion !== active.secrets.githubWebhookSecret.credentialVersion ? ['webhook' as const] : []),
+        ...(candidate.secrets.githubWebhookSecret?.credentialVersion !== active.secrets.githubWebhookSecret.credentialVersion || (candidate.github.webhookUrl ?? new URL('/api/webhooks/github', candidate.publicOrigin).href) !== (active.github.webhookUrl ?? new URL('/api/webhooks/github', active.publicOrigin).href) ? ['webhook' as const] : []),
       ] : ['preferences', 'origin', 'identity', 'github', 'webhook'] as const;
       candidate.version = control.nextBundleVersion;
       candidate.createdAt = now;

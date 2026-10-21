@@ -1,9 +1,9 @@
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { expect, it, vi } from 'vitest';
 import { processNextSyncJob } from '../../lib/sync/worker';
 import { closeMongo } from '../../lib/mongo';
 import { instanceControl } from '../fixtures/instance';
-import type { InstanceControl } from '../../lib/instance/store';
+import { serializeInstanceControl, type StoredInstanceControl } from '../../lib/instance/store';
 import { createInstanceHarness, seedReadyInstance } from './instance-harness';
 
 it('refreshes stale worker authority from the active bundle and rejects unavailable or closing authority before claiming jobs', async () => {
@@ -19,16 +19,18 @@ it('refreshes stale worker authority from the active bundle and rejects unavaila
       if (authority !== current) expect(options.github?.githubAppId).toBe(fixture.control.active!.github.appId);
     }
     expect(readCandidate).not.toHaveBeenCalled();
-    const controls = harness.storage.db.collection<InstanceControl>('instance_configuration');
+    const controls = harness.storage.db.collection<StoredInstanceControl>('instance_configuration');
+    const keyData = JSON.parse(await readFile(harness.env.INSTANCE_KEYRING_FILE, 'utf8')) as { activeKeyId: string; keys: Record<string, string> };
+    const keyring = { activeKeyId: keyData.activeKeyId, keys: Object.fromEntries(Object.entries(keyData.keys).map(([id, value]) => [id, Buffer.from(value, 'base64')])) };
     const legacy = instanceControl(harness.instanceId, fixture.control.createdAt); legacy.lifecycle = 'legacy_migrating';
     legacy.migration = { sourceDigest: 'b'.repeat(64), mode: 'import', at: legacy.createdAt, verificationSummary: ['legacy_drained'] };
-    await controls.replaceOne({ _id: 'instance' }, legacy);
+    await controls.replaceOne({ _id: 'instance' }, await serializeInstanceControl(legacy, harness.instanceId, keyring));
     await writeFile(harness.env.INSTANCE_STATE_FILE, JSON.stringify({ instanceId: harness.instanceId, phase: 'sealed', recoveryEpoch: 1 }));
     expect(await processNextSyncJob({ db: harness.storage.db, contentRoot: harness.storage.contentRoot, readCandidate })).toBe('idle');
     vi.stubEnv('INSTANCE_ID', undefined); vi.stubEnv('INSTANCE_STATE_FILE', undefined);
     for (const value of [instanceControl(harness.instanceId, fixture.control.createdAt),
       { ...fixture.control, lifecycle: 'maintenance' as const }, { ...fixture.control, gate: { ...fixture.control.gate, state: 'maintenance' as const } }]) {
-      await controls.replaceOne({ _id: 'instance' }, value);
+      await controls.replaceOne({ _id: 'instance' }, await serializeInstanceControl(value, harness.instanceId, keyring));
       await expect(processNextSyncJob({ db: harness.storage.db, contentRoot: harness.storage.contentRoot, readCandidate, instance: current })).rejects.toThrow('instance_busy');
     }
     await controls.deleteOne({ _id: 'instance' });

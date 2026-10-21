@@ -1,3 +1,4 @@
+import { buildInstanceDraft, InstanceDraftPatchSchema } from '../../lib/instance/store';
 import { expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { instanceControl, readyInstance } from '../fixtures/instance';
@@ -9,7 +10,7 @@ it('accepts an exact instance singleton and rejects cross-instance, unknown fiel
   expect(result.success, result.success ? '' : JSON.stringify(result.error.issues.map(issue => ({ path: issue.path, message: issue.message })))).toBe(true);
   expect(parseInstanceControl(input, input.instanceId)).toEqual(input);
   expect(() => parseInstanceControl(input, randomUUID())).toThrow('instance_invalid');
-  for (const patch of [{ _id: 'other' }, { schemaVersion: 2 }, { revision: -1 }, { revision: Number.MAX_SAFE_INTEGER + 1 }, { lifecycle: 'fresh' }, { secret: 'untrusted' }, { active: {} }, { initializedAt: input.createdAt }]) {
+  for (const patch of [{ _id: 'other' }, { schemaVersion: 1 }, { revision: -1 }, { revision: Number.MAX_SAFE_INTEGER + 1 }, { lifecycle: 'fresh' }, { secret: 'untrusted' }, { active: {} }, { initializedAt: input.createdAt }]) {
     expect(() => parseInstanceControl({ ...input, ...patch }, input.instanceId)).toThrow('instance_invalid');
   }
 });
@@ -173,4 +174,20 @@ it('rejects every invalid lifecycle, bundle, gate, admission and migration bound
     mutate(value);
     expect(() => parseInstanceControl(value, value.instanceId), `invalid state boundary ${index}`).toThrow('instance_invalid');
   }
+});
+
+it('validates editable webhook targets and keeps database credentials out of draft snapshots', async () => {
+  const control = readyInstance();
+  const keyring = { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1) } };
+  const input = { candidateVersion: 0, changes: { github: { webhookUrl: 'https://hooks.example.test/librarian/github' },
+    database: { mongodbUri: 'mongodb://synthetic-user:synthetic-password@db.example.test/librarian', mongodbDatabase: 'librarian' } } };
+  const candidate = await buildInstanceDraft(control, control.active!.publicOrigin, InstanceDraftPatchSchema.parse(input), keyring, 'synthetic-owner');
+  expect(candidate.impact!.categories).toEqual(expect.arrayContaining(['database', 'webhook']));
+  expect(candidate.github.webhookUrl).toBe(input.changes.github.webhookUrl);
+  expect(control.active!.github.webhookUrl).toBeUndefined();
+  expect(JSON.stringify(instanceSnapshot({ ...control, candidate }))).not.toContain('synthetic-password');
+  for (const webhookUrl of ['javascript:alert(1)', 'http://public.example.test/hooks', 'https://user:password@example.test/hooks', 'https://example.test/hooks#fragment', 'https://example.test/hooks?secret=value']) {
+    expect(InstanceDraftPatchSchema.safeParse({ candidateVersion: 0, changes: { github: { webhookUrl } } }).success).toBe(false);
+  }
+  await expect(buildInstanceDraft(control, control.active!.publicOrigin, { candidateVersion: 0, changes: { database: { mongodbUri: 'invalid-uri' } } }, keyring, 'synthetic-owner')).rejects.toThrow('instance_invalid');
 });

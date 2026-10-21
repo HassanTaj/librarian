@@ -8,8 +8,10 @@ import { createStorageHarness } from './http-harness';
 
 const digest = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
 
-export async function seedRuntimeCatalog(visibility: 'public' | 'private' = 'public') {
-  const storage = await createStorageHarness();
+type StorageHarness = Awaited<ReturnType<typeof createStorageHarness>>;
+
+export async function seedRuntimeCatalog(visibility: 'public' | 'private' = 'public', existingStorage?: StorageHarness) {
+  const storage = existingStorage ?? await createStorageHarness();
   const catalog = CatalogSchema.parse({ ...catalogs[0], visibility, approvalRef: visibility === 'public' ? catalogs[0].approvalRef : null });
   const generationId = randomUUID();
   const root = generationRoot(storage.contentRoot, catalog._id, generationId);

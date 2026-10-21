@@ -1,16 +1,16 @@
 <!--
-Sync Impact Report — 2026-10-19
-Version change: 2.0.0 -> 3.0.0, explicit owner approval in D1/D2 responses.
-Affected principle: III, provider-credential storage and instance authority.
-Provider credentials/private keys: authenticated-encrypted MongoDB instance bundles.
-Database/root/session/OAuth/bootstrap secrets: host-managed scoped Swarm secrets.
-Instance Settings: explicit issuer/subject binding AND librarian-instance-admin.
-Legacy enrollment: protected operator plus verified catalog and instance admin roles.
-Unchanged: private reader boundary, source/content validation, 95% gates, resources,
-same-container worker, original v1 obligations and live-operation approvals.
-Synchronized: AGENTS.md and 002 spec, checklist, reconciliation and planning artifacts.
-Migration: deliberate owner-confirmed import, independent keys, coherent fencing and
-consistent recovery; no live credential change or migration executed by this amendment.
+Sync Impact Report — 2026-10-21
+Version change: 3.0.0 -> 4.0.0, explicit owner approval after architecture review.
+Affected principle: III, configuration-at-rest policy and host bootstrap boundary.
+All application configuration bundles: authenticated-encrypted MongoDB storage.
+OS/KMS trust anchor, Mongo connection bootstrap, instance identity/recovery marker,
+content location, outbound policy and publication-approval input remain host-managed.
+Legacy file-backed startup remains supported until explicit migration and verification.
+Unchanged: authorization, private reader boundary, content validation, 95% gates,
+resource limits, same-container worker, historical v1 obligations and release gates.
+Migration: preserve OAuth ciphertext with its exact existing key; prepare consistent
+recovery and retain the independent root key outside MongoDB. This amendment itself
+does not perform a production migration, publication, or deployment.
 Historical 001 artifacts and installed skills/templates are preserved.
 -->
 
@@ -90,17 +90,35 @@ enrollment additionally requires protected operator authorization and a currentl
 verified `librarian-admin` identity.
 
 Secrets and tokens MUST NOT appear in repository records, source control, client
-payloads, logs, or user-visible errors. Eligible instance provider credentials
-(Zitadel client secret, GitHub App private key, and webhook signing secrets) MUST
-be stored in MongoDB under authenticated encryption, separate from catalog records,
-bound to instance, purpose, and envelope version. Database credentials, instance
-encryption keys, Auth.js session secrets, OAuth token encryption keys, and bootstrap
-authority MUST remain host-managed through scoped Swarm secrets in production.
-Encryption keys MUST NOT be stored beside the ciphertext in MongoDB. Preserve
-existing OAuth ciphertext compatibility; provider rotation, key migration, and
-consistent backup/restore MUST preserve recoverable previous credentials without
-plaintext secret history. Legacy file-backed operation remains supported until an
-explicitly authorized migration activates database-managed provider credentials.
+payloads, logs, or user-visible errors. Every active application configuration
+bundle, including non-secret settings and provider, authentication, and database
+values, MUST be stored in MongoDB only as an authenticated-encrypted envelope,
+separate from catalog records and bound to instance, purpose, and envelope version.
+The authorized server MAY decrypt the bundle in memory; APIs MUST return only
+approved non-secret settings and configured/missing metadata for credentials.
+
+An independent OS/KMS-managed trust anchor MUST remain outside MongoDB. It includes
+the root encryption identity/key and the minimum database connection identity and
+database locator needed to connect before configuration can be decrypted. The
+instance ID, recovery marker, protected operator authority, content-volume location,
+outbound destination policy, and owner publication-approval input also remain
+host-managed. Production MUST provision these through scoped Swarm secrets or an
+approved OS/KMS integration; local development MUST protect files with OS ACLs.
+Their file-path references, when present in `.env`, MUST be marked
+`ABSOLUTELY REQUIRED` with the reason. A duplicate Mongo connection value MAY be
+stored inside the encrypted application bundle for protected administration, but
+the bootstrap connection remains authoritative for process startup and cannot be
+rotated solely through a MongoDB value stored in that same database.
+
+The Auth.js session secret and OAuth token-encryption key MUST be included in the
+encrypted application bundle after migration. Preserve the exact existing OAuth
+key and ciphertext compatibility during import; changing that key requires a
+separate verified token re-encryption procedure. Encryption keys MUST NOT be stored
+beside ciphertext in MongoDB. Key rotation and consistent backup/restore MUST
+preserve recoverable prior settings without plaintext history. Legacy file-backed
+operation remains supported until an explicitly authorized migration activates
+the complete encrypted application bundle; it MUST NOT be a silent fallback after
+activation.
 
 ### IV. Synchronization Publishes Complete, Recoverable Generations
 
@@ -310,6 +328,29 @@ never represented as successful checks.
 
 ### Amendment history
 
+#### 2026-10-21 — Version 4.0.0
+
+- **Owner approval**: The owner explicitly required all application configuration
+  and settings to be encrypted in MongoDB and approved an external OS/KMS bootstrap
+  identity after the circular-startup dependency was explained.
+- **Reason**: Consolidate file-backed application configuration in the existing
+  instance settings lifecycle without placing the decryption root or initial Mongo
+  connection credential inside the database that requires them.
+- **Affected rules**: Principle III configuration storage, Auth.js/OAuth key storage,
+  database bootstrap, Settings surface, and legacy migration/recovery.
+- **Change**: Expand authenticated-encrypted MongoDB storage from eligible provider
+  credentials to the complete application configuration bundle. Keep the independent
+  OS/KMS root, bootstrap Mongo connection/locator, instance identity/recovery marker,
+  content mount and security policy host-managed. Preserve exact OAuth key material.
+- **Migration/remediation**: Import current local values only after target
+  revalidation and recovery preparation; preserve existing catalog/auth/job state,
+  remove migrated file values only after encrypted readback and restart verification,
+  retain host bootstrap inputs, and support exact rollback to legacy files before
+  activation. No production migration, rotation, publication, or deployment is
+  authorized by this amendment.
+- **Versioning**: MAJOR because this incompatibly redefines the policy governing
+  session, OAuth, database-credential copies, and all application setting storage.
+
 #### 2026-10-19 — Version 3.0.0
 
 - **Owner approval**: In response to the explicit production secret-policy choice,
@@ -341,4 +382,4 @@ never represented as successful checks.
 - **Change**: Isolated presentation-only changes no longer require new automated tests, test execution, or coverage gates. Functional, security, data-integrity, ingestion, and v1 release requirements remain.
 - **Migration impact**: The current directory UI follow-up has no test or coverage completion gate until requested; existing open v1 acceptance, security, and release tasks remain open.
 
-**Version**: 3.0.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-19
+**Version**: 4.0.0 | **Ratified**: 2026-10-11 | **Last Amended**: 2026-10-21

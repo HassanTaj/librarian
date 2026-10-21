@@ -32,8 +32,9 @@ export async function startConfiguredWorker(runtime = process.env.NEXT_RUNTIME) 
   try {
     await reconcileInitialAdoption();
     await reconcileInstanceActivation();
-    if (!shouldStartSyncWorker({ ...process.env, NEXT_RUNTIME: runtime }) || stopWorker) return;
+    if (stopWorker) return;
     const config = await loadConfig();
+    if (!shouldStartSyncWorker({ ...process.env, LIBRARIAN_WORKER_ENABLED: config.workerEnabled ? '1' : '0', NEXT_RUNTIME: runtime })) return;
     const { db } = await getMongo(config);
     let instance;
     if (process.env.INSTANCE_STATE_FILE || process.env.INSTANCE_ID) {

@@ -1,3 +1,4 @@
+import { instanceRuntimeInputs } from '@/lib/config';
 import { randomUUID } from 'node:crypto';
 import { connectMongo } from '@/lib/mongo';
 import { readInstanceHost } from '@/lib/instance/bootstrap';
@@ -43,7 +44,7 @@ function response(control: InstanceControl, candidate: Candidate, expiresAt: Dat
     state: control.lifecycle, expiresAt, editRevision: control.editRevision, candidateVersion: control.candidate?.version ?? 0,
     candidate: safeCandidate(candidate, ownerVerified), checks: candidate.checks,
     runtimeCallbackUrl: new URL('/api/auth/callback/zitadel', candidate.publicOrigin).href,
-    candidateCallbackUrl: callback, webhookUrl: new URL('/api/webhooks/github', candidate.publicOrigin).href,
+    candidateCallbackUrl: callback, webhookUrl: candidate.github.webhookUrl ?? new URL('/api/webhooks/github', candidate.publicOrigin).href,
   };
 }
 
@@ -85,6 +86,7 @@ export async function PATCH(request: Request) {
       if (control.auditOutbox.length >= LIMITS.maxInstanceAuditOutbox) throw new Error('instance_unavailable');
 
       const validatedCandidate = await buildInstanceDraft(control, host.setupOrigin, parsed.data, host.keyring, 'bootstrap', now);
+      validatedCandidate.runtime ??= instanceRuntimeInputs(host.config);
       const next = await updateInstance(storage.db, host.instanceId, control.revision, current => ({
         ...current, lifecycle: 'configuring', candidate: validatedCandidate, nextBundleVersion: current.nextBundleVersion + 1,
         auditOutbox: [...current.auditOutbox, { _id: randomUUID(), instanceId: host.instanceId, at: now, actor: 'bootstrap', operation: 'candidate_saved',

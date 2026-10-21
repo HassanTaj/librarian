@@ -2,9 +2,12 @@ import { MongoClient } from 'mongodb';
 import { loadConfig, loadHostConfig } from './config';
 import { ensureCatalogStorage } from './catalog';
 import { ensureSyncJobStorage } from './sync/jobs';
+import { attachInstanceKeyring } from './instance/store';
+import type { InstanceKeyring } from './instance/secrets';
+import { LIMITS } from './limits';
 
 type MongoSettings = Pick<Awaited<ReturnType<typeof loadHostConfig>>, 'mongodbUri' | 'mongodbDatabase'> &
-  Partial<Pick<Awaited<ReturnType<typeof loadHostConfig>>, 'contentRoot'>>;
+  Partial<Pick<Awaited<ReturnType<typeof loadHostConfig>>, 'contentRoot'>> & { instanceKeyring?: InstanceKeyring };
 
 export async function connectMongo(settings: MongoSettings, { initializeLegacy = true }: { initializeLegacy?: boolean } = {}) {
   let client: MongoClient | undefined;
@@ -20,6 +23,7 @@ export async function connectMongo(settings: MongoSettings, { initializeLegacy =
     const db = client.db(settings.mongodbDatabase, {
       readPreference: 'primary', writeConcern: { w: hello.setName || hello.msg === 'isdbgrid' ? 'majority' : 1, j: true },
     });
+    attachInstanceKeyring(db, settings.instanceKeyring);
     if (initializeLegacy) {
       await ensureCatalogStorage(db);
       await ensureSyncJobStorage(db);
@@ -31,13 +35,29 @@ export async function connectMongo(settings: MongoSettings, { initializeLegacy =
   }
 }
 
+let connectionIdentity: string | undefined;
 let connection: Promise<Awaited<ReturnType<typeof connectMongo>>> | undefined;
 
 export function getMongo(settings?: MongoSettings): Promise<Awaited<ReturnType<typeof connectMongo>>> {
   if (!settings && (process.env.INSTANCE_ID || process.env.INSTANCE_STATE_FILE)) return loadConfig().then(config => getMongo(config));
-  connection ??= (settings ? Promise.resolve(settings) : loadConfig()).then(connectMongo).catch(() => {
+  const identity = settings ? JSON.stringify([settings.mongodbUri, settings.mongodbDatabase]) : undefined;
+  if (connection && identity && connectionIdentity && identity !== connectionIdentity) {
+    const prior = connection;
+    connection = undefined;
+    // Retain the old pool until bounded in-flight readers have finished.
+    setTimeout(() => { void prior.then(storage => storage.client.close()).catch(() => undefined); }, LIMITS.instanceRequestPinMs).unref();
+  }
+  if (identity) connectionIdentity = identity;
+  connection ??= (settings ? Promise.resolve(settings) : loadConfig()).then(config => {
+    connectionIdentity = JSON.stringify([config.mongodbUri, config.mongodbDatabase]);
+    return connectMongo(config);
+  }).catch(() => {
     connection = undefined;
     throw new Error('storage_unavailable');
+  });
+  if (settings?.instanceKeyring) return connection.then(storage => {
+    attachInstanceKeyring(storage.db, settings.instanceKeyring);
+    return storage;
   });
   return connection;
 }
@@ -45,5 +65,6 @@ export function getMongo(settings?: MongoSettings): Promise<Awaited<ReturnType<t
 export async function closeMongo() {
   const pending = connection;
   connection = undefined;
+  connectionIdentity = undefined;
   if (pending) await (await pending).client.close();
 }

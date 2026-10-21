@@ -1,3 +1,4 @@
+import { checkInstanceDatabase } from '@/lib/instance/database';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { withInstanceProviderCheck, requireInstanceAdmin, consumeInstanceRate, instanceErrorResponse, readInstanceJson } from '@/lib/instance/access';
@@ -25,7 +26,8 @@ export async function POST(request: Request) {
       const { type } = parsed.data;
       let result: Pick<InstanceCheck, 'status' | 'code'>;
       if (type === 'database') {
-        await db.command({ ping: 1 });
+        if (!candidate.runtime) throw new Error('instance_invalid');
+        await checkInstanceDatabase(candidate.runtime, control, host.keyring, db);
         result = { status: 'passed', code: 'database_ok' };
       } else if (type === 'zitadel_owner_login') {
         const proof = candidate.ownerProof;

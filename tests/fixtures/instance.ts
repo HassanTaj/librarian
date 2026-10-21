@@ -4,7 +4,7 @@ import type { InstanceControl } from '../../lib/instance/store';
 
 export function instanceControl(instanceId: string = randomUUID(), now = new Date()): InstanceControl {
   return {
-    _id: 'instance', instanceId, schemaVersion: 1, revision: 0, editRevision: 0, nextBundleVersion: 1,
+    _id: 'instance', instanceId, schemaVersion: 2, revision: 0, editRevision: 0, nextBundleVersion: 1,
     lifecycle: 'configuring', createdAt: now, updatedAt: now, initializedAt: null,
     bootstrap: { epoch: 1, verifierHash: 'a'.repeat(64), expiresAt: new Date(now.getTime() + 86_400_000), consumedAt: null, sessionSlots: [] },
     securityEpoch: 1, recoveryEpoch: 1, active: null, previous: null, candidate: null,
@@ -21,6 +21,8 @@ export function readyInstance(instanceId: string = randomUUID(), now = new Date(
     ...control, nextBundleVersion: 2, lifecycle: 'ready', initializedAt: now, bootstrap: { ...control.bootstrap, consumedAt: now },
     active: {
       version: 1, createdAt: now, createdBy: 'synthetic-owner', preferences: { displayName: 'Synthetic', description: '', docsFolder: 'docs' },
+      runtime: { authSecret: 'synthetic-auth-secret-with-32-bytes', oauthTokenEncryptionKey: Buffer.alloc(32, 7).toString('base64'),
+        mongodbUri: 'mongodb://127.0.0.1:27018/librarian', mongodbDatabase: 'librarian', trustHost: true, workerEnabled: false },
       publicOrigin: 'https://portal.example.test', zitadel: { issuer: 'https://identity.example.test', clientId: 'client', projectId: 'project', audience: 'audience' },
       github: { provider: 'github', appId: '123' }, secrets: { zitadelClientSecret: secret('zitadelClientSecret'), githubPrivateKey: secret('githubPrivateKey'), githubWebhookSecret: secret('githubWebhookSecret'), previousWebhook: null },
       checks: [], ownerProof: null, impact: null, previousUntil: null,

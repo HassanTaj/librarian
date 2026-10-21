@@ -1,12 +1,12 @@
 # Data Model: Instance Configuration
 
-**Status**: Phase 1 design, 2026-10-19. New names are proposed implementation interfaces, not existing collections.
+**Status**: Original v2 design plus owner-approved full-configuration encryption amendment, 2026-10-21. New names are proposed implementation interfaces; see the amendment addendum for v2 persisted schema semantics.
 
 ## Identity and storage boundary
 
 One dedicated MongoDB database belongs to one installation. Every new record carries the host-provisioned UUID `instanceId`; all queries include it. A singleton `_id: "instance"` rejects a different host instance ID rather than adopting it. Existing catalog/auth/job collections remain in the same dedicated database with unchanged IDs; they are never shared across unrelated installations. No multi-document transaction is required.
 
-Protected host inputs: database URI/name, immutable instance ID, trusted setup origin, persistent installation/recovery marker, separate instance-secret keyring, Auth.js session secret, legacy OAuth encryption key, bootstrap/recovery verifier file, content/approval locations, proxy trust and outbound destination policy. Production root inputs use scoped Swarm secrets; the marker uses durable protected storage. Ordinary Settings never returns or rewrites them. Loss/mismatch means maintenance, never implicit replacement.
+Protected host inputs: bootstrap Mongo URI/database locator, immutable instance ID, trusted setup origin, persistent installation/recovery marker, independent OS/KMS keyring, bootstrap/recovery verifier file, content location, owner publication-approval input, and outbound destination policy. Production root inputs use scoped Swarm secrets or an approved OS/KMS provider; the marker uses durable protected storage. Ordinary Settings never returns or rewrites these. Auth.js/session, OAuth token key, provider values, supported preferences, and the encrypted copy of Mongo configuration are inside the full application bundle after migration. Loss/mismatch means maintenance, never implicit replacement.
 
 ## Instance control — `instance_configuration`
 
@@ -14,13 +14,13 @@ Exactly one authoritative document, <=512 KiB encoded BSON; validate the encoded
 
 | Field | Type / validation | Meaning |
 |---|---|---|
-| `_id`, `instanceId`, `schemaVersion` | Literal `instance`, UUID, integer `1` | Unique identity, exact supported schema; newer schema fails closed |
+| `_id`, `instanceId`, `schemaVersion` | Literal `instance`, UUID, integer `2` | Unique identity, exact supported encrypted-bundle schema; newer schema fails closed |
 | `revision`, `nextBundleVersion` | Monotonic safe integers | CAS revision for every durable control mutation; bundle versions never reused |
 | `lifecycle` | `configuring`, `awaiting_owner`, `ready`, `maintenance`, `legacy_migrating` | Fresh and legacy detection precede document creation; no ready-to-fresh transition |
 | `createdAt`, `updatedAt`, `initializedAt` | Server dates; initialization nullable until finalization | No client-supplied time authority |
 | `bootstrap` | `epoch`, verifier hash, expiry, `consumedAt`, <=8 `{sessionHash,expiresAt}` reservations | High-entropy credential verifier and atomic live-session cap; finalization consumes within same document update as owner/ready state |
 | `securityEpoch`, `recoveryEpoch` | Monotonic integer / host-matching token | Logical session invalidation and independent restore fence |
-| `active`, `previous`, `candidate` | Nullable complete active/previous bundles and one validated candidate draft | Active/previous bundles always have every required encrypted secret; a fresh candidate may retain blank provider identifiers and null envelopes until the user supplies them |
+| `active`, `previous`, `candidate` | Nullable sealed bundle records retaining only version/timestamps/actor and required control metadata plus one authenticated-encrypted complete configuration envelope | No setting value or credential may be duplicated in plaintext in the Mongo document; server code decrypts to the logical bundle only in memory |
 | `administrators` | <=20 stable issuer/subject bindings; exactly one current owner after initialization | Binds authority; role requirement is checked separately on every instance operation |
 | `gate` | `open`, `closing`, `maintenance`; activation token; deadline | Atomic admission barrier |
 | `admissions` | <=64 request pins and <=1 worker pin | Server-generated random ID, bundle version, security/recovery epochs, purpose, creation time and hard expiry; bounded operations release explicitly |
@@ -30,7 +30,9 @@ Exactly one authoritative document, <=512 KiB encoded BSON; validate the encoded
 
 **Index**: MongoDB `_id` unique index suffices for singleton authority. Check `instanceId` in every predicate. Validate each nested object strictly; unknown fields/algorithms/newer schema reject without overwrite. Admission operations change the CAS revision but not the configuration bundle version; API edit preconditions use the candidate/control edit token returned by that API, not a user-computed counter. Distinguish frequent admission revision from `editRevision`: an additional monotonic `editRevision` advances only draft/config/admin/activation mutations, so ordinary readers do not make every Settings save stale.
 
-## Configuration bundle (embedded)
+## Logical configuration bundle (embedded after decryption)
+
+The logical shape below is never persisted in plaintext. Mongo stores an AES-256-GCM envelope over the complete strict bundle, including all preferences, origins, provider identifiers, session/OAuth keys, Mongo URI copy/database name, runtime flags and provider secret envelopes. The ciphertext is bound to `instanceId`, purpose `instanceConfigurationBundle`, key ID and immutable bundle version. Bundle version, timestamps, actor, checks, owner proof, impact, and rollback expiry remain outside only where required for CAS, authority, validation and audit; duplicated configuration values do not. Envelope and BSON bounds are checked before every insert/CAS. Unknown schemas, missing roots, tampering and cross-instance substitution fail closed.
 
 | Field | Type / rule |
 |---|---|
@@ -49,7 +51,7 @@ Allowed runtime preferences are the finite fields above plus existing trusted as
 
 ### Authenticated secret envelope
 
-`{formatVersion: 1, algorithm: "aes-256-gcm", keyId, credentialVersion, nonce, tag, ciphertext, updatedAt}`. All binary fields are canonical base64; nonce decodes to 12 bytes and tag to 16; key ID must exist in the host keyring. Random nonces per encryption. AAD is an unambiguous canonical encoding of envelope version, instance ID, purpose, key ID and immutable credential version. Purpose cannot be relabelled. Decryption checks tag/AAD before returning plaintext server-side; wrong key, malformed envelope or substituted context fails closed. The configuration bundle includes the exact credential version, binding it to that selected revision without rewriting unchanged ciphertext. Limits are those in [research.md](research.md).
+`{formatVersion: 2, algorithm: "aes-256-gcm", keyId, credentialVersion, nonce, tag, ciphertext, updatedAt}`. All binary fields are canonical base64; nonce decodes to 12 bytes and tag to 16; key ID must exist in the host keyring. Random nonces per encryption. AAD is an unambiguous canonical encoding of envelope version, instance ID, purpose, key ID and immutable bundle version. Purpose cannot be relabelled. Decryption checks tag/AAD before returning plaintext server-side; wrong key, malformed envelope or substituted context fails closed. The exact existing OAuth token-encryption key is preserved inside the encrypted bundle to retain token compatibility. Limits are bounded so the complete document remains below 512 KiB.
 
 Key rotation is host-assisted maintenance: provision a new key ID, re-encrypt all retained bundles without changing OAuth format, CAS replace envelopes, validate restart/decryption and retain old keys for surviving backup sets. Never delete an old key until every required restore point is accounted for. Key values are never audit fields. Recovered plaintext exists only in short-lived server memory needed for provider operations.
 

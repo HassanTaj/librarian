@@ -16,24 +16,29 @@ const initial = () => ({
 function bundle() {
   return { version: 1, preferences: { displayName: 'Synthetic portal', description: 'Documentation', docsFolder: 'docs' },
     publicOrigin: 'https://portal.example.test', zitadel: { issuer: 'https://identity.example.test', clientId: 'client', projectId: 'project', audience: 'audience' },
-    github: { appId: '123' }, checks: [] as { type: string; status: string; code: string }[],
+    runtime: { mongodbDatabase: 'librarian', trustHost: true, workerEnabled: false, authSecretConfigured: true, oauthTokenEncryptionKeyConfigured: true, mongodbUriConfigured: true },
+    github: { appId: '123', webhookUrl: 'https://portal.example.test/api/webhooks/github' }, checks: [] as { type: string; status: string; code: string }[],
     secrets: { zitadelClientSecret: { configured: true, updatedAt: null }, githubPrivateKey: { configured: true, updatedAt: null }, githubWebhookSecret: { configured: true, updatedAt: null } },
   };
 }
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 let container: HTMLDivElement; let root: Root; let snapshot: ReturnType<typeof initial>;
 let requests: { url: string; init?: RequestInit }[]; let saveStatus: number; let activateStatus: number; let denied: boolean; let rejectPatch: boolean; let auditPage: number; let rejectAudit: boolean;
-const button = (label: string) => [...container.querySelectorAll('button')].find(item => item.textContent === label)!;
+const button = (label: string) => [...container.querySelectorAll('button')].find(item => item.textContent === label || item.getAttribute('aria-label') === label)!;
 async function settle() { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); }
 async function render() { await act(async () => root.render(<InstanceSettings />)); await settle(); }
 async function input(name: string, value: string) {
   const element = container.querySelector<HTMLInputElement>(`[name="${name}"]`)!;
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(element, value);
+    Object.getOwnPropertyDescriptor(element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(element, value);
     element.dispatchEvent(new Event('input', { bubbles: true }));
   });
 }
-async function click(label: string) { await act(async () => button(label).click()); await settle(); }
+async function click(label: string) { await act(async () => {
+  const target = button(label);
+  if (target.getAttribute('role') === 'tab') target.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }));
+  else target.click();
+}); await settle(); }
 beforeEach(() => {
   snapshot = initial(); requests = []; saveStatus = 200; activateStatus = 202; denied = false; rejectPatch = false; auditPage = 0; rejectAudit = false;
   identity.signIn.mockReset(); identity.signIn.mockResolvedValue(undefined);
@@ -44,11 +49,15 @@ beforeEach(() => {
     if (init?.method === 'PATCH') {
       if (rejectPatch) return Promise.reject('synthetic network failure');
       if (saveStatus !== 200) return json({ error: { message: 'Stale revision.' } }, saveStatus);
-      snapshot = { ...snapshot, editRevision: 2, candidateVersion: 2, candidate: { ...bundle(), version: 2, preferences: { ...bundle().preferences, displayName: 'Canonical server name' } },
+      const submitted = JSON.parse(init.body as string);
+      snapshot = { ...snapshot, editRevision: 2, candidateVersion: 2, candidate: { ...bundle(), version: 2, github: { ...bundle().github, ...submitted.changes.github }, runtime: { ...bundle().runtime, mongodbDatabase: submitted.changes.database?.mongodbDatabase ?? bundle().runtime.mongodbDatabase }, preferences: { ...bundle().preferences, displayName: 'Canonical server name' } },
         impact: { categories: ['preferences'], confirmationNonce: 'synthetic-nonce' } };
       return json(snapshot);
     }
-    if (String(url).endsWith('/activate')) return json({ activeVersion: 2, status: activateStatus === 202 ? 'pending' : 'active' }, activateStatus);
+    if (String(url).endsWith('/activate')) {
+      if (activateStatus === 200) snapshot = { ...snapshot, activeVersion: 2, active: snapshot.candidate ?? snapshot.active, candidate: null, candidateVersion: null, impact: null };
+      return json({ ...snapshot, status: activateStatus === 202 ? 'pending' : 'active' }, activateStatus);
+    }
     if (String(url).endsWith('/check')) {
       snapshot.candidate!.checks = [{ type: 'database', status: 'passed', code: 'database_ok' }];
       return json(snapshot.candidate!.checks[0]);
@@ -68,8 +77,8 @@ it('renders supported groups and configured indicators without revealing saved c
   await render();
   for (const name of ['General', 'Authentication', 'GitHub Integration', 'Documentation', 'Security', 'System and audit']) expect(container.textContent).toContain(name);
   for (const element of container.querySelectorAll<HTMLInputElement>('input[type="password"]')) expect(element.value).toBe('');
-  expect(container.textContent).toContain('Active revision 1'); expect(button('Save draft').disabled).toBe(true);
-  expect(button('database').disabled).toBe(true);
+  expect(container.textContent).toContain('Up to date · v1'); expect(button('Save draft').disabled).toBe(true);
+  expect(button('Run database connection check').disabled).toBe(true);
 });
 
 it('cancels unsaved values without writing and consumes the canonical successful PATCH snapshot', async () => {
@@ -80,7 +89,7 @@ it('cancels unsaved values without writing and consumes the canonical successful
   expect(requests.filter(item => item.init?.method === 'PATCH')).toHaveLength(0);
   await input('displayName', 'Submitted name'); await click('Save draft');
   expect(container.querySelector<HTMLInputElement>('[name="displayName"]')!.value).toBe('Canonical server name');
-  expect(container.textContent).toContain('Saved draft 2 has not been activated');
+  expect(container.textContent).toContain('Draft saved · v1');
   const saved = requests.find(item => item.init?.method === 'PATCH')!;
   expect(new Headers(saved.init?.headers).get('If-Match')).toBe('"1"');
   expect(new Headers(saved.init?.headers).get('X-CSRF-Token')).toBe('synthetic-csrf');
@@ -135,10 +144,10 @@ it('preserves unsaved input on conflict, warns before refresh and displays pendi
   vi.mocked(window.confirm).mockReturnValue(false);
   const reads = requests.length; await click('Refresh'); expect(requests).toHaveLength(reads);
   vi.mocked(window.confirm).mockReturnValue(true); saveStatus = 200; await click('Save draft');
-  await click('database'); expect(container.textContent).toContain('database: passed (database_ok)');
+  await click('Run database connection check'); expect(container.textContent).toContain('Database connection: passed (database_ok)');
   await click('Verify candidate owner'); expect(identity.signIn).toHaveBeenCalledWith('zitadel', { redirectTo: '/instance/settings' }, { prompt: 'login' });
   await click('Activate saved draft');
-  expect(container.textContent).toContain('Activation is pending'); expect(container.textContent).toContain('Active revision 1');
+  expect(container.textContent).toContain('Activation is pending'); expect(container.textContent).toContain('Draft saved · v1');
   await click('Load audit'); expect(container.textContent).toContain('candidate_saved');
 });
 
@@ -166,7 +175,7 @@ it('requires the exact activation confirmation and distinguishes completed activ
   const request = requests.find(item => item.url.endsWith('/activate'))!;
   expect(JSON.parse(String(request.init?.body))).toEqual({ candidateVersion: 2, confirmationNonce: 'synthetic-activation-nonce', confirm: true });
   expect(container.textContent).toContain('The configuration is active. Sign in again');
-  expect(container.textContent).toContain('Active revision 2');
+  expect(container.textContent).toContain('Up to date · v2');
 });
 
 it('does not allow a non-owner to prepare a rollback draft', async () => {
@@ -233,4 +242,50 @@ it.each(['resolve', 'reject'] as const)('discards a late initial %s after naviga
   await render(); await act(async () => root.unmount());
   if (outcome === 'resolve') resolve(json(snapshot)); else reject(new Error('Synthetic late response'));
   await settle(); expect(container.innerHTML).toBe('');
+});
+
+it('switches real sections while retaining unsaved webhook and database fields', async () => {
+  await render();
+  await click('GitHub');
+  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('GitHub');
+  await input('webhookUrl', 'https://hooks.example.test/librarian/github');
+  await click('Database');
+  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Database');
+  await input('mongodbDatabase', 'librarian_new');
+  await act(async () => container.querySelector<HTMLInputElement>('[name="replace-database"]')!.click());
+  await input('mongodbUri', 'mongodb://synthetic-user:synthetic-password@database.example.test/librarian_new');
+  await click('GitHub');
+  expect(container.querySelector<HTMLInputElement>('[name="webhookUrl"]')!.value).toBe('https://hooks.example.test/librarian/github');
+  await click('Save draft');
+  const saved = JSON.parse(requests.find(item => item.init?.method === 'PATCH')!.init!.body as string);
+  expect(saved.changes.github.webhookUrl).toBe('https://hooks.example.test/librarian/github');
+  expect(saved.changes.database).toEqual({ mongodbDatabase: 'librarian_new', mongodbUri: 'mongodb://synthetic-user:synthetic-password@database.example.test/librarian_new' });
+  await click('Refresh');
+  expect(container.querySelector<HTMLInputElement>('[name="webhookUrl"]')!.value).toBe('https://hooks.example.test/librarian/github');
+  expect(container.querySelector<HTMLInputElement>('[name="mongodbUri"]')!.value).toBe('');
+  expect(container.textContent).not.toContain('synthetic-password');
+});
+
+it('submits multiline App keys only after explicit replacement and clears the field after saving', async () => {
+  await render(); await click('Security');
+  await act(async () => container.querySelector<HTMLInputElement>('[name="replace-githubPrivateKey"]')!.click());
+  const pem = '-----BEGIN PRIVATE KEY-----\nSYNTHETIC MULTILINE VALUE\n-----END PRIVATE KEY-----';
+  await input('githubPrivateKey', pem); await click('Save draft');
+  const saved = JSON.parse(requests.find(item => item.init?.method === 'PATCH')!.init!.body as string);
+  expect(saved.secretReplacements.githubPrivateKey).toEqual({ action: 'replace', value: pem });
+  expect(container.querySelector<HTMLTextAreaElement>('[name="githubPrivateKey"]')!.value).toBe('');
+});
+
+it('allows a non-owner to save preferences without submitting disabled database fields', async () => {
+  snapshot.bindingKind = 'administrator'; await render();
+  await input('displayName', 'Updated preference'); await click('Save draft');
+  const saved = JSON.parse(requests.find(item => item.init?.method === 'PATCH')!.init!.body as string);
+  expect(saved.changes).not.toHaveProperty('database');
+});
+
+it('opens the section containing an invalid field when saving from another tab', async () => {
+  await render(); await click('GitHub'); await input('webhookUrl', 'invalid-url'); await click('General');
+  await click('Save draft');
+  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('GitHub');
+  expect(requests.some(item => item.init?.method === 'PATCH')).toBe(false);
 });

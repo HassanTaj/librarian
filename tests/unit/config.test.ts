@@ -164,3 +164,28 @@ describe('runtime server configuration', () => {
     await expect(loadConfig(env, cwd)).rejects.not.toThrow(cwd);
   });
 });
+
+// Regression: direct .env values used to be ignored in favor of required secret files.
+it('loads all direct credentials, including multiline PEM, without any secret files', async () => {
+  for (const name of ['AUTH_SECRET_FILE', 'AUTH_ZITADEL_SECRET_FILE', 'MONGODB_URI_FILE', 'GITHUB_APP_PRIVATE_KEY_FILE', 'GITHUB_WEBHOOK_SECRET_FILE', 'OAUTH_TOKEN_ENCRYPTION_KEY_FILE']) delete env[name];
+  Object.assign(env, { AUTH_SECRET: 'direct-auth-secret-with-at-least-32-bytes', AUTH_ZITADEL_SECRET: 'direct-zitadel-secret',
+    MONGODB_URI: 'mongodb://127.0.0.1:27018/librarian', GITHUB_APP_PRIVATE_KEY: rsa,
+    GITHUB_WEBHOOK_SECRET: 'direct-webhook-secret-with-at-least-32-bytes', OAUTH_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 8).toString('base64') });
+  await rm(join(cwd, 'auth')); await rm(join(cwd, 'zitadel')); await rm(join(cwd, 'mongo'));
+  await rm(join(cwd, 'github')); await rm(join(cwd, 'webhook')); await rm(join(cwd, 'encryption'));
+  const config = await loadConfig(env, cwd);
+  expect(config).toMatchObject({ authSecret: env.AUTH_SECRET, zitadelSecret: env.AUTH_ZITADEL_SECRET,
+    mongodbUri: env.MONGODB_URI, githubPrivateKey: rsa.trim(), githubWebhookSecret: env.GITHUB_WEBHOOK_SECRET });
+  expect(config.oauthTokenEncryptionKey).toEqual(Buffer.alloc(32, 8));
+});
+
+it('prefers direct credentials and rejects invalid direct values without falling back to a valid file', async () => {
+  env.AUTH_SECRET = 'direct-auth-secret-with-at-least-32-bytes';
+  env.AUTH_SECRET_FILE = 'missing';
+  expect((await loadConfig(env, cwd)).authSecret).toBe(env.AUTH_SECRET);
+  env.AUTH_SECRET_FILE = 'auth';
+  for (const value of ['', 'too-short', 'x'.repeat(65537)]) {
+    env.AUTH_SECRET = value;
+    await expect(loadConfig(env, cwd)).rejects.toThrow('Invalid server configuration');
+  }
+});

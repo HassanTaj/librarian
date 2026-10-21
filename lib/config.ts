@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import { MongoClient } from 'mongodb';
 import { LIMITS } from './limits';
+import { readInstanceDatabase } from './instance/database';
 
 const identifier = z.string().min(1).max(200).regex(/^[\w.:-]+$/);
 const schema = z.object({
@@ -17,12 +18,18 @@ const schema = z.object({
   MONGODB_DATABASE: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,62}$/),
   GITHUB_APP_ID: z.string().regex(/^[1-9]\d*$/),
   CONTENT_ROOT: z.string().min(1),
-  AUTH_SECRET_FILE: z.string().min(1),
-  AUTH_ZITADEL_SECRET_FILE: z.string().min(1),
-  MONGODB_URI_FILE: z.string().min(1),
-  GITHUB_APP_PRIVATE_KEY_FILE: z.string().min(1),
-  GITHUB_WEBHOOK_SECRET_FILE: z.string().min(1),
-  OAUTH_TOKEN_ENCRYPTION_KEY_FILE: z.string().min(1),
+  AUTH_SECRET: z.string().min(1).optional(),
+  AUTH_SECRET_FILE: z.string().min(1).optional(),
+  AUTH_ZITADEL_SECRET: z.string().min(1).optional(),
+  AUTH_ZITADEL_SECRET_FILE: z.string().min(1).optional(),
+  MONGODB_URI: z.string().min(1).optional(),
+  MONGODB_URI_FILE: z.string().min(1).optional(),
+  GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
+  GITHUB_APP_PRIVATE_KEY_FILE: z.string().min(1).optional(),
+  GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
+  GITHUB_WEBHOOK_SECRET_FILE: z.string().min(1).optional(),
+  OAUTH_TOKEN_ENCRYPTION_KEY: z.string().min(1).optional(),
+  OAUTH_TOKEN_ENCRYPTION_KEY_FILE: z.string().min(1).optional(),
   PUBLIC_CATALOG_APPROVALS_FILE: z.string().min(1).optional(),
 });
 
@@ -39,11 +46,18 @@ function safeUrl(value: string, setting: string, localHttp = false) {
   return url;
 }
 
-const hostSchema = schema.pick({ AUTH_TRUST_HOST: true, MONGODB_DATABASE: true, CONTENT_ROOT: true, AUTH_SECRET_FILE: true, MONGODB_URI_FILE: true, OAUTH_TOKEN_ENCRYPTION_KEY_FILE: true, PUBLIC_CATALOG_APPROVALS_FILE: true });
+const hostSchema = schema.pick({ AUTH_TRUST_HOST: true, MONGODB_DATABASE: true, CONTENT_ROOT: true, AUTH_SECRET: true, AUTH_SECRET_FILE: true, MONGODB_URI: true, MONGODB_URI_FILE: true, OAUTH_TOKEN_ENCRYPTION_KEY: true, OAUTH_TOKEN_ENCRYPTION_KEY_FILE: true, PUBLIC_CATALOG_APPROVALS_FILE: true }).extend({ AUTH_TRUST_HOST: z.enum(['true', 'false']).default('false') });
 
-async function secret(setting: string, pathSetting: string, cwd: string) {
+async function secret(setting: string, env: NodeJS.ProcessEnv, cwd: string) {
   try {
-    const path = resolve(cwd, pathSetting);
+    const direct = setting.replace(/_FILE$/, '');
+    if (Object.hasOwn(env, direct)) {
+      const value = env[direct]?.trim();
+      if (!value || Buffer.byteLength(value) > 64 * 1024) fail(direct);
+      return value;
+    }
+    if (!env[setting]) fail(setting);
+    const path = resolve(cwd, env[setting]!);
     const info = await stat(path);
     if (!info.isFile() || info.size > 64 * 1024) fail(setting);
     const value = (await readFile(path, 'utf8')).trim();
@@ -52,8 +66,9 @@ async function secret(setting: string, pathSetting: string, cwd: string) {
   } catch { fail(setting); }
 }
 
-export async function loadHostConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()) {
-  const parsed = hostSchema.safeParse(env);
+export async function loadBootstrapConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()) {
+  const locator = env.INSTANCE_DATABASE_FILE ? await readInstanceDatabase(env, cwd) : null;
+  const parsed = hostSchema.safeParse(locator ? { ...env, MONGODB_DATABASE: locator.mongodbDatabase } : env);
   if (!parsed.success) fail(parsed.error.issues.map(issue => issue.path.join('.')).join(', '));
   const settings = parsed.data;
   let contentRoot: string;
@@ -83,20 +98,26 @@ export async function loadHostConfig(env: NodeJS.ProcessEnv = process.env, cwd =
     } catch { fail('PUBLIC_CATALOG_APPROVALS_FILE'); }
   }
 
-  const authSecret = await secret('AUTH_SECRET_FILE', settings.AUTH_SECRET_FILE, cwd);
-  if (Buffer.byteLength(authSecret) < 32) fail('AUTH_SECRET_FILE');
-  const mongodbUri = await secret('MONGODB_URI_FILE', settings.MONGODB_URI_FILE, cwd);
+  const mongodbUri = locator?.mongodbUri ?? await secret('MONGODB_URI_FILE', env, cwd);
+  if (locator) settings.MONGODB_DATABASE = locator.mongodbDatabase;
   try {
     const client = new MongoClient(mongodbUri);
     const path = mongodbUri.replace(/^mongodb(?:\+srv)?:\/\/[^/]+/, '').split('?')[0];
     if (mongodbUri.includes('#') || (path && path !== '/' && client.options.dbName !== settings.MONGODB_DATABASE)) fail('MONGODB_URI_FILE');
   } catch { fail('MONGODB_URI_FILE'); }
-  const encryptionSecret = await secret('OAUTH_TOKEN_ENCRYPTION_KEY_FILE', settings.OAUTH_TOKEN_ENCRYPTION_KEY_FILE, cwd);
+  return { trustHost: settings.AUTH_TRUST_HOST === 'true', mongodbUri, mongodbDatabase: settings.MONGODB_DATABASE, contentRoot, publicCatalogApprovalsFile };
+}
+
+export async function loadHostConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()) {
+  const bootstrap = await loadBootstrapConfig(env, cwd);
+  const authSecret = await secret('AUTH_SECRET_FILE', env, cwd);
+  if (Buffer.byteLength(authSecret) < 32) fail('AUTH_SECRET_FILE');
+  const encryptionSecret = await secret('OAUTH_TOKEN_ENCRYPTION_KEY_FILE', env, cwd);
   const oauthTokenEncryptionKey = Buffer.from(encryptionSecret, 'base64');
   if (oauthTokenEncryptionKey.length !== 32 || oauthTokenEncryptionKey.toString('base64') !== encryptionSecret) {
     fail('OAUTH_TOKEN_ENCRYPTION_KEY_FILE');
   }
-  return { trustHost: settings.AUTH_TRUST_HOST === 'true', authSecret, mongodbUri, mongodbDatabase: settings.MONGODB_DATABASE, oauthTokenEncryptionKey, contentRoot, publicCatalogApprovalsFile };
+  return { ...bootstrap, authSecret, oauthTokenEncryptionKey };
 }
 
 /** Validated environment-backed runtime retained for legacy installations. */
@@ -110,15 +131,15 @@ async function loadLegacyConfig(env: NodeJS.ProcessEnv, cwd: string) {
   if (issuer.pathname !== '/') fail('AUTH_ZITADEL_ISSUER');
 
   const host = await loadHostConfig(env, cwd);
-  const zitadelSecret = await secret('AUTH_ZITADEL_SECRET_FILE', settings.AUTH_ZITADEL_SECRET_FILE, cwd);
-  const githubPrivateKey = await secret('GITHUB_APP_PRIVATE_KEY_FILE', settings.GITHUB_APP_PRIVATE_KEY_FILE, cwd);
+  const zitadelSecret = await secret('AUTH_ZITADEL_SECRET_FILE', env, cwd);
+  const githubPrivateKey = await secret('GITHUB_APP_PRIVATE_KEY_FILE', env, cwd);
   try {
     if (createPrivateKey(githubPrivateKey).asymmetricKeyType !== 'rsa') fail('GITHUB_APP_PRIVATE_KEY_FILE');
   } catch { fail('GITHUB_APP_PRIVATE_KEY_FILE'); }
-  const githubWebhookSecret = await secret('GITHUB_WEBHOOK_SECRET_FILE', settings.GITHUB_WEBHOOK_SECRET_FILE, cwd);
+  const githubWebhookSecret = await secret('GITHUB_WEBHOOK_SECRET_FILE', env, cwd);
   if (Buffer.byteLength(githubWebhookSecret) < 32) fail('GITHUB_WEBHOOK_SECRET_FILE');
   return {
-    ...host, authUrl: authUrl.origin,
+    ...host, workerEnabled: (env.NODE_ENV === 'production' ? env.LIBRARIAN_WORKER_ENABLED !== '0' : env.LIBRARIAN_WORKER_ENABLED === '1'), authUrl: authUrl.origin,
     zitadelClientId: settings.AUTH_ZITADEL_ID, zitadelSecret, zitadelIssuer: issuer.origin,
     zitadelProjectId: settings.ZITADEL_PROJECT_ID, zitadelApiAudience: settings.ZITADEL_API_AUDIENCE,
     githubAppId: settings.GITHUB_APP_ID, githubPrivateKey, githubWebhookSecret,
@@ -149,7 +170,7 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = pro
           if (key.asymmetricKeyType !== 'rsa' || (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048) throw new Error();
         } catch { throw new Error(); }
         return {
-          ...host.config, authUrl: active.publicOrigin,
+          ...host.config, ...instanceRuntimeConfig(active.runtime), authUrl: active.publicOrigin,
           zitadelClientId: active.zitadel.clientId, zitadelSecret: decrypt('zitadelClientSecret'),
           zitadelIssuer: active.zitadel.issuer, zitadelProjectId: active.zitadel.projectId, zitadelApiAudience: active.zitadel.audience,
           githubAppId: active.github.appId, githubPrivateKey, githubWebhookSecret: decrypt('githubWebhookSecret'),
@@ -158,9 +179,22 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = pro
       let legacy: Awaited<ReturnType<typeof loadLegacyConfig>> | undefined;
       try { legacy = await loadLegacyConfig(env, cwd); } catch { /* Legacy inputs are eligible only when every required value validates. */ }
       const state = classifyInstance({ marker: host.marker, record: control, legacyValid: !!legacy, empty: !control });
-      if (legacy && (state === 'legacy' || state === 'legacy_migrating')) return legacy;
-      if (legacy && control?.migration && !control.initializedAt && control.gate.state !== 'maintenance' && ['configuring', 'awaiting_owner'].includes(state)) return legacy;
+      if (legacy && (state === 'legacy' || state === 'legacy_migrating')) return { ...legacy, instanceKeyring: host.keyring };
+      if (legacy && control?.migration && !control.initializedAt && control.gate.state !== 'maintenance' && ['configuring', 'awaiting_owner'].includes(state)) {
+        return { ...legacy, instanceKeyring: host.keyring };
+      }
       throw new Error('Instance setup is not ready.');
     } finally { await storage.client.close(); }
   } catch { throw new Error('Instance setup is not ready.'); }
+}
+
+/** Only the host database locator is authoritative for establishing the connection. */
+export function instanceRuntimeConfig(runtime: import('zod').infer<typeof import('./instance/store').InstanceRuntimeSchema> | undefined) {
+  if (!runtime) throw new Error('instance_configuration_incomplete');
+  return { authSecret: runtime.authSecret, oauthTokenEncryptionKey: Buffer.from(runtime.oauthTokenEncryptionKey, 'base64'), trustHost: runtime.trustHost, workerEnabled: runtime.workerEnabled };
+}
+
+export function instanceRuntimeInputs(config: Awaited<ReturnType<typeof loadHostConfig>>, env: NodeJS.ProcessEnv = process.env) {
+  return { authSecret: config.authSecret, oauthTokenEncryptionKey: config.oauthTokenEncryptionKey.toString('base64'),
+    mongodbUri: config.mongodbUri, mongodbDatabase: config.mongodbDatabase, trustHost: config.trustHost, workerEnabled: (env.NODE_ENV === 'production' ? env.LIBRARIAN_WORKER_ENABLED !== '0' : env.LIBRARIAN_WORKER_ENABLED === '1') };
 }

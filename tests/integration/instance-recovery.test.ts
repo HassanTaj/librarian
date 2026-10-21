@@ -1,11 +1,14 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, it } from 'vitest';
 import { createInstanceHarness, seedReadyInstance } from './instance-harness';
-import { readInstance, updateInstance } from '../../lib/instance/store';
+import { seedRuntimeCatalog } from './runtime-fixtures';
+import type { Catalog } from '../../lib/catalog';
+import { attachInstanceKeyring, readInstance, updateInstance } from '../../lib/instance/store';
 import { issueSetupOwnerProof } from '../../lib/instance/access';
 import { beginInstanceKeyRotation, decryptInstanceSecret, rotateInstanceBundles, serializeInstanceKeyring } from '../../lib/instance/secrets';
 import { encryptOAuthToken, decryptOAuthToken } from '../../lib/auth/tokens';
@@ -18,8 +21,14 @@ async function operator(harness: Harness, purpose: 'recover' | 'rotate-key' | 't
 }
 function run(harness: Harness, command: string, revision: number, extra: string[] = [], processesStopped = true) {
   const capture = process.env.LIBRARIAN_COVERAGE_PROCESS_DIR ? [`--import=${pathToFileURL(resolve('tests/integration/native-coverage-register.mjs')).href}`] : [];
-  return spawnSync(process.execPath, [...capture, resolve('scripts/instance-operator.mjs'), command, '--instance-id', harness.instanceId,
+  const result = spawnSync(process.execPath, [...capture, resolve('scripts/instance-operator.mjs'), command, '--instance-id', harness.instanceId,
     '--revision', String(revision), ...(processesStopped ? ['--processes-stopped'] : []), ...extra], { env: { ...process.env, ...harness.env }, encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+  if (command === 'rotate-key' && result.status === 0) {
+    const stored = JSON.parse(readFileSync(harness.env.INSTANCE_KEYRING_FILE, 'utf8')) as { activeKeyId: string; keys: Record<string, string> };
+    attachInstanceKeyring(harness.storage.db, { activeKeyId: stored.activeKeyId,
+      keys: Object.fromEntries(Object.entries(stored.keys).map(([id, value]) => [id, Buffer.from(value, 'base64')])) });
+  }
+  return result;
 }
 
 it('transfers ownership only with a current target proof and fresh roles for both owners', async () => {
@@ -204,4 +213,70 @@ it('recovers only after protected epoch advance and current verified target proo
     expect(run(harness, 'recover', verified.revision, ['--proof-id', proof.nonce]).status).not.toBe(0);
     expect(completed.stdout).not.toContain(authority.credential);
   } finally { await harness.close(); }
+});
+
+it('restores a quiesced database, host files, and published snapshot as one recovery set', async () => {
+  const harness = await createInstanceHarness({ port: 3219 });
+  const recoveryName = `librarian_test_restore_${randomUUID().replaceAll('-', '')}`;
+  const recoveryDb = harness.storage.client.db(recoveryName);
+  try {
+    const fixture = await seedReadyInstance(harness);
+    const runtime = await seedRuntimeCatalog('public', harness.storage);
+    runtime.catalog.instanceRuntimeRevision = fixture.control.active!.version;
+    runtime.catalog.instanceActivationId = null;
+    await harness.storage.db.collection<Catalog>('catalogs').updateOne({ _id: runtime.catalog._id }, { $set: {
+      instanceRuntimeRevision: runtime.catalog.instanceRuntimeRevision, instanceActivationId: null,
+    } });
+    await writeFile(join(runtime.root, 'restore-sentinel.md'), '# Consistent recovery sentinel');
+
+    const server = await harness.start();
+    expect((await fetch(server.origin + '/public-project')).status).toBe(200);
+    await harness.stop();
+
+    const backupRoot = join(harness.storage.root, 'restore-set');
+    const restoredContent = join(backupRoot, 'content');
+    const restoredProtected = join(backupRoot, 'protected');
+    await mkdir(backupRoot);
+    await cp(harness.storage.contentRoot, restoredContent, { recursive: true });
+    await mkdir(restoredProtected, { recursive: true, mode: 0o700 });
+    if (process.platform === 'win32') {
+      const owner = spawnSync('whoami', [], { encoding: 'utf8', windowsHide: true });
+      const secured = spawnSync('icacls', [restoredProtected, '/inheritance:r', '/grant:r', `${owner.stdout.trim()}:(OI)(CI)F`],
+        { encoding: 'utf8', windowsHide: true });
+      if (owner.status !== 0 || secured.status !== 0) throw new Error('Could not protect restored host inputs');
+    }
+    for (const name of await readdir(dirname(harness.env.INSTANCE_STATE_FILE))) {
+      await writeFile(join(restoredProtected, name), await readFile(join(dirname(harness.env.INSTANCE_STATE_FILE), name)), { mode: 0o600 });
+    }
+
+    for (const { name } of await harness.storage.db.listCollections({}, { nameOnly: true }).toArray()) {
+      const documents = await harness.storage.db.collection(name).find({}).toArray();
+      await recoveryDb.createCollection(name);
+      if (documents.length) await recoveryDb.collection(name).insertMany(documents);
+    }
+
+    harness.env.MONGODB_DATABASE = recoveryName;
+    harness.env.CONTENT_ROOT = restoredContent;
+    for (const key of ['INSTANCE_STATE_FILE', 'INSTANCE_KEYRING_FILE', 'INSTANCE_OPERATOR_AUTH_FILE', 'INSTANCE_OUTBOUND_POLICY_FILE',
+      'AUTH_SECRET_FILE', 'OAUTH_TOKEN_ENCRYPTION_KEY_FILE', 'MONGODB_URI_FILE', 'PUBLIC_CATALOG_APPROVALS_FILE'] as const) {
+      const originalPath = harness.env[key];
+      if (originalPath) harness.env[key] = join(restoredProtected, basename(originalPath));
+    }
+    await writeFile(harness.env.MONGODB_URI_FILE, `mongodb://127.0.0.1:27018/${recoveryName}`, { mode: 0o600 });
+
+    const restoredServer = await harness.start();
+    const page = await fetch(restoredServer.origin + '/public-project');
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('Synthetic Portal');
+    expect((await readInstance(recoveryDb, harness.instanceId))?.bootstrap.consumedAt).toEqual(fixture.control.bootstrap.consumedAt);
+    expect((await recoveryDb.collection<Catalog>('catalogs').findOne({ _id: runtime.catalog._id }))?.published).toEqual(runtime.catalog.published);
+    expect(await readFile(join(restoredContent, relative(harness.storage.contentRoot, runtime.root), 'restore-sentinel.md'), 'utf8'))
+      .toBe('# Consistent recovery sentinel');
+  } finally {
+    try { await harness.stop(); }
+    finally {
+      try { await recoveryDb.dropDatabase(); }
+      finally { await harness.close(); }
+    }
+  }
 });

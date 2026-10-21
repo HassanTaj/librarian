@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { issueSetupOwnerProof } from '../../lib/instance/access';
-import { readInstance, updateInstance } from '../../lib/instance/store';
+import { readInstance, updateInstance, type StoredInstanceControl } from '../../lib/instance/store';
 import { createInstanceHarness, seedReadyInstance } from './instance-harness';
 import { catalogs } from '../fixtures/catalogs';
 import { CatalogSchema, type Catalog } from '../../lib/catalog';
@@ -45,12 +45,13 @@ it('atomically persists canonical encrypted drafts, rejects stale/invalid edits,
     expect(replaced.status).toBe(200);
     const safe = await replaced.text(); expect(safe).not.toContain('REPLACEMENT_PROVIDER_SENTINEL');
     expect(safe).not.toContain('ciphertext'); expect(safe).not.toContain('SYNTHETIC_CLIENT_SENTINEL');
-    const stored = await harness.storage.db.collection('instance_configuration').findOne({});
+    const stored = await harness.storage.db.collection<StoredInstanceControl>('instance_configuration').findOne({});
     expect(JSON.stringify(stored)).not.toContain('REPLACEMENT_PROVIDER_SENTINEL');
-    expect(stored?.candidate.secrets.githubWebhookSecret.algorithm).toBe('aes-256-gcm');
-    expect(stored?.candidate.createdBy).toBe(fixture.control.administrators[0].bindingId);
-    expect(stored?.active.secrets.githubWebhookSecret).toEqual(fixture.control.active?.secrets.githubWebhookSecret);
-    expect(stored?.active.version).toBe(1); expect(stored?.candidate.version).toBe(3);
+    expect(stored?.candidate?.configuration.algorithm).toBe('aes-256-gcm');
+    const logicalStored = await readInstance(harness.storage.db, harness.instanceId);
+    expect(logicalStored?.candidate?.createdBy).toBe(fixture.control.administrators[0].bindingId);
+    expect(logicalStored?.active?.secrets.githubWebhookSecret).toEqual(fixture.control.active?.secrets.githubWebhookSecret);
+    expect(stored?.active?.version).toBe(1); expect(stored?.candidate?.version).toBe(3);
     server = await harness.restart();
     const persisted = await get(); expect(persisted.snapshot.candidateVersion).toBe(3);
     expect(persisted.snapshot.candidate.preferences.displayName).toBe(committed.candidate.preferences.displayName);

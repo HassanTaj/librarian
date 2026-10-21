@@ -5,6 +5,14 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
+import { attachInstanceKeyring, serializeInstanceControl, type InstanceControl, type StoredInstanceControl } from '../../lib/instance/store';
+import type { InstanceKeyring } from '../../lib/instance/secrets';
+
+export const instanceTestKeyring: InstanceKeyring = { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1) } };
+
+export async function insertInstanceControl(db: import('mongodb').Db, control: InstanceControl, keyring: InstanceKeyring = instanceTestKeyring) {
+  await db.collection<StoredInstanceControl>('instance_configuration').insertOne(await serializeInstanceControl(control, control.instanceId, keyring));
+}
 
 /** This harness only accepts a loopback disposable Mongo server, never a live URI. */
 export async function createStorageHarness(uri = 'mongodb://127.0.0.1:27018') {
@@ -16,6 +24,7 @@ export async function createStorageHarness(uri = 'mongodb://127.0.0.1:27018') {
     await client.connect();
     const db = client.db(name);
     await db.command({ ping: 1 });
+    attachInstanceKeyring(db, instanceTestKeyring);
     await mkdir(join(root, 'content'));
     return {
       client, db, root, contentRoot: join(root, 'content'),
@@ -42,9 +51,10 @@ export async function startNextHarness(options: {
   const origin = `http://127.0.0.1:${options.port}`;
   const capture = process.env.LIBRARIAN_COVERAGE_PROCESS_DIR && appRoot === process.cwd()
     ? join(process.env.LIBRARIAN_COVERAGE_PROCESS_DIR, `server-${randomUUID()}.json`) : undefined;
+  // The real checkout may now hold DEV bootstrap inputs; tests use only their explicit synthetic environment.
   const child = spawn(process.execPath, [join(appRoot, 'tests/integration/next-process.mjs'), appRoot, String(options.port)], {
     cwd: appRoot,
-    env: { ...process.env, LIBRARIAN_WORKER_ENABLED: '0', ...(capture ? { LIBRARIAN_INSTRUMENTED_CAPTURE: capture } : {}), ...options.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1', ...(options.coverageDirectory ? { NODE_V8_COVERAGE: options.coverageDirectory } : {}) },
+    env: { ...process.env, __NEXT_PROCESSED_ENV: 'true', INSTANCE_DATABASE_FILE: '', LIBRARIAN_WORKER_ENABLED: '0', ...(capture ? { LIBRARIAN_INSTRUMENTED_CAPTURE: capture } : {}), ...options.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1', ...(options.coverageDirectory ? { NODE_V8_COVERAGE: options.coverageDirectory } : {}) },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
   });

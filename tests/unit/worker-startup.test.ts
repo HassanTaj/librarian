@@ -44,10 +44,10 @@ it('preserves an unfenced legacy worker during enrollment and binds it after ini
   await startConfiguredWorker('nodejs'); expect(state.startSyncWorker).toHaveBeenLastCalledWith(expect.objectContaining({ instance: { instanceId: 'synthetic-instance', activeVersion: 2, securityEpoch: 1, recoveryEpoch: 1 } }));
 });
 
-it('skips startup when the process is not a configured worker', async () => {
+it('reads the stored worker policy before deciding whether startup is enabled', async () => {
   state.shouldStartSyncWorker.mockReturnValue(false);
   await startConfiguredWorker('nodejs');
-  expect(state.loadConfig).not.toHaveBeenCalled();
+  expect(state.loadConfig).toHaveBeenCalledOnce();
   expect(state.startSyncWorker).not.toHaveBeenCalled();
 });
 

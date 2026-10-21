@@ -1,3 +1,4 @@
+import { instanceRuntimeInputs } from '@/lib/config';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { requireLegacyEnrollmentAuthority, instanceErrorResponse, readInstanceJson, readInstanceSetupSession, issueSetupOwnerProof, type InstanceSetupSession } from '@/lib/instance/access';
@@ -29,6 +30,7 @@ export async function POST(request: Request) {
       secretReplacements: { zitadelClientSecret: { action: 'replace', value: config.zitadelSecret }, githubPrivateKey: { action: 'replace', value: config.githubPrivateKey }, githubWebhookSecret: { action: 'replace', value: config.githubWebhookSecret } },
     }, host.keyring, 'legacy_operator', now);
     const proof = issueSetupOwnerProof({ ...current, lifecycle: 'configuring', candidate: draft }, identity, now);
+    draft.runtime = instanceRuntimeInputs(config);
     draft.ownerProof = proof;
     draft.checks = [{ type: 'zitadel_owner_login', candidateVersion: draft.version, at: now, status: 'passed', code: 'provider_ok' }];
     const next = await updateInstance(db, host.instanceId, current.revision, value => ({ ...value, lifecycle: 'awaiting_owner', candidate: draft,

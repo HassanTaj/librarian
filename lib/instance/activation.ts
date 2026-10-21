@@ -1,3 +1,4 @@
+import { checkInstanceDatabase, writeInstanceDatabase } from './database';
 import { createPrivateKey, randomUUID } from 'node:crypto';
 import { open, lstat, rename, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -24,6 +25,10 @@ export async function beginInstanceActivation(db: Db, instanceId: string, editRe
   if (candidate.createdBy !== bindingId || candidate.createdAt > now || now.getTime() - candidate.createdAt.getTime() >= LIMITS.instanceProofMs) throw new Error('instance_conflict');
   if (current.auditOutbox.length >= LIMITS.maxInstanceAuditOutbox) throw new Error('instance_unavailable');
   const active = InstanceBundleSchema.parse(candidate);
+  if (candidate.impact?.categories.includes('database')) {
+    if (binding.kind !== 'owner' || !candidate.runtime) throw new Error('instance_forbidden');
+    await checkInstanceDatabase(candidate.runtime, current, (await readInstanceHost()).keyring, db);
+  }
   for (const type of requiredChecks.filter(type => type !== 'zitadel_owner_login')) {
     const result = candidate.checks.find(item => item.type === type);
     if (!result || result.candidateVersion !== candidateVersion || result.at > now || now.getTime() - result.at.getTime() >= LIMITS.instanceProofMs ||
@@ -117,6 +122,10 @@ export async function reconcileInstanceActivation(env: NodeJS.ProcessEnv = proce
       }
       if ((await checkHealth(db, host.config.contentRoot)).status !== 'ok' || host.marker.phase !== 'initialized' || current.admissions.length) return false;
       if (current.activation.deadline <= new Date()) return false;
+      if (active.runtime && (active.runtime.mongodbUri !== host.config.mongodbUri || active.runtime.mongodbDatabase !== host.config.mongodbDatabase)) {
+        await checkInstanceDatabase(active.runtime, current, host.keyring, storage.db);
+        await writeInstanceDatabase(active.runtime);
+      }
       await updateInstance(db, host.instanceId, current.revision, value => ({ ...value, lifecycle: 'ready',
         gate: { state: 'open', activationId: null, deadline: null }, activation: null,
         auditOutbox: value.auditOutbox.map(event => event.requestId === initial.id ? { ...event, resultCode: 'accepted' } : event),

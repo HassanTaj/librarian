@@ -2,15 +2,15 @@
 
 **Git branch**: `main` (unchanged) | **Feature**: `002-instance-configuration` | **Date**: 2026-10-19 | **Spec**: [spec.md](spec.md)
 
-**Status — 2026-10-21**: Phase 4/T047 and the v2 implementation have passed local coverage (1,022 tests), browser acceptance (99/99), typecheck, lint, production build, artifact validation, and a disposable local image/container check. All global and C1-C7 coverage metrics meet 95%. T085 previous-image recovery compatibility and BG-01/02/03 workload, live DEV, and release gates remain open.
+**Status — 2026-10-21**: The original 94 tasks passed local coverage (1,023 tests), browser acceptance (99/99), typecheck, lint, production build, artifact validation, and disposable image/container checks. T085 passed locally using a source-built parent revision in legacy mode and a synthetic consistent restore set. Constitution v4.0.0 now adds T095-T104 for complete encrypted configuration bundles and the authorized additive `librarian_dev` migration; those tasks remain pending. BG-01 workload and production/release gates remain separate.
 
 ## Summary
 
-Extend the existing application with protected first-run setup, encrypted durable provider configuration, explicit instance administration, revision-aware runtime activation and non-destructive legacy import. Use `/instance/setup` and `/instance/settings` under the dedicated instance namespace. Provider credentials/private keys live encrypted in MongoDB; independent database/encryption/session/OAuth/bootstrap root inputs remain host-managed. Settings requires both an explicit issuer/subject binding and the configured project's `librarian-instance-admin` role.
+Extend the existing application with protected first-run setup, authenticated-encrypted full application configuration, explicit instance administration, revision-aware runtime activation and non-destructive legacy import. Use `/instance/setup` and `/instance/settings` under the dedicated instance namespace. All application settings and credentials live in a complete encrypted MongoDB bundle; only the OS/KMS root, bootstrap Mongo connection, instance identity/recovery, content mount, outbound policy and publication-approval input remain host-managed. Settings requires both an explicit issuer/subject binding and the configured project's `librarian-instance-admin` role.
 
 Preserve Git-based authoring, runtime Fumadocs loading, every private delivery boundary, separate catalog/reader roles, GitHub read-only ingestion, durable receipts/leases, active immutable snapshots, bottom-left sync badges and three-card skeletons. Reuse Node crypto, MongoDB driver, Zod, Auth.js and existing UI/test helpers. Add no dependency or service.
 
-Input authority: [constitution v3.0.0](../../.specify/memory/constitution.md), [v1 requirements](../../docs/requirements/v1-requirements.md), current v2 spec and its [73-ID reconciliation](requirements-traceability.md). Owner answers dated 2026-10-19 resolve D1-D3; the explicit major constitutional amendment records credential-storage/instance-authority approval without authorizing any live credential or infrastructure operation. Original 001 artifacts and unrelated working changes remain intact.
+Input authority: [constitution v4.0.0](../../.specify/memory/constitution.md), [v1 requirements](../../docs/requirements/v1-requirements.md), current v2 spec and its [73-ID reconciliation](requirements-traceability.md). D1-D3 remain historical owner decisions; D4 records the explicit 2026-10-21 approval for all app configuration to be encrypted with an external OS/KMS bootstrap identity. The approved additive target is DEV `librarian_dev`; production, publication and deployment remain unauthorized. Original 001 artifacts and unrelated working changes remain intact.
 
 ## Technical Context
 
@@ -38,7 +38,7 @@ Input authority: [constitution v3.0.0](../../.specify/memory/constitution.md), [
 |---|---|---|
 | I: Git source of truth | Existing authoring/reader scope preserved | No source editing/write scopes; defaults never rewrite catalogs |
 | II: Private server boundary | Binding+instance role distinct from catalog and reader | Shared authorization before cached content; epoch-bound auth, exact freshness, all private paths/logout/back regressions |
-| III: Secrets/authority | D1/D2 approved; constitution v3.0.0 records amendment | Independent host root key, instance/purpose-bound authenticated envelopes, no reveal, explicit legacy import and owner continuity |
+| III: Secrets/authority | D2/D3 retained; D4 approved in constitution v4.0.0 | Complete instance/purpose/version-bound configuration envelope; independent OS/KMS root and Mongo bootstrap; no reveal; explicit legacy import and owner continuity |
 | III: Routes/untrusted input | Owner revised D3 to dedicated instance namespace | Reserve instance with a pre-upgrade catalog collision gate; no aliases or automatic catalog renames; strict bounded schemas, pinned outbound checks, CSRF/origin/state; preserve static parse-only AST grammar |
 | IV: Complete recoverable generations | Existing leases/immutable snapshots retained | Admission barrier plus per-catalog fences, standalone crash/race tests, retained receipts/last-good snapshots |
 | V: Tests and four 95% metrics | Functional feature, no presentation exception | C7 plus affected C1-C6/global gates, unexecuted source inventory, required security/integration/browser cases; fail absent reports |
@@ -85,8 +85,8 @@ API prefix is `/api/instance`; exact endpoint inputs/outputs/roles/status codes 
 
 ## Design Decisions and Bounds
 
-- Use one <=512 KiB instance-control document with complete active/previous/candidate bundles, explicit bindings, consumed bootstrap and bounded audit outbox. Finalization/activation authority changes are one CAS, compatible with standalone MongoDB. Separate audit/session records derive authority from it.
-- Provider secrets use separate AES-256-GCM root keyring, random nonce, purpose/instance/version-bound AAD; preserve legacy OAuth token ciphertext/key. No plaintext history, reveal operation, implicit blank deletion or fallback to old environment after migration.
+- Use one <=512 KiB instance-control document with sealed active/previous/candidate application bundles, explicit bindings, consumed bootstrap and bounded audit outbox. Finalization/activation authority changes are one CAS, compatible with standalone MongoDB. Separate audit/session records derive authority from it.
+- The complete application bundle uses AES-256-GCM with random nonce and instance/purpose/version-bound AAD under the independent OS/KMS root. Preserve the exact legacy OAuth token key/ciphertext. No plaintext configuration history, reveal operation, implicit blank deletion or fallback to old environment after migration.
 - Explicit protected fresh intent and durable host initialization/recovery marker prevent empty/missing database or volume from becoming a public claim. Valid legacy configuration remains authoritative until deliberate owner-confirmed cutover.
 - Each operation pins one bundle/epoch. Activation closes admissions, drains requests, fences every catalog's worker authority using separate instance runtime revision and existing monotonic catalog fences, commits, adopts, then reopens. Do not pretend a singleton revision read followed by an unrelated write is atomic. No unmodified v1 binary may overlap an activated v2 migration.
 - Maximum activation/drain 120 s; request pins 30 s, max64; one worker pin <=120 s. Failure stays maintenance/recoverable with last active bundle. No stale new admission after commit; expired pins cannot perform later effects. Reconcile same activation after crash.
@@ -120,16 +120,19 @@ Add scope **C7** in `scripts/check-coverage.mjs`, retaining C1-C6 and global rul
 
 ```text
 lib/instance/bootstrap.ts
+lib/instance/database.ts
 lib/instance/store.ts
 lib/instance/secrets.ts
 lib/instance/access.ts
 lib/instance/validation.ts
 lib/instance/activation.ts
 components/instance-setup.tsx
+components/instance-database-setup.tsx
 components/instance-settings.tsx
 app/instance/setup/page.tsx
 app/instance/settings/page.tsx
 app/api/instance/status/route.ts
+app/api/instance/database/route.ts
 app/api/instance/setup/authorize/route.ts
 app/api/instance/setup/route.ts
 app/api/instance/setup/check/route.ts
@@ -242,6 +245,18 @@ The owner changed D3 to `/instance/setup` and `/instance/settings`. These remain
 - Documentation validation records link/ID/inventory/whitespace checks and original001 preservation separately from functional acceptance.
 - Task generation has completed; the implementation invocation uses the existing task ledger. No branch, commit, push or live operation is authorized.
 
+## Approved Configuration Encryption Amendment — 2026-10-21
+
+This amendment supersedes the v3 host-only classification of Auth.js/session and OAuth keys and the provider-only Mongo encryption scope. T095-T104 extend the existing C7 implementation set; they do not change historical T001-T094 results or C7 membership. A new current-state coverage run must still prove the four independent global/C1-C7 thresholds.
+
+The persistence boundary is `lib/instance/store.ts` and `lib/instance/secrets.ts`: Mongo stores only a single AES-256-GCM envelope for every active/previous/candidate application configuration bundle. The logical bundle is decrypted in memory by authorized server code. Existing control metadata needed for CAS/lifecycle/authority remains queryable; no setting, secret or provider value is duplicated in plaintext. `lib/config.ts`, `lib/instance/bootstrap.ts`, `auth.ts`, `lib/auth/*`, `lib/mongo.ts`, `lib/instance/access.ts`, activation, worker, health, webhook and settings routes must consume one active bundle. The settings form splits Auth (including OAuth key status), Zitadel, Mongo, GitHub App/private key, GitHub webhook, runtime/documentation, and host prerequisites; secrets remain write-only.
+
+Legacy import reads each validated value and only the secret files referenced by `.env.local`. It preserves the exact existing OAuth token key and any matching token ciphertext; unreferenced secret files are not import inputs. An encrypted Mongo URI copy is retained for authorized Settings status, but `MONGODB_URI_FILE` and `MONGODB_DATABASE` stay authoritative at startup because neither can bootstrap from the database it would need to unlock. Also retained are the root/keyring, instance identity/marker/operator authority, `CONTENT_ROOT`, outbound policy and publication-approval input. Every retained `.env` reference is adjacent to an `ABSOLUTELY REQUIRED` comment naming its startup/security reason. Legacy application values remain available only for explicit import and pre-activation rollback; active v2 never falls back to them.
+
+The current DEV preflight observed `librarian_dev` on a non-loopback Mongo target with existing catalogs, accounts, sessions, jobs and receipts and no `instance_configuration` collection. T100 must add an explicit target-gated, additive import path without weakening loopback disposable-test guards. T103 must revalidate the target and create a protected recovery point before T104. The migration may insert instance control only; it must not delete or rewrite catalog/auth/job/snapshot collections. Before activation rollback restores only the protected legacy environment files and removes only the exact newly created instance control/marker. After activation, rollback is a validated v2 operation or consistent restore, never a legacy fallback.
+
+Functional code changes are limited to the existing C7 modules, scripts, UI and callers listed above. Tests must prove ciphertext-only raw Mongo state, tamper/wrong-key/cross-instance failure, migration and OAuth continuity, safe Settings redaction, and end-to-end DEV preservation. Production, provider-side mutation, publication, image release and deployment remain outside this amendment.
+
 ### Implementation preflight — 2026-10-19 (T001)
 
 - Requirements checklist passes 28/28; constitution v3.0.0 and approved D1-D3 remain the governing decisions. The working tree was clean and branch `main` was unchanged at invocation start.
@@ -251,3 +266,23 @@ The owner changed D3 to `/instance/setup` and `/instance/settings`. These remain
 - Existing Git/Docker/ESLint ignores protect local secret files, generated output and test artifacts. No additional ignore file is needed for this preflight; package.json is private and no npm publication is planned.
 - Preservation baseline covers 195 tracked original001/application/test files, aggregate SHA-256 `59c3e74a5705dd7f8e1c9ae5857ed96ecd502bc18d7e39e1528a336b3b209292`. No application or historical001 files were edited. This is preservation evidence, not functional acceptance or coverage.
 - T002 cannot currently exercise the required real standalone database: loopback port 27018 is closed, Docker's Linux engine pipe is absent, and `mongod` is unavailable on PATH or under the standard MongoDB installation directory. Record the blocker in tasks.md; do not substitute shared DEV storage or mocks for this gate.
+
+
+### 2026-10-21 direct environment and working DEV cutover
+
+Owner instruction: restore working DEV setup/settings and direct environment
+loading before spending time on tests. Added direct credential precedence in
+lib/config.ts and the operator, complete encrypted runtime inputs in
+lib/instance/store.ts, bootstrap signing derivation in lib/instance/bootstrap.ts,
+explicit DEV target gates in scripts/instance-operator.mjs, capture during setup
+and migration, and persisted worker policy consumption. Settings adds safe runtime
+metadata and multiline App-key replacement; navigation retains the Settings return
+path. Existing providers, APIs, schema bounds, authority and activation are reused.
+
+Affected acceptance scope also includes tests/unit/config.test.ts,
+tests/unit/instance-runtime.test.ts, tests/unit/worker-startup.test.ts and the existing
+instance schema/crypto/operator fixtures. Validation: actual DEV provider checks,
+encrypted readback, OAuth continuity, local restart with retired environment values,
+Edge Settings/setup, focused synthetic unit/client checks, typecheck, lint and an
+isolated local production build. Full coverage/release gates remain separately
+pending until their reports exist. No production/provider configuration mutation.

@@ -29,10 +29,11 @@ export function verifyBootstrapCredential(control: InstanceControl, credential: 
   return expected.length === supplied.length && timingSafeEqual(expected, supplied);
 }
 
-export async function readInstanceHost(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), now = new Date()) {
+export async function readInstancePreparation(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), now = new Date()) {
   try {
     const instanceId = z.uuid().parse(env.INSTANCE_ID);
-    const config = await loadHostConfig(env, cwd);
+    const contentRoot = await realpath(resolve(cwd, env.CONTENT_ROOT!));
+    if (!(await lstat(contentRoot)).isDirectory()) throw new Error();
     const setupOrigin = new URL(env.INSTANCE_SETUP_ORIGIN!);
     if (setupOrigin.origin !== env.INSTANCE_SETUP_ORIGIN || (setupOrigin.protocol !== 'https:' && !(['development', 'test'].includes(env.NODE_ENV ?? '') && setupOrigin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(setupOrigin.hostname)))) throw new Error();
     const publicRoot = await realpath(resolve(cwd, 'public')).catch(() => resolve(cwd, 'public'));
@@ -42,7 +43,7 @@ export async function readInstanceHost(env: NodeJS.ProcessEnv = process.env, cwd
       const info = await lstat(file);
       if (!info.isFile() || info.isSymbolicLink() || info.size > 64 * 1024 || (process.platform !== 'win32' && (info.mode & 0o077))) throw new Error();
       const actual = await realpath(file);
-      for (const root of [publicRoot, config.contentRoot]) {
+      for (const root of [publicRoot, contentRoot]) {
         const child = relative(root, actual);
         if (!isAbsolute(child) && child !== '..' && !child.startsWith(`..${sep}`)) throw new Error();
       }
@@ -51,12 +52,8 @@ export async function readInstanceHost(env: NodeJS.ProcessEnv = process.env, cwd
     const marker = markerSchema.parse(await protectedJson('INSTANCE_STATE_FILE'));
     const storedKeys = keyringSchema.parse(await protectedJson('INSTANCE_KEYRING_FILE'));
     const keys = Object.fromEntries(Object.entries(storedKeys.keys).map(([id, value]) => [id, Buffer.from(value, 'base64')]));
-    const encodedAuthKey = Buffer.from(config.authSecret, 'base64url');
-    const authKeys = [Buffer.from(config.authSecret), ...(encodedAuthKey.toString('base64url') === config.authSecret ? [encodedAuthKey] : [])];
-    if (!Object.hasOwn(keys, storedKeys.activeKeyId) || Object.keys(keys).length > LIMITS.maxInstanceKeyringKeys || new Set(Object.values(keys).map(key => key.toString('base64'))).size !== Object.keys(keys).length ||
-        Object.values(keys).some(key => key.equals(config.oauthTokenEncryptionKey) || authKeys.some(authKey => key.equals(authKey))) ||
-        (storedKeys.rotation && (storedKeys.rotation.toKeyId !== storedKeys.activeKeyId || storedKeys.rotation.fromKeyId === storedKeys.rotation.toKeyId ||
-          !Object.hasOwn(keys, storedKeys.rotation.fromKeyId) || !Object.hasOwn(keys, storedKeys.rotation.toKeyId)))) throw new Error();
+    if (!Object.hasOwn(keys, storedKeys.activeKeyId) || Object.keys(keys).length > LIMITS.maxInstanceKeyringKeys ||
+        new Set(Object.values(keys).map(key => key.toString('base64'))).size !== Object.keys(keys).length) throw new Error();
     const operator = operatorSchema.parse(await protectedJson('INSTANCE_OPERATOR_AUTH_FILE'));
     if (marker.instanceId !== instanceId || operator.instanceId !== instanceId || operator.epoch !== marker.recoveryEpoch ||
         marker.phase !== 'initialized' && (Date.parse(operator.expiresAt) <= now.getTime() || Date.parse(operator.expiresAt) > now.getTime() + 86_400_000)) throw new Error();
@@ -67,8 +64,35 @@ export async function readInstanceHost(env: NodeJS.ProcessEnv = process.env, cwd
       } catch { return false; }
     }), addresses: z.array(z.string().refine(value => isIP(value) !== 0)).min(1).max(8) });
     const policy = env.INSTANCE_OUTBOUND_POLICY_FILE ? z.strictObject({ origins: z.array(originRule).max(8) }).parse(await protectedJson('INSTANCE_OUTBOUND_POLICY_FILE')) : { origins: [] };
-    return { instanceId, config, setupOrigin: setupOrigin.origin, marker, keyring: { activeKeyId: storedKeys.activeKeyId, keys, ...(storedKeys.rotation ? { rotation: { ...storedKeys.rotation, startedAt: new Date(storedKeys.rotation.startedAt) } } : {}) }, operator, policy };
+    const keyring = { activeKeyId: storedKeys.activeKeyId, keys, ...(storedKeys.rotation ? { rotation: { ...storedKeys.rotation, startedAt: new Date(storedKeys.rotation.startedAt) } } : {}) };
+    return { instanceId, setupOrigin: setupOrigin.origin, marker, keyring, operator, policy, contentRoot };
   } catch { throw new Error('instance_host_unavailable'); }
+}
+
+export async function readInstanceHost(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(), now = new Date()) {
+  try {
+    const prepared = await readInstancePreparation(env, cwd, now);
+    const { keys, activeKeyId } = prepared.keyring;
+    const rootKey = keys[activeKeyId];
+    const config = await loadHostConfig({ ...env,
+      ...(!env.AUTH_SECRET && !env.AUTH_SECRET_FILE ? { AUTH_SECRET: createHmac('sha256', rootKey).update('instance-bootstrap-session').digest('base64url') } : {}),
+      ...(!env.OAUTH_TOKEN_ENCRYPTION_KEY && !env.OAUTH_TOKEN_ENCRYPTION_KEY_FILE ? { OAUTH_TOKEN_ENCRYPTION_KEY: createHmac('sha256', rootKey).update('instance-bootstrap-token').digest('base64') } : {}),
+    }, cwd);
+    const storedKeys = { ...prepared.keyring, rotation: prepared.keyring.rotation };
+    const encodedAuthKey = Buffer.from(config.authSecret, 'base64url');
+    const authKeys = [Buffer.from(config.authSecret), ...(encodedAuthKey.toString('base64url') === config.authSecret ? [encodedAuthKey] : [])];
+    if (!Object.hasOwn(keys, activeKeyId) || Object.keys(keys).length > LIMITS.maxInstanceKeyringKeys || new Set(Object.values(keys).map(key => key.toString('base64'))).size !== Object.keys(keys).length ||
+        Object.values(keys).some(key => key.equals(config.oauthTokenEncryptionKey) || authKeys.some(authKey => key.equals(authKey))) ||
+        (storedKeys.rotation && (storedKeys.rotation.toKeyId !== activeKeyId || storedKeys.rotation.fromKeyId === storedKeys.rotation.toKeyId ||
+          !Object.hasOwn(keys, storedKeys.rotation.fromKeyId) || !Object.hasOwn(keys, storedKeys.rotation.toKeyId)))) throw new Error();
+    return { ...prepared, config: { ...config, instanceKeyring: prepared.keyring } };
+  } catch { throw new Error('instance_host_unavailable'); }
+}
+
+export async function needsInstanceDatabaseSetup() {
+  if (!process.env.INSTANCE_DATABASE_FILE) return false;
+  try { return (await readInstancePreparation()).marker.phase === 'prepared'; }
+  catch { return false; }
 }
 
 /** Classification consumes validated host/storage evidence; it never creates authority. */
@@ -134,7 +158,8 @@ export async function readInstancePreferences() {
 
 export function legacyInstanceDigest(config: Awaited<ReturnType<typeof import('../config').loadConfig>>) {
   return createHmac('sha256', config.authSecret).update(JSON.stringify([config.authUrl, config.zitadelIssuer, config.zitadelClientId,
-    config.zitadelProjectId, config.zitadelApiAudience, config.zitadelSecret, config.githubAppId, config.githubPrivateKey, config.githubWebhookSecret])).digest('hex');
+    config.zitadelProjectId, config.zitadelApiAudience, config.zitadelSecret, config.githubAppId, config.githubPrivateKey, config.githubWebhookSecret,
+    config.oauthTokenEncryptionKey.toString('base64'), config.mongodbUri, config.mongodbDatabase, config.trustHost, config.workerEnabled])).digest('hex');
 }
 
 export async function hasLegacyEnrollment() {

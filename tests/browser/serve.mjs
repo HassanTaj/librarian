@@ -1,4 +1,4 @@
-import { createCipheriv, createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 import { mkdir, rm, writeFile, readFile, chmod, access } from 'node:fs/promises';
 import { resolve, join, relative } from 'node:path';
 import { execFile, spawn } from 'node:child_process';
@@ -7,7 +7,10 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer, request as httpsRequest } from 'node:https';
 import { promisify } from 'node:util';
-import { MongoClient, ObjectId } from 'mongodb';
+import mongodb from 'mongodb';
+
+const { BSON, MongoClient, ObjectId } = mongodb;
+const { EJSON } = BSON;
 
 const uri = 'mongodb://127.0.0.1:27018';
 if (new URL(uri).hostname !== '127.0.0.1') throw new Error('Browser fixture Mongo must be loopback-only');
@@ -45,6 +48,23 @@ const providerRole = 'librarian-instance-admin';
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const uuid = () => randomUUID();
+
+function sealInstanceBundle(bundle, instanceId, keyId, rootKey, now) {
+  const nonce = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', rootKey, nonce);
+  cipher.setAAD(Buffer.from(JSON.stringify([2, instanceId, 'configuration_bundle', keyId, bundle.version])));
+  const ciphertext = Buffer.concat([cipher.update(EJSON.stringify(bundle), 'utf8'), cipher.final()]);
+  return { formatVersion: 2, algorithm: 'aes-256-gcm', keyId, bundleVersion: bundle.version, nonce: nonce.toString('base64'),
+    tag: cipher.getAuthTag().toString('base64'), ciphertext: ciphertext.toString('base64'), updatedAt: now };
+}
+
+function openInstanceBundle(envelope, instanceId, rootKey) {
+  const decipher = createDecipheriv('aes-256-gcm', rootKey, Buffer.from(envelope.nonce, 'base64'));
+  decipher.setAAD(Buffer.from(JSON.stringify([2, instanceId, 'configuration_bundle', envelope.keyId, envelope.bundleVersion])));
+  decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+  const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]);
+  return EJSON.parse(plaintext.toString('utf8'));
+}
 
 async function addProject(db, { slug, title, visibility, repoId, files, links = {}, metadata = [] }, projectRoot = contentRoot) {
   const catalogId = uuid();
@@ -206,7 +226,9 @@ function startControlServer() {
         await seedReadySettingsFixture();
         const current = await setupDb.collection('instance_configuration').findOne({ _id: 'instance' });
         const now = new Date();
-        const candidate = structuredClone(current.active);
+        const keyring = JSON.parse(await readFile(setupFixture.files.keyring, 'utf8'));
+        const rootKey = Buffer.from(keyring.keys[keyring.activeKeyId], 'base64');
+        const candidate = openInstanceBundle(current.active.configuration, setupFixture.instanceId, rootKey);
         candidate.version = current.nextBundleVersion;
         candidate.createdAt = now;
         candidate.createdBy = 'synthetic-recovery';
@@ -217,7 +239,8 @@ function startControlServer() {
         await setupDb.collection('instance_configuration').updateOne({ _id: 'instance', revision: current.revision }, { $set: {
           lifecycle: 'maintenance', updatedAt: now, securityEpoch: current.securityEpoch + 1, recoveryEpoch,
           bootstrap: { ...current.bootstrap, verifierHash: digest(recoveryCredential) },
-          gate: { state: 'maintenance', activationId: null, deadline: null }, candidate,
+          gate: { state: 'maintenance', activationId: null, deadline: null }, candidate: { version: candidate.version,
+            configuration: sealInstanceBundle(candidate, setupFixture.instanceId, keyring.activeKeyId, rootKey, now) },
           nextBundleVersion: candidate.version + 1,
         } });
         await Promise.all([
@@ -436,7 +459,7 @@ async function resetSetupFixture() {
   ]);
   // Keep this configuring singleton aligned with tests/fixtures/instance.ts::instanceControl; bind verifier and expiry to the protected operator file.
   await setupDb.collection('instance_configuration').insertOne({
-    _id: 'instance', instanceId: setupFixture.instanceId, schemaVersion: 1, revision: 0, editRevision: 0, nextBundleVersion: 1,
+    _id: 'instance', instanceId: setupFixture.instanceId, schemaVersion: 2, revision: 0, editRevision: 0, nextBundleVersion: 1,
     lifecycle: 'configuring', createdAt: now, updatedAt: now, initializedAt: null,
     bootstrap: { epoch: 1, verifierHash: digest(setupFixture.credential), expiresAt, consumedAt: null, sessionSlots: [] },
     securityEpoch: 1, recoveryEpoch: 1, active: null, previous: null, candidate: null, administrators: [],
@@ -469,18 +492,22 @@ async function seedReadySettingsFixture() {
   const expiresAt = new Date(now.getTime() + 24 * 60 * 60_000);
   await writeFile(setupFixture.files.marker, JSON.stringify({ instanceId: setupFixture.instanceId, phase: 'initialized', recoveryEpoch: 1 }), { mode: 0o600 });
   await setupDb.collection('instance_configuration').insertOne({
-    _id: 'instance', instanceId: setupFixture.instanceId, schemaVersion: 1, revision: 0, editRevision: 0, nextBundleVersion: 2,
+    _id: 'instance', instanceId: setupFixture.instanceId, schemaVersion: 2, revision: 0, editRevision: 0, nextBundleVersion: 2,
     lifecycle: 'ready', createdAt: now, updatedAt: now, initializedAt: now,
     bootstrap: { epoch: 1, verifierHash: digest(randomBytes(32)), expiresAt, consumedAt: now, sessionSlots: [] },
     securityEpoch: 1, recoveryEpoch: 1,
-    active: { version: 1, createdAt: now, createdBy: bindingId,
+    active: { version: 1, configuration: sealInstanceBundle({ version: 1, createdAt: now, createdBy: bindingId,
       preferences: { displayName: 'Synthetic Settings Portal', description: 'Synthetic active instance branding.', docsFolder: 'docs' },
+      runtime: { authSecret: (await readFile(setupFixture.env.AUTH_SECRET_FILE, 'utf8')).trim(),
+        oauthTokenEncryptionKey: (await readFile(setupFixture.env.OAUTH_TOKEN_ENCRYPTION_KEY_FILE, 'utf8')).trim(),
+        mongodbUri: (await readFile(setupFixture.env.MONGODB_URI_FILE, 'utf8')).trim(), mongodbDatabase: setupFixture.env.MONGODB_DATABASE,
+        trustHost: true, workerEnabled: setupFixture.env.LIBRARIAN_WORKER_ENABLED === '1' },
       publicOrigin: setupOrigin, zitadel: { issuer, clientId: providerClientId, projectId, audience: 'synthetic-instance-api' },
       github: { provider: 'github', appId: '12345' }, secrets: {
         zitadelClientSecret: encryptSecret(providerClientSecret, 'zitadelClientSecret'),
         githubPrivateKey: encryptSecret(githubPrivateKey, 'githubPrivateKey'),
         githubWebhookSecret: encryptSecret(randomBytes(32).toString('base64url'), 'githubWebhookSecret'), previousWebhook: null,
-      }, checks: [], ownerProof: null, impact: null, previousUntil: null },
+      }, checks: [], ownerProof: null, impact: null, previousUntil: null }, setupFixture.instanceId, keyId, rootKey, now) },
     previous: null, candidate: null,
     administrators: [
       { bindingId, issuer, subject, projectId, kind: 'owner', status: 'active', boundAt: now, boundByActionId: uuid() },
@@ -686,7 +713,7 @@ async function prepare() {
     writeFile(setupFiles.policy, JSON.stringify({ origins: [{ origin: setupProvider.origin, addresses: setupProvider.addresses }] }), { mode: 0o600 }),
   ]);
   setupFixture = { instanceId, credential: operatorCredential, files: setupFiles, certificate: providerCert, env: {
-    ...process.env, NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', AUTH_URL: setupOrigin, AUTH_TRUST_HOST: 'true',
+    ...process.env, __NEXT_PROCESSED_ENV: 'true', INSTANCE_DATABASE_FILE: '', NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', AUTH_URL: setupOrigin, AUTH_TRUST_HOST: 'true',
     LIBRARIAN_NEXT_DIST_DIR: relative(process.cwd(), join(setupRoot, 'next')), LIBRARIAN_WORKER_ENABLED: '0',
     INSTANCE_ID: instanceId, INSTANCE_SETUP_ORIGIN: setupOrigin, INSTANCE_STATE_FILE: setupFiles.marker, INSTANCE_KEYRING_FILE: setupFiles.keyring,
     INSTANCE_OPERATOR_AUTH_FILE: setupFiles.operator, INSTANCE_OUTBOUND_POLICY_FILE: setupFiles.policy,
@@ -729,7 +756,7 @@ try {
   await writeFile(browserState, JSON.stringify({ dbName, contentRoot, syncCatalogIds, setupDbName, setupOrigin, instanceId }), { flag: 'wx' });
   stateWritten = true;
   startControlServer();
-  const env = { ...process.env, NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', AUTH_URL: 'http://127.0.0.1:3100', AUTH_TRUST_HOST: 'true',
+  const env = { ...process.env, __NEXT_PROCESSED_ENV: 'true', INSTANCE_DATABASE_FILE: '', NODE_ENV: 'development', NEXT_TELEMETRY_DISABLED: '1', AUTH_URL: 'http://127.0.0.1:3100', AUTH_TRUST_HOST: 'true',
     LIBRARIAN_NEXT_DIST_DIR: relative(process.cwd(), join(root, 'next')),
     LIBRARIAN_WORKER_ENABLED: '0',
     AUTH_ZITADEL_ID: 'synthetic-client', AUTH_ZITADEL_ISSUER: 'https://identity.synthetic.invalid', ZITADEL_PROJECT_ID: 'synthetic-project',
