@@ -1,7 +1,9 @@
 import { expect, it } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { checkWorkloadEvidence, measureWorkload, WORKLOAD } from '../../scripts/measure-workload.mjs';
 
 type Evidence = { schemaVersion: number; imageDigest: string; scenario: Record<string, number>;
@@ -16,6 +18,17 @@ function evidence(): Evidence {
     outcomes: { failedRequests: 0, correctnessFailures: 0, privacyViolations: 0, oomEvents: 0,
       syncPublished: true, restartRecovered: true, privateSentinelAbsent: true } };
 }
+
+it('validates synthetic CLI input and exits unsuccessfully for a missing measurement file', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'librarian-workload-cli-'));
+  try {
+    const file = join(root, 'synthetic.json'); await writeFile(file, JSON.stringify(evidence()));
+    const capture = process.env.LIBRARIAN_COVERAGE_PROCESS_DIR ? [`--import=${pathToFileURL(resolve('tests/integration/native-coverage-register.mjs')).href}`] : [];
+    const run = (file: string) => spawnSync(process.execPath, [...capture, resolve('scripts/measure-workload.mjs'), file], { cwd: process.cwd(), env: process.env, encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+    const valid = run(file); expect(valid.status, valid.stderr).toBe(0); expect(JSON.parse(valid.stdout).status).toBe('passed');
+    const missing = run(join(root, 'absent.json')); expect(missing.status).toBe(1); expect(missing.stderr).toContain('Workload validation failed');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 it('accepts the exact corpus/load and measurements within every plan bound', () => {
   expect(WORKLOAD.expectedRequests).toBe(18_000);

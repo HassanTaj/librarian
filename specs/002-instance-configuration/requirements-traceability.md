@@ -1,6 +1,27 @@
 # Requirements Traceability: Librarian v1 → v2
 
 **Audit date**: 2026-10-14
+
+**Current local verification — 2026-10-21**: Full automated local v2 and affected
+v1 acceptance passed: coverage 1,022/1,022 with server/browser provenance, all
+global and C1-C7 statement/branch/function/line thresholds met, browser matrix
+99/99 on Chromium/Firefox/WebKit, typecheck/lint/build/artifact validation passed,
+and disposable image/container acceptance passed. Current task ledger: 93/94;
+T085 previous-image compatibility remains unverified because no prior local image
+was available. IN-01 local evidence is closed; BG-01 workload, BG-02 genuine DEV/
+provider/storage/rollback, and BG-03 publication/deployment remain release gates.
+The 73 original v1 dispositions below are retained as the historical reconciliation;
+the current task ledger records present-day implementation evidence.
+
+**Historical working-tree checkpoint — 2026-10-20**: v2 code authoring had continued through
+Settings, activation, migration and protected recovery/operator paths. Local unit
+510/510, client89/89, typecheck, lint and production build passed. New real Mongo
+integration cases failed at fixture creation because disposable loopback Mongo is
+unavailable. Full source-provenance coverage, browser/container, crash/race and live
+acceptance remain open. The 73 historical v1 dispositions and evidence below are
+preserved; this checkpoint does not promote them or close IN-01/BG-01/02/03. Exact
+new implementation and validation evidence is in [tasks.md](tasks.md). Latest
+T079 key-rotation and T080 outbox-hardening authoring is not yet acceptance-verified.
 **Planning addendum**: 2026-10-19 — D1–D3 resolved; historical implementation counts/evidence below were not freshly re-audited or rerun.
 **Feature**: [v2 specification](spec.md)
 **Original**: [001 specification](../001-librarian-v1-portal/spec.md)
@@ -174,11 +195,11 @@ All **48 numbered original acceptance scenarios** are retained verbatim by norma
 | §17 exclusions | V2-FR-016,034; scope assumptions |
 | §18 phases; §19 acceptance; §20 deliverables/execution | Stories/FR/QG/SC; later workflow obligations V2-QG-008; direct specification-only scope overrides implementation instructions |
 
-## Outstanding requirements and owner conflicts
+## Carried-forward requirements and resolved owner decisions
 
-The nine carry-forward rows are FR-035, FR-036, FR-037, FR-038, QG-006, ST-11, ST-14, SC-012 and SC-013. Include-now rows QG-007 and SC-011 require integrated local completion evidence after v2 changes. Their exact current gaps and closure criteria are in the matrix and spec IN-01/BG-01–03. Carry-forward preserves obligations without authorizing independent live work.
+The nine carry-forward rows are FR-035, FR-036, FR-037, FR-038, QG-006, ST-11, ST-14, SC-012 and SC-013; their genuine workload, live DEV, backup/rollback, and release evidence remains gated by BG-01/02/03. Include-now rows QG-007 and SC-011 passed the fresh integrated local acceptance documented in the 2026-10-21 checkpoint above. Their historical v1 dispositions remain preserved and are not the current implementation ledger. Carry-forward preserves obligations without authorizing independent live work.
 
-Owner decisions on 2026-10-19 resolve spec D1 (encrypted MongoDB provider credentials with independent host encryption keys, recorded in constitution v3.0.0), D2 (explicit binding plus current `librarian-instance-admin`; legacy protected operator plus both admin roles) and D3 (nested `/repositories/setup` and `/repositories/settings`, preserving existing catalogs). This addendum records that explicit approval; writing the matrix alone was not approval. The prior file-only production provider-credential policy is replaced only for deliberately migrated provider credentials; root secrets and legacy compatibility remain protected. No numbered v1 requirement is removed. Static parse-only AST grammar is reconciled with the executable-content prohibition in the plan/research; bottom-left badges remain authoritative.
+Owner decisions on 2026-10-19 resolve spec D1 (encrypted MongoDB provider credentials with independent host encryption keys, recorded in constitution v3.0.0), D2 (explicit binding plus current `librarian-instance-admin`; legacy protected operator plus both admin roles) and D3 (subsequently revised by the owner to `/instance/setup` and `/instance/settings`, preserving existing catalogs and requiring explicit resolution of any legacy `instance` collision before enabling the new namespace). This addendum records that explicit approval; writing the matrix alone was not approval. The prior file-only production provider-credential policy is replaced only for deliberately migrated provider credentials; root secrets and legacy compatibility remain protected. No numbered v1 requirement is removed. Static parse-only AST grammar is reconciled with the executable-content prohibition in the plan/research; bottom-left badges remain authoritative.
 
 ## Specification workflow boundary
 

@@ -114,8 +114,9 @@ export function createGitHubClient(
     if (options.body !== undefined) headers.set('content-type', 'application/json');
     let response: Response;
     try {
-      response = await fetcher(new URL(path, 'https://api.github.com'), {
-        method: options.method ?? 'GET', headers, redirect: 'error', signal,
+      const transport = fetcher === fetch ? await (await import('../instance/validation')).runtimeProviderFetch('https://api.github.com', options.maximum) : fetcher;
+      response = await transport(new URL(path, 'https://api.github.com'), {
+        method: options.method ?? 'GET', headers, redirect: 'manual', signal,
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       });
     } catch {

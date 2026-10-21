@@ -72,6 +72,7 @@ export function encryptAccountTokens(account: Record<string, unknown>, key: Buff
 
 export async function getOAuthAccessToken(db: Db, issuer: string, subject: string, clientId: string,
   clientSecret: string, key: Buffer, fetcher: typeof fetch = fetch) {
+  if (fetcher === fetch) fetcher = await (await import('../instance/validation')).runtimeProviderFetch(issuer);
   const accounts = db.collection<Account>('accounts');
   const filter = { provider: 'zitadel', providerAccountId: subject, issuer };
   const startedAt = Date.now();

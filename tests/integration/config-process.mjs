@@ -15,4 +15,17 @@ for (const flag of ['0', '1']) {
   const file = resolve('lib/config.ts');
   const transformed = plugin.transform(await readFile(file, 'utf8'), file);
   assert.equal(Boolean(transformed), flag === '1');
+  const Sequencer = vitest.test.sequence?.sequencer;
+  assert.equal(typeof Sequencer, 'function');
+  const project = { name: 'integration', config: { sequence: { groupOrder: 0 }, isolate: true } };
+  const specifications = ['instance-setup.test.ts', 'coverage-spike.test.ts', 'mongo.test.ts'].map(file => ({
+    moduleId: resolve('tests/integration', file), project,
+  }));
+  const sequencer = new Sequencer({ config: { root: process.cwd() }, cache: {
+    getFileTestResults: () => undefined,
+    getFileStats: key => ({ size: key.includes('instance-setup') ? 10_000 : 1 }),
+  } });
+  assert.deepEqual(await sequencer.sort(specifications), [specifications[1], specifications[0], specifications[2]]);
+  assert.deepEqual(await sequencer.sort([specifications[0], specifications[2]]), [specifications[0], specifications[2]]);
+  assert.deepEqual(await sequencer.sort([specifications[1]]), [specifications[1]]);
 }

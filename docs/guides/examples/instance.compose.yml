@@ -1,0 +1,54 @@
+# Isolated local DEV only. Build librarian:local locally and provision ignored files first.
+services:
+  mongo:
+    image: mongo:8.0@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c
+    ports:
+      - "127.0.0.1:27018:27017"
+    volumes:
+      - instance-mongo:/data/db
+  librarian:
+    image: librarian:local
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      MONGODB_URI_FILE: /run/secrets/mongodb_uri
+      MONGODB_DATABASE: librarian_local
+      AUTH_SECRET_FILE: /run/secrets/auth_secret
+      OAUTH_TOKEN_ENCRYPTION_KEY_FILE: /run/secrets/oauth_key
+      AUTH_TRUST_HOST: "true"
+      CONTENT_ROOT: /data/content
+      INSTANCE_ID: "${INSTANCE_ID:?Load the prepared immutable instance UUID}"
+      INSTANCE_SETUP_ORIGIN: https://docs.example.test
+      INSTANCE_STATE_FILE: /run/instance/instance-state.json
+      INSTANCE_KEYRING_FILE: /run/secrets/instance_keyring
+      INSTANCE_OPERATOR_AUTH_FILE: /run/secrets/operator_auth
+    secrets:
+      - mongodb_uri
+      - auth_secret
+      - oauth_key
+      - instance_keyring
+      - operator_auth
+    volumes:
+      - instance-content:/data/content
+      - ../../../.local/instance:/run/instance
+    depends_on:
+      - mongo
+secrets:
+  mongodb_uri:
+    file: ../../../.local/secrets/compose-mongodb-uri
+  auth_secret:
+    file: ../../../.local/secrets/auth-secret
+  oauth_key:
+    file: ../../../.local/secrets/oauth-key
+  instance_keyring:
+    file: ../../../.local/instance/instance-keyring.json
+  operator_auth:
+    file: ../../../.local/instance/instance-operator-auth.json
+volumes:
+  instance-mongo:
+  instance-content:

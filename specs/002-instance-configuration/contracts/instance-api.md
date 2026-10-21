@@ -1,10 +1,10 @@
 # Instance Setup and Settings Contract
 
-**Status**: Proposed interfaces for implementation; none of these new endpoints is claimed to exist.
+**Status**: Interfaces are implemented in the working tree; functional, security and coverage acceptance remain open. Presence of a handler is not verification of its contract.
 
 ## Shared rules
 
-- Page routes: `/repositories/setup` and `/repositories/settings`. `/repositories` remains catalog administration. No root `/setup` or `/settings` alias/redirect is added; those paths remain available to catalogs. Shared navigation reveals Settings only to a verified bound instance administrator; setup uses its dedicated authority independently of catalog-page layout authorization.
+- Page routes: `/instance/setup` and `/instance/settings`. `/repositories` remains catalog administration. No root `/setup` or `/settings` alias/redirect is added; those paths remain available to catalogs. On confirmed fresh instances `/` leads to `/instance/setup`; valid legacy and ready instances retain their directory. Shared navigation reveals Instance Settings at `/instance/settings` only to a verified bound instance administrator; setup uses its dedicated authority independently of catalog-page layout authorization. Reserve the `instance` namespace only after checking for an existing catalog collision; block route enablement pending explicit owner resolution, never silently rename, remove or shadow that catalog. No aliases or redirects from the former repositories namespace are added.
 - New API prefix: `/api/instance`. All handlers are Node runtime, dynamic and explicitly `Cache-Control: private, no-store`; never statically prefetch private setup/settings state. Do not use layout/navigation visibility as the authorization boundary.
 - Normal instance access requires a valid active-epoch session, explicit active issuer/subject/project binding and currently verified project role `librarian-instance-admin`. Owner continuity operations additionally require `kind=owner`. `librarian-admin` alone cannot use this API; instance access does not grant catalog mutations or private reading.
 - Setup access requires a current hashed opaque setup-session token, matching instance/setup/recovery epochs, unconsumed bootstrap, allowed lifecycle and expiry. No instance ID, owner subject, role or server time sent by the client is trusted as proof.

@@ -3,7 +3,7 @@ import { generateKeyPairSync } from 'node:crypto';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadConfig } from '../../lib/config';
+import { loadConfig, loadHostConfig } from '../../lib/config';
 
 const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
 let cwd: string;
@@ -32,6 +32,15 @@ beforeEach(async () => {
 afterEach(async () => { await rm(cwd, { recursive: true, force: true }); });
 
 describe('runtime server configuration', () => {
+  it('loads host prerequisites without requiring optional provider configuration', async () => {
+    const hostEnv = { ...env };
+    for (const name of ['AUTH_URL', 'AUTH_ZITADEL_ID', 'AUTH_ZITADEL_ISSUER', 'AUTH_ZITADEL_SECRET_FILE', 'ZITADEL_PROJECT_ID', 'ZITADEL_API_AUDIENCE', 'GITHUB_APP_ID', 'GITHUB_APP_PRIVATE_KEY_FILE', 'GITHUB_WEBHOOK_SECRET_FILE']) delete hostEnv[name];
+    const host = await loadHostConfig(hostEnv, cwd);
+    expect(host.mongodbDatabase).toBe('librarian');
+    expect(host.oauthTokenEncryptionKey).toEqual(Buffer.alloc(32, 7));
+    expect(host).not.toHaveProperty('zitadelSecret');
+    await expect(loadConfig(hostEnv, cwd)).rejects.toThrow('Invalid server configuration');
+  });
   it('accepts the Zitadel client ID format with an application suffix', async () => {
     env.AUTH_ZITADEL_ID = '12345678@librarian';
     expect((await loadConfig(env, cwd)).zitadelClientId).toBe('12345678@librarian');

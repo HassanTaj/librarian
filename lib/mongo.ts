@@ -1,12 +1,12 @@
 import { MongoClient } from 'mongodb';
-import { loadConfig } from './config';
+import { loadConfig, loadHostConfig } from './config';
 import { ensureCatalogStorage } from './catalog';
 import { ensureSyncJobStorage } from './sync/jobs';
 
-type MongoSettings = Pick<Awaited<ReturnType<typeof loadConfig>>, 'mongodbUri' | 'mongodbDatabase'> &
-  Partial<Pick<Awaited<ReturnType<typeof loadConfig>>, 'contentRoot'>>;
+type MongoSettings = Pick<Awaited<ReturnType<typeof loadHostConfig>>, 'mongodbUri' | 'mongodbDatabase'> &
+  Partial<Pick<Awaited<ReturnType<typeof loadHostConfig>>, 'contentRoot'>>;
 
-export async function connectMongo(settings: MongoSettings) {
+export async function connectMongo(settings: MongoSettings, { initializeLegacy = true }: { initializeLegacy?: boolean } = {}) {
   let client: MongoClient | undefined;
   try {
     if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,62}$/.test(settings.mongodbDatabase) || ['admin', 'local', 'config'].includes(settings.mongodbDatabase)) throw new Error();
@@ -20,8 +20,10 @@ export async function connectMongo(settings: MongoSettings) {
     const db = client.db(settings.mongodbDatabase, {
       readPreference: 'primary', writeConcern: { w: hello.setName || hello.msg === 'isdbgrid' ? 'majority' : 1, j: true },
     });
-    await ensureCatalogStorage(db);
-    await ensureSyncJobStorage(db);
+    if (initializeLegacy) {
+      await ensureCatalogStorage(db);
+      await ensureSyncJobStorage(db);
+    }
     return { client, db, contentRoot: settings.contentRoot };
   } catch {
     await client?.close();
@@ -31,7 +33,8 @@ export async function connectMongo(settings: MongoSettings) {
 
 let connection: Promise<Awaited<ReturnType<typeof connectMongo>>> | undefined;
 
-export function getMongo(settings?: MongoSettings) {
+export function getMongo(settings?: MongoSettings): Promise<Awaited<ReturnType<typeof connectMongo>>> {
+  if (!settings && (process.env.INSTANCE_ID || process.env.INSTANCE_STATE_FILE)) return loadConfig().then(config => getMongo(config));
   connection ??= (settings ? Promise.resolve(settings) : loadConfig()).then(connectMongo).catch(() => {
     connection = undefined;
     throw new Error('storage_unavailable');

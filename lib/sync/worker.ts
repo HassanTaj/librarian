@@ -1,3 +1,4 @@
+import { withRuntimeInstanceAdmission } from '../instance/access';
 import { randomUUID } from 'node:crypto';
 import type { Db } from 'mongodb';
 import type { Catalog } from '../catalog';
@@ -9,6 +10,7 @@ import { GitHubError, createGitHubClient } from './github';
 import { claimNextSyncJob, completeSyncJob, failSyncJob, heartbeatSyncJob, reconcilePublishedSyncJobs, setSyncTargetCommit } from './jobs';
 
 type Candidate = Awaited<ReturnType<ReturnType<typeof createGitHubClient>['readCandidate']>>;
+export type InstanceWorkerAuthority = { instanceId: string; activeVersion: number; securityEpoch: number; recoveryEpoch: number };
 type WorkerOptions = {
   db: Db;
   contentRoot: string;
@@ -17,20 +19,21 @@ type WorkerOptions = {
   readCandidate?: (catalog: Catalog, signal: AbortSignal, cache?: import('./github').BlobCache) => Promise<Candidate>;
   github?: { githubAppId: string; githubPrivateKey: string; fetcher?: typeof fetch };
   publicCatalogApprovalsFile?: string;
+  instance?: InstanceWorkerAuthority;
 };
 
 export type SyncWorkResult = 'idle' | 'succeeded' | 'retry_wait' | 'failed' | 'lease_lost';
 type WorkerStatus = { enabled: boolean; healthy: boolean; active: boolean };
-type WorkerStatusRecord = WorkerStatus & { _id: string; updatedAt: Date };
+type WorkerStatusRecord = WorkerStatus & { _id: string; updatedAt: Date; instanceId?: string; activeVersion?: number; securityEpoch?: number; recoveryEpoch?: number };
 let currentStatus: WorkerStatus = { enabled: false, healthy: false, active: false };
 
 export function getSyncWorkerStatus() { return currentStatus; }
 export function markSyncWorkerUnavailable() { currentStatus = { enabled: true, healthy: false, active: false }; }
 
-export async function hasHealthySyncWorker(db: Db) {
+export async function hasHealthySyncWorker(db: Db, instance?: InstanceWorkerAuthority) {
   const updatedAfter = new Date(Date.now() - LIMITS.heartbeatMs * 3);
   return Boolean(await db.collection<WorkerStatusRecord>('syncWorkerStatus').findOne({
-    enabled: true, healthy: true, updatedAt: { $gt: updatedAfter },
+    enabled: true, healthy: true, updatedAt: { $gt: updatedAfter }, ...(instance ?? {}),
   }, { projection: { _id: 1 } }));
 }
 
@@ -44,6 +47,27 @@ function failure(error: unknown, timeout: boolean, stopped: boolean) {
 }
 
 export async function processNextSyncJob(options: WorkerOptions): Promise<SyncWorkResult> {
+  return withRuntimeInstanceAdmission(options.db, 'worker', async () => {
+    await refreshWorkerAuthority(options);
+    return processAdmittedSyncJob(options);
+  });
+}
+
+async function refreshWorkerAuthority(options: WorkerOptions) {
+  if (!options.instance && !process.env.INSTANCE_ID && !process.env.INSTANCE_STATE_FILE) return;
+  const { readInstance } = await import('../instance/store');
+  const instanceId = options.instance?.instanceId ?? (await (await import('../instance/bootstrap')).readInstanceHost()).instanceId;
+  const control = await readInstance(options.db, instanceId);
+  if (control?.migration && !control.initializedAt) return;
+  if (!control?.active || control.lifecycle !== 'ready' || control.gate.state !== 'open') throw new Error('instance_busy');
+  if (!options.instance || control.active.version !== options.instance.activeVersion || control.securityEpoch !== options.instance.securityEpoch || control.recoveryEpoch !== options.instance.recoveryEpoch) {
+    const config = await (await import('../config')).loadConfig();
+    options.github = { githubAppId: config.githubAppId, githubPrivateKey: config.githubPrivateKey };
+    options.instance = { instanceId, activeVersion: control.active.version, securityEpoch: control.securityEpoch, recoveryEpoch: control.recoveryEpoch };
+  }
+}
+
+async function processAdmittedSyncJob(options: WorkerOptions): Promise<SyncWorkResult> {
   const owner = options.owner ?? randomUUID();
   const client = options.github && createGitHubClient({ githubAppId: options.github.githubAppId,
     githubPrivateKey: options.github.githubPrivateKey }, options.github.fetcher);
@@ -131,7 +155,7 @@ export function startSyncWorker(options: Omit<WorkerOptions, 'signal' | 'owner' 
   async function writeStatus() {
     try {
       await options.db.collection<WorkerStatusRecord>('syncWorkerStatus').updateOne({ _id: owner }, { $set: {
-        enabled: true, healthy, active, updatedAt: new Date(),
+        enabled: true, healthy, active, updatedAt: new Date(), ...(options.instance ?? {}),
       } }, { upsert: true });
     } catch {
       healthy = false;
@@ -157,6 +181,7 @@ export function startSyncWorker(options: Omit<WorkerOptions, 'signal' | 'owner' 
       let result: SyncWorkResult;
       try {
         active = true;
+        await refreshWorkerAuthority(options);
         result = await processNextSyncJob({ ...options, owner, signal: controller.signal });
         healthy = true;
       } catch {

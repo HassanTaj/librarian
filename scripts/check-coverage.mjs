@@ -6,6 +6,76 @@ import { createCoverageMap } from '@vitest/istanbul-lib-coverage';
 
 const metrics = ['statements', 'branches', 'functions', 'lines'];
 
+// Exact union in 002/plan.md; planned files join coverage as soon as they exist.
+export const instanceCoverageFiles = `
+lib/instance/bootstrap.ts
+lib/instance/store.ts
+lib/instance/secrets.ts
+lib/instance/access.ts
+lib/instance/validation.ts
+lib/instance/activation.ts
+components/instance-setup.tsx
+components/instance-settings.tsx
+app/instance/setup/page.tsx
+app/instance/settings/page.tsx
+app/api/instance/status/route.ts
+app/api/instance/setup/authorize/route.ts
+app/api/instance/setup/route.ts
+app/api/instance/setup/check/route.ts
+app/api/instance/setup/finalize/route.ts
+app/api/instance/auth/[...nextauth]/route.ts
+app/api/instance/settings/route.ts
+app/api/instance/settings/check/route.ts
+app/api/instance/settings/activate/route.ts
+app/api/instance/settings/rollback/route.ts
+app/api/instance/audit/route.ts
+app/api/instance/migration/authorize/route.ts
+app/api/instance/migration/route.ts
+scripts/instance-operator.mjs
+lib/config.ts
+lib/mongo.ts
+lib/limits.ts
+lib/auth/admin.ts
+lib/auth/authorization.ts
+lib/auth/adapter.ts
+lib/auth/roles.ts
+lib/auth/tokens.ts
+lib/catalog.ts
+lib/sync/worker-startup.ts
+lib/sync/worker.ts
+lib/sync/jobs.ts
+lib/sync/github.ts
+lib/content/generations.ts
+lib/content/blob-cache.ts
+lib/content/source.ts
+lib/layout.shared.tsx
+lib/operations/health.ts
+lib/operations/logging.ts
+lib/admin.ts
+auth.ts
+instrumentation.ts
+app/layout.tsx
+app/page.tsx
+app/repositories/page.tsx
+app/[repoSlug]/[[...page]]/page.tsx
+app/api/auth/[...nextauth]/route.ts
+app/api/webhooks/github/route.ts
+app/api/health/route.ts
+app/api/search/[repoSlug]/route.ts
+app/api/assets/[repoSlug]/[...path]/route.ts
+app/api/admin/csrf/route.ts
+app/api/admin/repos/route.ts
+app/api/admin/repos/[id]/route.ts
+app/api/admin/repos/[id]/sync/route.ts
+app/api/admin/repos/sync/route.ts
+components/site-navigation.tsx
+components/directory.tsx
+components/admin-console.tsx
+scripts/check-coverage.mjs
+scripts/collect-coverage.mjs
+scripts/validate-artifacts.mjs
+`.trim().split('\n');
+
 export function mergeReports(reports) {
   const merged = createCoverageMap({});
   const maps = new Map();
@@ -59,7 +129,7 @@ export function checkEvidence(input) {
   if (!scopes || !Object.keys(scopes).length) throw new Error('Missing capability scopes');
   const assigned = new Set();
   for (const [scope, files] of Object.entries(scopes)) {
-    if (!/^C[1-6]$/.test(scope) || !Array.isArray(files) || !files.length || new Set(files).size !== files.length || files.some(path => !inventory.has(path))) throw new Error('Invalid capability scope membership');
+    if (!/^C[1-7]$/.test(scope) || !Array.isArray(files) || !files.length || new Set(files).size !== files.length || files.some(path => !inventory.has(path))) throw new Error('Invalid capability scope membership');
     files.forEach(path => assigned.add(path));
   }
   if (input.inventory.some(path => !assigned.has(path))) throw new Error('Source missing capability membership');
@@ -119,7 +189,8 @@ export function capabilityScopes(root, inventory) {
   };
   for (const file of inventory) {
     const path = relative(root, file).split(sep).join('/');
-    let found = false;
+    let found = instanceCoverageFiles.includes(path);
+    if (found) (scopes.C7 ??= []).push(file);
     for (const [scope, regex] of Object.entries(rules)) {
       if (regex.test(path)) { (scopes[scope] ??= []).push(file); found = true; }
     }

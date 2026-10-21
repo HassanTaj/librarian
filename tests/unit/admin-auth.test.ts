@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
-import { adminErrorResponse, readAdminJson, requireAdmin } from '../../lib/auth/admin';
+import { adminCsrfToken, adminErrorResponse, readAdminJson, requireAdmin } from '../../lib/auth/admin';
+import { requireLegacyEnrollmentAuthority } from '../../lib/instance/access';
 import { LIMITS } from '../../lib/limits';
 
 const dependencies = vi.hoisted(() => ({ getAuthContext: vi.fn(), auth: vi.fn(), getMongo: vi.fn(),
@@ -26,6 +27,35 @@ it('distinguishes failed role verification from a verified absence of admin role
 
   dependencies.getVerifiedRoles.mockResolvedValueOnce([]);
   await expect(requireAdmin(request)).rejects.toThrow('admin_forbidden');
+});
+
+it('requires both verified catalog and instance roles for legacy enrollment and rechecks the linked identity', async () => {
+  const userId = '507f1f77bcf86cd799439011';
+  const config = { zitadelIssuer: 'https://identity.synthetic.invalid', zitadelProjectId: 'synthetic-project',
+    zitadelClientId: 'synthetic-client', zitadelSecret: 'synthetic-secret', oauthTokenEncryptionKey: Buffer.alloc(32),
+    authUrl: 'https://portal.synthetic.invalid', authSecret: 'synthetic-auth-secret' };
+  const account = { providerAccountId: 'synthetic-subject' }; const findOne = vi.fn();
+  const db = { collection: () => ({ findOne }) };
+  dependencies.getAuthContext.mockResolvedValue({ session: { user: { id: userId } }, config });
+  dependencies.getMongo.mockResolvedValue({ db }); dependencies.auth.mockResolvedValue({ user: { id: userId } });
+  dependencies.getOAuthAccessToken.mockResolvedValue('synthetic-access-token');
+  const request = new Request(`${config.authUrl}/api/instance/migration`, { method: 'POST', headers: {
+    cookie: '__Secure-authjs.session-token=synthetic-session', origin: config.authUrl,
+    'x-csrf-token': adminCsrfToken(config.authSecret, 'synthetic-session'),
+  } });
+  let roles = ['librarian-admin'];
+  dependencies.getVerifiedRoles.mockImplementation(async (_db, _identity, token) => { await token(); return roles; });
+  findOne.mockResolvedValue(account);
+  await expect(requireLegacyEnrollmentAuthority(request)).rejects.toThrow('instance_forbidden');
+  roles = ['librarian-admin', 'librarian-instance-admin'];
+  expect((await requireLegacyEnrollmentAuthority(request)).identity).toEqual({ issuer: config.zitadelIssuer,
+    subject: account.providerAccountId, projectId: config.zitadelProjectId });
+  expect(dependencies.getOAuthAccessToken).toHaveBeenCalledWith(db, config.zitadelIssuer, account.providerAccountId,
+    config.zitadelClientId, config.zitadelSecret, config.oauthTokenEncryptionKey);
+  for (const invalid of [null, { providerAccountId: '' }, { providerAccountId: 42 }]) {
+    findOne.mockReset().mockResolvedValueOnce(account).mockResolvedValueOnce(account).mockResolvedValueOnce(invalid);
+    await expect(requireLegacyEnrollmentAuthority(request, false)).rejects.toThrow('instance_forbidden');
+  }
 });
 
 it('reads bounded JSON and safely handles empty request bodies', async () => {

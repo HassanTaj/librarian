@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { catalogs } from '../fixtures/catalogs';
-import { CatalogSchema, CatalogDefinitionSchema, newCatalogRecord, applyCatalogChanges, toDirectoryCard, CATALOG_INDEXES } from '../../lib/catalog';
+import { CatalogSchema, CatalogDefinitionSchema, newCatalogRecord, applyCatalogChanges, toDirectoryCard, CATALOG_INDEXES, isCatalogSlug } from '../../lib/catalog';
 
 const now = new Date('2026-01-01T00:00:00Z');
 const definition = () => ({ github: { ...catalogs[1].github }, slug: 'synthetic', title: 'Synthetic project', publicDescription: 'Configured description' });
@@ -39,6 +39,12 @@ it.each([
   { docsPath: 'x'.repeat(1025) }, { docsPath: Array(33).fill('a').join('/') },
 ])('rejects unsafe GitHub configuration (%j)', patch => {
   expect(CatalogDefinitionSchema.safeParse({ ...definition(), github: { ...definition().github, ...patch } }).success).toBe(false);
+});
+
+it('reserves the instance namespace for new catalogs while keeping existing instance routes readable', () => {
+  expect(CatalogDefinitionSchema.safeParse({ ...definition(), slug: 'instance' }).success).toBe(false);
+  expect(isCatalogSlug('instance')).toBe(true);
+  expect(CatalogSchema.safeParse({ ...catalogs[1], slug: 'instance' }).success).toBe(true);
 });
 
 it('counts Unicode characters, strips display controls and preserves exact role identity', () => {

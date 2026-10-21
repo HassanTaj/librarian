@@ -85,11 +85,12 @@ async function prune(directory: string, revision: number, maximum: number, reser
 
 function fallback(error: unknown, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  if (error instanceof Error && error.message === 'generation_invalid_path') throw error;
+  if (error instanceof Error && ['generation_invalid_path', 'instance_admission_expired'].includes(error.message)) throw error;
 }
 
 /** Evict disposable cache bytes before reserving room for a complete generation. */
 export async function trimBlobCache(contentRoot: string, catalogId: string, revision: number, maximum: number, signal?: AbortSignal) {
+  await (await import('../instance/access')).assertRuntimeInstanceEffect();
   z.number().int().positive().parse(revision);
   const budget = Math.max(0, Math.min(LIMITS.maxSnapshotBytes, maximum));
   let directory: string;
@@ -131,6 +132,7 @@ export function createBlobCache(contentRoot: string, catalogId: string, revision
     async put(sha, bytes) {
       if (!/^[a-f0-9]{40}$/.test(sha) || blobSha(bytes) !== sha) throw unsafe();
       const write = async () => {
+        await (await import('../instance/access')).assertRuntimeInstanceEffect();
         signal.throwIfAborted();
         if (!budget || bytes.length > budget || !await canWrite()) return;
         let directory: string;
@@ -155,6 +157,7 @@ export function createBlobCache(contentRoot: string, catalogId: string, revision
               signal.throwIfAborted();
               if (!await canWrite()) return;
               signal.throwIfAborted();
+              await (await import('../instance/access')).assertRuntimeInstanceEffect();
               await rename(join(directory, temp), join(directory, target));
               inventory.set(target, { name: target, size: bytes.length, modified: Date.now() });
             } finally { await unlink(join(directory, temp)).catch(error => { if (!missing(error)) throw error; }); }

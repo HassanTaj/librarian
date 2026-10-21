@@ -1,11 +1,16 @@
+import { withRuntimeInstanceAdmission } from '@/lib/instance/access';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { getMongo } from '@/lib/mongo';
+import { connectMongo, getMongo } from '@/lib/mongo';
 import { blockCatalogForAccessLoss, type Catalog } from '@/lib/catalog';
 import { admitControlReceipt, admitSyncJob, newGitHubJobId, type ControlReceipt, type SyncJob } from '@/lib/sync/jobs';
 import { verifyGitHubSignature } from '@/lib/sync/webhook';
 import { loadConfig } from '@/lib/config';
 import { LIMITS } from '@/lib/limits';
+import { readInstanceHost } from '@/lib/instance/bootstrap';
+import { consumeInstanceRate } from '@/lib/instance/access';
+import { decryptInstanceSecret } from '@/lib/instance/secrets';
+import { readInstance, recordInstanceCheck } from '@/lib/instance/store';
 
 export const runtime = 'nodejs';
 
@@ -81,6 +86,83 @@ async function readBounded(request: Request) {
 
 const reply = (status: number, body: Record<string, unknown>) => Response.json(body, { status });
 
+type SetupWebhookReceipt = { _id: string; instanceId: string; candidateVersion: number; payloadDigest: string; event: string; expiresAt: Date };
+
+async function handleSetupWebhook(request: Request, raw: Uint8Array): Promise<Response | null> {
+  if (!process.env.INSTANCE_STATE_FILE && !process.env.INSTANCE_ID) return null;
+  let host: Awaited<ReturnType<typeof readInstanceHost>>;
+  try { host = await readInstanceHost(); }
+  catch { return reply(503, { status: 'unavailable' }); }
+  let storage: Awaited<ReturnType<typeof connectMongo>>;
+  try { storage = await connectMongo(host.config, { initializeLegacy: false }); }
+  catch { return reply(503, { status: 'unavailable' }); }
+  try {
+    const control = await readInstance(storage.db, host.instanceId);
+    if (!control) return reply(503, { status: 'unavailable' });
+    if (control.lifecycle === 'ready') return null;
+    if (!['configuring', 'awaiting_owner'].includes(control.lifecycle) || control.bootstrap.consumedAt || Date.now() >= control.bootstrap.expiresAt.getTime()) {
+      return reply(503, { status: 'unavailable' });
+    }
+    const candidate = control.candidate;
+    const envelope = candidate?.secrets.githubWebhookSecret;
+    if (!candidate || !envelope) return reply(403, { status: 'forbidden' });
+    let secret: string;
+    try { secret = decryptInstanceSecret(envelope, { instanceId: host.instanceId, purpose: 'githubWebhookSecret', credentialVersion: envelope.credentialVersion }, host.keyring); }
+    catch { return reply(503, { status: 'unavailable' }); }
+    if (!verifyGitHubSignature(raw, request.headers.get('x-hub-signature-256'), secret)) return reply(403, { status: 'forbidden' });
+
+    const deliveryId = uuid.safeParse(request.headers.get('x-github-delivery'));
+    const event = request.headers.get('x-github-event')?.toLowerCase();
+    if (!deliveryId.success || !event || !/^[a-z][a-z0-9_]{0,63}$/.test(event)) return reply(400, { status: 'invalid_request' });
+    if (event !== 'ping') return reply(202, { status: 'ignored' });
+
+    let payload: unknown;
+    try { payload = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)); }
+    catch { return reply(400, { status: 'invalid_payload' }); }
+    const ping = z.object({ hook_id: positiveId, hook: z.object({ id: positiveId }).passthrough() }).passthrough().safeParse(payload);
+    if (!ping.success || ping.data.hook_id !== ping.data.hook.id) return reply(400, { status: 'invalid_payload' });
+
+    const receipts = storage.db.collection<SetupWebhookReceipt>('instance_setup_webhook_receipts');
+    try { await receipts.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }); }
+    catch { return reply(503, { status: 'unavailable' }); }
+    const payloadDigest = createHash('sha256').update(raw).digest('hex');
+    const _id = createHash('sha256').update(JSON.stringify([host.instanceId, candidate.version, deliveryId.data])).digest('hex');
+    const prior = await receipts.findOne({ _id });
+    if (prior && (prior.payloadDigest !== payloadDigest || prior.event !== event || prior.candidateVersion !== candidate.version)) return reply(409, { status: 'conflict' });
+    let duplicateReceipt = !!prior;
+    if (!prior) {
+      try { await consumeInstanceRate(storage.db, host.instanceId, host.instanceId, 'webhook'); }
+      catch (error) { if (error instanceof Error && error.message === 'instance_rate_limited') return reply(429, { status: 'rate_limited' }); return reply(503, { status: 'unavailable' }); }
+      try {
+        await receipts.insertOne({ _id, instanceId: host.instanceId, candidateVersion: candidate.version, payloadDigest, event,
+          expiresAt: new Date(Date.now() + LIMITS.instanceSetupReceiptMs) }, { writeConcern: { w: 1, j: true } });
+      } catch (error) {
+        if (!(error && typeof error === 'object' && 'code' in error && error.code === 11000)) return reply(503, { status: 'unavailable' });
+        const duplicate = await receipts.findOne({ _id });
+        if (!duplicate || duplicate.payloadDigest !== payloadDigest || duplicate.event !== event || duplicate.candidateVersion !== candidate.version) return reply(409, { status: 'conflict' });
+        duplicateReceipt = true;
+      }
+    }
+    const currentCheck = control.candidate?.checks.find(item => item.type === 'github_webhook' && item.candidateVersion === candidate.version);
+    if (currentCheck?.status !== 'passed' || currentCheck.code !== 'provider_ok') {
+      try {
+        await recordInstanceCheck(storage.db, host.instanceId, { type: 'github_webhook', candidateVersion: candidate.version,
+          at: new Date(), status: 'passed', code: 'provider_ok' });
+      } catch (error) {
+        if (error instanceof Error && error.message === 'instance_conflict') {
+          const latest = await readInstance(storage.db, host.instanceId).catch(() => null);
+          const saved = latest?.candidate?.checks.find(item => item.type === 'github_webhook' && item.candidateVersion === candidate.version);
+          if (saved?.status === 'passed' && saved.code === 'provider_ok') return reply(200, { status: 'duplicate', candidateVersion: candidate.version });
+          return reply(409, { status: 'conflict' });
+        }
+        return reply(503, { status: 'unavailable' });
+      }
+    }
+    return reply(duplicateReceipt ? 200 : 202, { status: duplicateReceipt ? 'duplicate' : 'accepted', candidateVersion: candidate.version });
+  } catch { return reply(503, { status: 'unavailable' }); }
+  finally { await storage.client.close(); }
+}
+
 export async function POST(request: Request) {
   if (request.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() !== 'application/json') {
     return reply(400, { status: 'invalid_request' });
@@ -88,10 +170,26 @@ export async function POST(request: Request) {
   const raw = await readBounded(request);
   if (!raw) return reply(413, { status: 'too_large' });
 
+  const setupProof = await handleSetupWebhook(request, raw);
+  if (setupProof) return setupProof;
+
   let config: Awaited<ReturnType<typeof loadConfig>>;
   try { config = await loadConfig(); }
   catch { return reply(503, { status: 'unavailable' }); }
-  if (!verifyGitHubSignature(raw, request.headers.get('x-hub-signature-256'), config.githubWebhookSecret)) {
+  let signatureValid = verifyGitHubSignature(raw, request.headers.get('x-hub-signature-256'), config.githubWebhookSecret);
+  if (!signatureValid && (process.env.INSTANCE_ID || process.env.INSTANCE_STATE_FILE)) {
+    try {
+      const host = await readInstanceHost();
+      const { db } = await getMongo(config);
+      const control = await readInstance(db, host.instanceId);
+      const previous = control?.active?.secrets.previousWebhook;
+      if (control?.lifecycle === 'ready' && control.gate.state === 'open' && previous && previous.acceptUntil > new Date()) {
+        const secret = decryptInstanceSecret(previous.envelope, { instanceId: host.instanceId, purpose: 'githubWebhookSecret', credentialVersion: previous.envelope.credentialVersion }, host.keyring);
+        signatureValid = verifyGitHubSignature(raw, request.headers.get('x-hub-signature-256'), secret);
+      }
+    } catch { return reply(503, { status: 'unavailable' }); }
+  }
+  if (!signatureValid) {
     return reply(403, { status: 'forbidden' });
   }
   const deliveryId = uuid.safeParse(request.headers.get('x-github-delivery'));
@@ -106,9 +204,10 @@ export async function POST(request: Request) {
 
   const payloadDigest = createHash('sha256').update(raw).digest('hex');
   let db;
-  try { db = (await getMongo()).db; }
+  try { db = (await getMongo(config)).db; }
   catch { return reply(503, { status: 'unavailable' }); }
 
+  try { return await withRuntimeInstanceAdmission(db, 'request', async () => {
   const prefix = `github:${config.githubAppId}:${deliveryId.data}:`;
   const jobs = db.collection<SyncJob>('syncJobs');
   const receipts = db.collection<ControlReceipt>('controlReceipts');
@@ -199,4 +298,5 @@ export async function POST(request: Request) {
   }
   if (duplicateCount === catalogs.length) return reply(200, { status: 'duplicate', jobs: accepted });
   return reply(202, { status: 'accepted', jobs: accepted });
+  }); } catch { return reply(503, { status: 'unavailable' }); }
 }

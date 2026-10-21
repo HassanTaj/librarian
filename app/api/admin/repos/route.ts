@@ -1,3 +1,4 @@
+import { withAdminRuntime } from '@/lib/auth/admin';
 import { createGitHubClient } from '@/lib/sync/github';
 import { insertCatalog, newCatalogRecord, type Catalog } from '@/lib/catalog';
 import { adminCatalogSummary, listAdminCatalogs } from '@/lib/admin';
@@ -22,14 +23,14 @@ function sourceError(error: unknown): never {
   throw new Error('admin_unavailable');
 }
 
-export async function GET(request: Request) {
+async function handleGET(request: Request) {
   try {
     const { db } = await requireAdmin(request);
     return Response.json({ catalogs: await listAdminCatalogs(db) }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) { return adminErrorResponse(error); }
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const { db, config } = await requireAdmin(request, true);
     if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new Error('admin_invalid_request');
@@ -76,3 +77,7 @@ export async function POST(request: Request) {
     return adminErrorResponse(error);
   }
 }
+
+export async function GET(request: Request) { return withAdminRuntime(() => handleGET(request)); }
+
+export async function POST(request: Request) { return withAdminRuntime(() => handlePOST(request)); }

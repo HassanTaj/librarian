@@ -82,8 +82,8 @@ function api(initial: Catalog[] = []) {
   return { fetchMock, requests, creates, patches, deletes, syncs, listResponses, throws };
 }
 
-async function render() {
-  await act(async () => root.render(<AdminConsole />));
+async function render(defaultDocsFolder?: string) {
+  await act(async () => root.render(<AdminConsole defaultDocsFolder={defaultDocsFolder} />));
   await act(async () => new Promise(resolve => setTimeout(resolve, 0)));
 }
 
@@ -233,6 +233,31 @@ it('creates private catalogs without a public approval reference and creates pub
   const publicRequest = server.requests.filter(item => item.url === '/api/admin/repos' && item.init?.method === 'POST').at(-1)!;
   expect(JSON.parse(String(publicRequest.init?.body))).toMatchObject({ visibility: 'public', approvalRef: 'owner-ticket-synthetic' });
   expect(container.textContent).toContain('Public repository saved.');
+});
+
+it('uses the active documentation-folder default only for new drafts and resets to it after saving', async () => {
+  const server = api();
+  vi.stubGlobal('fetch', server.fetchMock);
+  await render('handbook/reference');
+  await showConfigure();
+  const form = forms()[0]!;
+  expect(field(form, 'Documentation folder').value).toBe('handbook/reference');
+  for (const [name, value] of [['GitHub owner', 'synthetic'], ['Repository name', 'new-docs'], ['GitHub installation ID', '61'],
+    ['Portal route slug', 'new-docs'], ['Display title', 'New docs']] as const) await setField(form, name, value);
+  await submit(form);
+  const created = server.requests.find(item => item.url === '/api/admin/repos' && item.init?.method === 'POST')!;
+  expect(JSON.parse(String(created.init?.body))).toMatchObject({ github: { docsPath: 'handbook/reference' } });
+
+  await showConfigure();
+  expect(field(forms()[0]!, 'Documentation folder').value).toBe('handbook/reference');
+});
+
+it('keeps an existing catalog folder when the active default changes', async () => {
+  const server = api([catalog({ github: { ...catalog().github, docsPath: 'existing/manual' } })]);
+  vi.stubGlobal('fetch', server.fetchMock);
+  await render('instance/defaults');
+  await editCatalog();
+  expect(field(forms()[1]!, 'Documentation folder').value).toBe('existing/manual');
 });
 
 it('keeps Configure disabled while open and places Cancel beside Save', async () => {

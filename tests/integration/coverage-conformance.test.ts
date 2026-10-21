@@ -7,8 +7,21 @@ import { chromium } from '@playwright/test';
 import { createCoverageMap } from '@vitest/istanbul-lib-coverage';
 import type { CoverageMapData } from '@vitest/istanbul-lib-coverage';
 import { captureSources } from '../../scripts/coverage-provenance.mjs';
-import { mergeReports } from '../../scripts/check-coverage.mjs';
+import { capabilityScopes, mergeReports, sourceInventory } from '../../scripts/check-coverage.mjs';
 import { startNextHarness } from './http-harness';
+
+it('keeps new instance runtime sources visible to the real inventory and C7 boundary', async () => {
+  const root = await mkdtemp(join(process.cwd(), '.local/instance-coverage-'));
+  try {
+    await mkdir(join(root, 'lib/instance'), { recursive: true });
+    const source = join(root, 'lib/instance/access.ts');
+    await writeFile(source, 'export function authorize() { throw new Error("denied"); }');
+    expect(await sourceInventory(root)).toEqual([source]);
+    expect(capabilityScopes(root, await sourceInventory(root)).C7).toEqual([source]);
+    const captured = await captureSources(root);
+    expect(captured[source].hash).toMatch(/^[a-f0-9]{64}$/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 it('preserves uncovered sources and compatible Node/server/browser counters in real Next execution', async () => {
   const workspace = process.cwd();

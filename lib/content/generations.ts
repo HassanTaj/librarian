@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
+import { assertRuntimeInstanceEffect } from '../instance/access';
 import type { FileHandle } from 'node:fs/promises';
 import { open, lstat, mkdir, readdir, realpath, rename, rm, type FileHandle as Handle } from 'node:fs/promises';
 import { isAbsolute, join, posix, relative, resolve, sep } from 'node:path';
@@ -141,9 +142,11 @@ export async function retireGeneration(db: Db, catalogId: string, generationId: 
 const roomRequest = z.object({ catalogId: uuid, configRevision: integer.min(1), owner: uuid, fence: integer.min(1) }).strict();
 
 async function deleteContainedDirectory(root: string, target: string) {
+  await assertRuntimeInstanceEffect();
   const info = await lstat(target);
   const actual = await realpath(target);
   if (!info.isDirectory() || info.isSymbolicLink() || !contained(root, actual)) throw new Error('generation_invalid_path');
+  await assertRuntimeInstanceEffect();
   await rm(actual, { recursive: true });
 }
 
@@ -281,6 +284,7 @@ async function writeStagedFile(root: string, path: string, bytes: Buffer, direct
 }
 
 export async function stageGeneration(contentRoot: string, input: unknown, catalogBytesUsed = 0): Promise<StagedGeneration> {
+  await assertRuntimeInstanceEffect();
   const request = stageRequestSchema.parse(input);
   integer.max(LIMITS.maxCatalogPayloadBytes).parse(catalogBytesUsed);
   const candidate = validateCandidate(request.files as CandidateFile[]);
@@ -339,6 +343,7 @@ export async function stageGeneration(contentRoot: string, input: unknown, catal
 
     const parent = await safeDirectories(actualRoot, [request.catalogId, 'generations'], directories);
     const finalRoot = generationRoot(actualRoot, request.catalogId, generationId);
+    await assertRuntimeInstanceEffect();
     await rename(staging, finalRoot);
     staging = '';
     await syncDirectory(parent);
@@ -385,6 +390,7 @@ async function verifyStagedGeneration(contentRoot: string, staged: StagedGenerat
 export async function publishGeneration(db: Db, contentRoot: string, staged: StagedGeneration, input: unknown) {
   const request = publishRequestSchema.parse(input);
   await verifyStagedGeneration(contentRoot, staged, request);
+  await assertRuntimeInstanceEffect();
   const published = {
     generationId: staged.manifest.generationId, commitSha: staged.manifest.commitSha, jobId: request.jobId,
     fence: request.fence, configRevision: request.configRevision, manifestDigest: staged.manifestDigest, publishedAt: new Date(),

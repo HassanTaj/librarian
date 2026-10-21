@@ -1,3 +1,4 @@
+import { withAdminRuntime } from '@/lib/auth/admin';
 import { MongoServerError } from 'mongodb';
 import { z } from 'zod';
 import { adminCatalogSummary } from '@/lib/admin';
@@ -25,7 +26,7 @@ function etagDate(value: string | null) {
   return parsed;
 }
 
-export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { db, config } = await requireAdmin(request, true);
     if (!request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new Error('admin_invalid_request');
@@ -101,7 +102,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handleDELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { db, config } = await requireAdmin(request, true);
     const { id } = await params;
@@ -136,3 +137,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
     return adminErrorResponse(error);
   }
 }
+
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) { return withAdminRuntime(() => handlePATCH(request, context)); }
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) { return withAdminRuntime(() => handleDELETE(request, context)); }

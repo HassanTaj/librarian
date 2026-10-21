@@ -1,3 +1,4 @@
+import { withAdminRuntime } from '@/lib/auth/admin';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { adminErrorResponse, readAdminJson, requireAdmin } from '@/lib/auth/admin';
@@ -6,7 +7,7 @@ import { admitSyncJob, newManualJobId } from '@/lib/sync/jobs';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePOST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { db } = await requireAdmin(request, true);
     if (request.headers.get('content-type') && !request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
@@ -33,3 +34,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     return adminErrorResponse(error);
   }
 }
+
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) { return withAdminRuntime(() => handlePOST(request, context)); }

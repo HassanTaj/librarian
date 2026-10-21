@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -8,6 +8,9 @@ import { getSyncWorkerStatus, hasHealthySyncWorker, startSyncWorker } from '../.
 import { register } from '../../instrumentation';
 import { stopConfiguredWorker } from '../../lib/sync/worker-startup';
 import { createStorageHarness } from './http-harness';
+
+type TestWorkerStatus = { _id: string; enabled: boolean; healthy: boolean; active: boolean; updatedAt: Date;
+  instanceId?: string; activeVersion?: number; securityEpoch?: number; recoveryEpoch?: number };
 
 const runtimeKeys = ['NEXT_RUNTIME', 'NEXT_PHASE', 'NODE_ENV', 'LIBRARIAN_WORKER_ENABLED', 'AUTH_URL', 'AUTH_TRUST_HOST',
   'AUTH_ZITADEL_ID', 'AUTH_ZITADEL_ISSUER', 'ZITADEL_PROJECT_ID', 'ZITADEL_API_AUDIENCE', 'MONGODB_DATABASE',
@@ -54,6 +57,22 @@ it('fails closed when the persisted worker heartbeat is stale', async () => {
     await storage.db.collection<{ _id: string; enabled: boolean; healthy: boolean; active: boolean; updatedAt: Date }>('syncWorkerStatus').insertOne({ _id: 'stale-worker', enabled: true,
       healthy: true, active: false, updatedAt: new Date(Date.now() - 60_000) });
     expect(await hasHealthySyncWorker(storage.db)).toBe(false);
+  } finally { await storage.close(); }
+});
+
+it('does not accept a legacy or previous-instance heartbeat as proof of current v2 readiness', async () => {
+  const storage = await createStorageHarness();
+  const current = { instanceId: randomUUID(), activeVersion: 4, securityEpoch: 3, recoveryEpoch: 2 };
+  try {
+    await storage.db.collection<TestWorkerStatus>('syncWorkerStatus')
+      .insertOne({ _id: 'old-runtime', enabled: true, healthy: true, active: false, updatedAt: new Date(),
+      instanceId: current.instanceId, activeVersion: 3, securityEpoch: 2, recoveryEpoch: 2 });
+    expect(await hasHealthySyncWorker(storage.db)).toBe(true);
+    expect(await hasHealthySyncWorker(storage.db, current)).toBe(false);
+    await storage.db.collection<TestWorkerStatus>('syncWorkerStatus')
+      .updateOne({ _id: 'old-runtime' }, { $set: current });
+    expect(await hasHealthySyncWorker(storage.db, current)).toBe(true);
+    expect(await hasHealthySyncWorker(storage.db, { ...current, securityEpoch: 4 })).toBe(false);
   } finally { await storage.close(); }
 });
 

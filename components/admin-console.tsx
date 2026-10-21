@@ -109,7 +109,7 @@ export function AdminSkeleton() {
     <section className="mt-8"><AdminSkeletonCards /></section>
   </main>;
 }
-export function AdminConsole() {
+export function AdminConsole({ defaultDocsFolder = 'docs', showInstanceSettings = false, displayName }: { defaultDocsFolder?: string; showInstanceSettings?: boolean; displayName?: string }) {
   const [catalogs, setCatalogs] = useState<CatalogRow[]>([]);
   const [token, setToken] = useState('');
   const [loading, setLoading] = useState(true);
@@ -122,7 +122,7 @@ export function AdminConsole() {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [configurationOpen, setConfigurationOpen] = useState(false);
   const [watchingSync, setWatchingSync] = useState<{ id: string; startedAt: number } | null>(null);
-  const [draft, setDraft] = useState({ owner: '', name: '', installationId: '', branch: 'main', docsPath: 'docs', slug: '', title: '', publicDescription: '', readerRole: '', visibility: 'private' as 'public' | 'private', approvalRef: '' });
+  const [draft, setDraft] = useState({ owner: '', name: '', installationId: '', branch: 'main', docsPath: defaultDocsFolder, slug: '', title: '', publicDescription: '', readerRole: '', visibility: 'private' as 'public' | 'private', approvalRef: '' });
 
   async function reload() {
     setError('');
@@ -214,7 +214,7 @@ export function AdminConsole() {
       if (!response.ok) throw new Error(await responseError(response));
       setNotice(`${draft.visibility === 'public' ? 'Public' : 'Private'} repository saved. Queue its first synchronization when ready.`);
       setConfigurationOpen(false);
-      setDraft({ owner: '', name: '', installationId: '', branch: 'main', docsPath: 'docs', slug: '', title: '', publicDescription: '', readerRole: '', visibility: 'private', approvalRef: '' });
+      setDraft({ owner: '', name: '', installationId: '', branch: 'main', docsPath: defaultDocsFolder, slug: '', title: '', publicDescription: '', readerRole: '', visibility: 'private', approvalRef: '' });
       await reload();
     } catch (caught) { setFormError(caught instanceof Error ? caught.message : 'The repository could not be saved.'); }
     finally { setBusy(false); }
@@ -282,7 +282,7 @@ export function AdminConsole() {
   if (loading) return <AdminSkeleton />;
 
   return <main className="mx-auto max-w-6xl px-5 py-10">
-    <SiteNavigation showAccountControls />
+    <SiteNavigation showAccountControls showInstanceSettings={showInstanceSettings} displayName={displayName} />
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div><h1 className="text-3xl font-semibold">Configured Repositories</h1>
         <p className="mt-2 text-muted-foreground">Configure repository sources and review synchronization status.</p></div>

@@ -38,6 +38,14 @@ export async function createLibrarianAdapter(client: MongoClient, db: Db, issuer
   const base = MongoDBAdapter(client, { databaseName: db.databaseName });
   const accounts = db.collection('accounts');
   const sessions = db.collection('sessions');
+  async function instanceEpochs() {
+    const instanceId = process.env.INSTANCE_ID;
+    if (!instanceId) return null;
+    const control = await (await import('../instance/store')).readInstance(db, instanceId);
+    if (!control || control.migration && !control.initializedAt) return null;
+    if (control.lifecycle !== 'ready' || control.gate.state !== 'open') throw new Error('session_storage_unavailable');
+    return { instanceId, securityEpoch: control.securityEpoch, recoveryEpoch: control.recoveryEpoch };
+  }
   return {
     ...base,
     async linkAccount(account) {
@@ -68,31 +76,36 @@ export async function createLibrarianAdapter(client: MongoClient, db: Db, issuer
       return (await base.getUser?.(userId)) ?? null;
     },
     async createSession(session) {
+      const epochs = await instanceEpochs();
       const createdAt = new Date(now());
       const absoluteExpiresAt = new Date(createdAt.getTime() + LIMITS.sessionAbsoluteMs);
       if (!base.createSession) throw new Error('session_storage_unavailable');
       const result = await base.createSession({ ...session, expires: absoluteExpiresAt });
-      await sessions.updateOne({ sessionToken: session.sessionToken }, { $set: { createdAt, absoluteExpiresAt, expires: absoluteExpiresAt } });
+      await sessions.updateOne({ sessionToken: session.sessionToken }, { $set: { createdAt, absoluteExpiresAt, expires: absoluteExpiresAt, ...epochs } });
       return { ...result, expires: absoluteExpiresAt };
     },
     async getSessionAndUser(sessionToken) {
       const result = await base.getSessionAndUser?.(sessionToken);
       if (!result) return null;
-      const stored = await sessions.findOne({ sessionToken }, { projection: { createdAt: 1, absoluteExpiresAt: 1, expires: 1 } });
+      const stored = await sessions.findOne({ sessionToken });
+      const epochs = await instanceEpochs();
       const nowDate = new Date(now());
       if (!(stored?.createdAt instanceof Date) || !(stored.absoluteExpiresAt instanceof Date) ||
           !(stored.expires instanceof Date) || stored.absoluteExpiresAt.getTime() - stored.createdAt.getTime() !== LIMITS.sessionAbsoluteMs ||
-          stored.absoluteExpiresAt <= nowDate || stored.expires <= nowDate) {
+          stored.absoluteExpiresAt <= nowDate || stored.expires <= nowDate || epochs &&
+          (stored.instanceId !== epochs.instanceId || stored.securityEpoch !== epochs.securityEpoch || stored.recoveryEpoch !== epochs.recoveryEpoch)) {
         await base.deleteSession?.(sessionToken);
         return null;
       }
       return { ...result, session: { ...result.session, expires: stored.absoluteExpiresAt } };
     },
     async updateSession(session) {
-      const stored = await sessions.findOne({ sessionToken: session.sessionToken }, { projection: { createdAt: 1, absoluteExpiresAt: 1, expires: 1 } });
+      const stored = await sessions.findOne({ sessionToken: session.sessionToken });
+      const epochs = await instanceEpochs();
       const nowDate = new Date(now());
       if (!(stored?.createdAt instanceof Date) || !(stored.absoluteExpiresAt instanceof Date) || !(stored.expires instanceof Date) ||
-          stored.absoluteExpiresAt <= nowDate || stored.expires <= nowDate) return null;
+          stored.absoluteExpiresAt <= nowDate || stored.expires <= nowDate || epochs &&
+          (stored.instanceId !== epochs.instanceId || stored.securityEpoch !== epochs.securityEpoch || stored.recoveryEpoch !== epochs.recoveryEpoch)) return null;
       const expires = new Date(Math.min(session.expires?.getTime() ?? stored.expires.getTime(), stored.absoluteExpiresAt.getTime()));
       const result = await base.updateSession?.({ ...session, expires });
       if (!result) return result;

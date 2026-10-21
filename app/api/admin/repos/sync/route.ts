@@ -1,3 +1,4 @@
+import { withAdminRuntime } from '@/lib/auth/admin';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { adminErrorResponse, readAdminJson, requireAdmin } from '@/lib/auth/admin';
@@ -21,7 +22,7 @@ function jobStatus(state: string): SyncStatus {
   return state === 'succeeded' ? 'succeeded' : 'failed';
 }
 
-export async function POST(request: Request) {
+async function handlePOST(request: Request) {
   try {
     const { db } = await requireAdmin(request, true);
     if (request.headers.get('content-type') && !request.headers.get('content-type')?.toLowerCase().startsWith('application/json')) {
@@ -47,3 +48,5 @@ export async function POST(request: Request) {
     return adminErrorResponse(error);
   }
 }
+
+export async function POST(request: Request) { return withAdminRuntime(() => handlePOST(request)); }

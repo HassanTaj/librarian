@@ -4,7 +4,7 @@
 
 ## R1 — Owner policy and credential storage
 
-**Decision**: D1 stores eligible provider credentials in MongoDB using AES-256-GCM with a separate host-managed instance-secret key. D2 requires explicit issuer/subject membership AND the configured project's `librarian-instance-admin` role. D3 uses `/repositories/setup` and `/repositories/settings`, retaining all catalog URLs. Constitution v3.0.0 records the approved production-storage amendment.
+**Decision**: D1 stores eligible provider credentials in MongoDB using AES-256-GCM with a separate host-managed instance-secret key. D2 requires explicit issuer/subject membership AND the configured project's `librarian-instance-admin` role. The owner revised D3 to `/instance/setup` and `/instance/settings`; retain existing catalogs and require an explicit collision resolution for any legacy `instance` slug before enabling those routes. Constitution v3.0.0 records the approved production-storage amendment.
 
 **Rationale**: The owner's three responses resolve the original gate. Root trust cannot be encrypted with a key stored alongside its own ciphertext. Existing `lib/auth/tokens.ts` supplies a standard crypto pattern, but its OAuth format and key must remain unchanged. Catalog administration and private reading remain independent permissions.
 

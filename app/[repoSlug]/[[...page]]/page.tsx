@@ -19,7 +19,10 @@ import { getMongo } from '@/lib/mongo';
 import { withRuntimeContent } from '@/lib/content/source';
 import { resolveContentLink } from '@/lib/content/paths';
 import { resolveCardIcon } from '@/lib/content/card-icons';
-import { baseOptions } from '@/lib/layout.shared';
+import { instanceLayoutOptions } from '@/lib/layout.shared';
+import { readInstancePreferences } from '@/lib/instance/bootstrap';
+import { requireInstanceAdmin } from '@/lib/instance/access';
+import { headers } from 'next/headers';
 import readerStyles from '@/components/reader.module.css';
 
 type RouteProps = { params: Promise<{ repoSlug: string; page?: string[] }>; searchParams: Promise<{ g?: string | string[] }> };
@@ -96,6 +99,10 @@ export default async function Reader({ params, searchParams }: RouteProps) {
         return [{ title: node.name, url: href.split('?')[0], props: { href }, urls: new Set([...pages, ...(node.index ? [node.index] : [])].map(item => item.url.split('?')[0])) }];
       });
       let showAccountControls = authorization.privateContent;
+      const baseOptions = instanceLayoutOptions((await readInstancePreferences().catch(() => null))?.displayName);
+      let showInstanceSettings = false;
+      try { await requireInstanceAdmin(new Request('http://localhost/instance/settings', { headers: new Headers(await headers()) })); showInstanceSettings = true; }
+      catch { /* Reader permission grants no instance authority. */ }
       if (!showAccountControls) {
         try { showAccountControls = Boolean((await auth())?.user?.id); } catch { /* Public content stays available when session lookup is unavailable. */ }
       }
@@ -112,6 +119,7 @@ export default async function Reader({ params, searchParams }: RouteProps) {
             footer: (
             <div data-reader-sidebar-controls className="flex w-full items-center justify-between gap-3 border-t bg-fd-card pt-3">
               <div data-reader-sidebar-actions className="flex items-center gap-2">
+                {showInstanceSettings ? <Link href="/instance/settings" prefetch={false} className="rounded-md border px-2 py-1.5 text-sm">Instance Settings</Link> : null}
                 <Link href="/" aria-label="Home" title="Home" className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border bg-background text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <Home aria-hidden="true" className="size-4" />
                 </Link>

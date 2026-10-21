@@ -3,6 +3,7 @@ import { POST } from '../../app/api/admin/repos/sync/route';
 
 const state = vi.hoisted(() => ({ requireAdmin: vi.fn(), admitSyncJob: vi.fn(), newManualJobId: vi.fn(), readAdminJson: vi.fn(), adminErrorResponse: vi.fn() }));
 vi.mock('@/lib/auth/admin', () => ({
+  withAdminRuntime: (operation: () => Promise<Response>) => operation(),
   requireAdmin: state.requireAdmin,
   readAdminJson: state.readAdminJson,
   adminErrorResponse: state.adminErrorResponse,

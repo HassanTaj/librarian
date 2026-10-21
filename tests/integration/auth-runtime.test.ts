@@ -30,6 +30,6 @@ it('builds the request-scoped Auth.js handlers from runtime config and Mongo', a
     expect(signout.status).toBeGreaterThanOrEqual(300);
     expect(signout.status).toBeLessThan(400);
     expect(mocks.loadConfig).toHaveBeenCalledTimes(1);
-    expect(mocks.getMongo).toHaveBeenCalledTimes(1);
+    expect(mocks.getMongo).toHaveBeenCalledTimes(3);
   } finally { await storage.close(); }
 });

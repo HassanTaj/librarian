@@ -1,6 +1,6 @@
 # Configuration and Activation Contract
 
-**Status**: Planning contract; proposed new host names are not yet implemented. Never put credential values in tracked examples.
+**Status**: Working-tree implementation is under validation. Host-input, migration and recovery acceptance remain open. Never put credential values in tracked examples.
 
 ## Host inputs and precedence
 

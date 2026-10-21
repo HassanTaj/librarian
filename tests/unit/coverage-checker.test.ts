@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkEvidence, mergeReports, sourceInventory, capabilityScopes, runCoverageCheck } from '../../scripts/check-coverage.mjs';
+import { checkEvidence, mergeReports, sourceInventory, capabilityScopes, runCoverageCheck, instanceCoverageFiles } from '../../scripts/check-coverage.mjs';
 import type { CoverageMapData } from '@vitest/istanbul-lib-coverage';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -53,6 +53,9 @@ describe('coverage integrity and exact thresholds', () => {
     const input = evidence(); input.reports[0].coverage = report(0); input.reports[1].coverage = report(0);
     expect(() => checkEvidence(input)).toThrow('95%');
     expect(() => checkEvidence({ ...evidence(), inventory: [file, '/synthetic/lib/untouched.ts'] })).toThrow();
+    const unassigned = evidence(); const extra = '/synthetic/lib/unassigned.ts'; unassigned.inventory.push(extra);
+    for (const item of unassigned.reports) { const data = { ...structuredClone(item.coverage[file]), path: extra }; item.coverage[extra] = data; item.hashes[extra] = 'c'.repeat(64); }
+    expect(() => checkEvidence(unassigned)).toThrow('Source missing capability membership');
     expect(() => checkEvidence({ ...evidence(), scopes: {} })).toThrow();
     expect(() => checkEvidence({ ...evidence(), scopes: { C6: ['/unknown.ts'] } })).toThrow();
   });
@@ -90,7 +93,7 @@ describe('coverage integrity and exact thresholds', () => {
     expect(() => checkEvidence({ ...input, inventory: [] })).toThrow('inventory');
     expect(() => checkEvidence({ ...input, inventory: ['/unknown.ts'] })).toThrow('unknown');
     expect(() => checkEvidence({ ...input, reports: [{ ...input.reports[0], hashes: {} }, input.reports[1]] })).toThrow('hash');
-    expect(() => checkEvidence({ ...input, scopes: { C7: [file] } })).toThrow('scope');
+    expect(() => checkEvidence({ ...input, scopes: { C8: [file] } })).toThrow('scope');
     expect(() => checkEvidence({ ...input, scopes: { C6: [file, file] } })).toThrow('scope');
     expect(() => checkEvidence({ ...input, scopes: { C6: [] } })).toThrow('scope');
   });
@@ -112,6 +115,81 @@ describe('coverage integrity and exact thresholds', () => {
       }
     }
     expect(() => checkEvidence(input)).toThrow('95%');
+  });
+});
+
+describe('instance C7 coverage', () => {
+  it('matches the plan union exactly without replacing existing scopes', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const plan = await readFile(resolve('specs/002-instance-configuration/plan.md'), 'utf8');
+    const groups = [...plan.matchAll(/\*\*(?:New implementation file set|Existing boundary\/caller implementation file set):\*\*\s+```text\s+([\s\S]*?)```/g)];
+    const declared = groups.flatMap(group => group[1].trim().split(/\r?\n/));
+    expect(instanceCoverageFiles).toEqual(declared);
+    expect(instanceCoverageFiles).toContain('app/instance/setup/page.tsx');
+    expect(instanceCoverageFiles).toContain('app/instance/settings/page.tsx');
+    expect(instanceCoverageFiles).not.toContain('app/repositories/setup/page.tsx');
+    expect(instanceCoverageFiles).not.toContain('app/repositories/settings/page.tsx');
+    expect(new Set(instanceCoverageFiles).size).toBe(declared.length);
+    const inventory = declared.map(path => resolve(path));
+    const scopes = capabilityScopes(process.cwd(), inventory);
+    expect(scopes.C7).toEqual(inventory);
+    expect(scopes.C2).toContain(resolve('lib/auth/authorization.ts'));
+    expect(scopes.C4).toContain(resolve('lib/sync/worker.ts'));
+    expect(() => capabilityScopes(process.cwd(), [...inventory, resolve('lib/instance/unplanned.ts')])).toThrow('Unassigned');
+  });
+
+  it.each(['s', 'f', 'b'] as const)('rejects a low C7 %s metric even with passing global coverage', counter => {
+    const input = evidence();
+    const padding = '/synthetic/lib/padding.ts';
+    input.inventory.push(padding);
+    input.scopes = { C6: [padding], C7: [file] };
+    for (const item of input.reports) {
+      const healthy = { ...structuredClone(item.coverage[file]), path: padding };
+      // Twenty covered items keep the global metric above 95% while C7 has zero hits.
+      for (let i = 1; i < 20; i++) {
+        healthy.statementMap[i] = { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 10 } };
+        healthy.s[i] = 1;
+        const loc = healthy.statementMap[i];
+        healthy.fnMap[i] = { ...healthy.fnMap[0], decl: loc, loc, line: i + 1 }; healthy.f[i] = 1;
+        healthy.branchMap[i] = { ...healthy.branchMap[0], line: i + 1, loc, locations: [loc] }; healthy.b[i] = [1];
+      }
+      item.coverage[padding] = healthy;
+      item.hashes[padding] = 'b'.repeat(64);
+      if (counter === 'b') item.coverage[file].b[0] = [0];
+      else item.coverage[file][counter][0] = 0;
+    }
+    expect(() => checkEvidence(input)).toThrow(/C7 .*below 95%/);
+  });
+
+  it('accepts C7 and retains missing, zero-hit and stale-source protections', () => {
+    const input = evidence(); input.scopes.C7 = [file];
+    expect(checkEvidence(input).scopes.C7.lines).toEqual({ covered: 1, total: 1 });
+    input.inventory.push('/synthetic/lib/instance/untouched.ts');
+    expect(() => checkEvidence(input)).toThrow('missing inventory');
+    input.inventory.pop();
+    input.reports[1].hashes[file] = 'b'.repeat(64);
+    expect(() => checkEvidence(input)).toThrow('hash');
+  });
+
+  it('enforces C7 lines independently when statements pass', () => {
+    const input = evidence(); input.scopes = { C7: [file] };
+    for (const item of input.reports) {
+      const data = item.coverage[file];
+      for (let i = 1; i < 20; i++) {
+        data.statementMap[i] = { start: { line: 1, column: i * 10 }, end: { line: 1, column: i * 10 + 5 } }; data.s[i] = 1;
+      }
+      data.statementMap[20] = { start: { line: 2, column: 0 }, end: { line: 2, column: 10 } }; data.s[20] = 0;
+    }
+    // A covered file supplies enough distinct lines for the global gate to pass.
+    const padding = '/synthetic/lib/padding.ts'; input.inventory.push(padding); input.scopes.C6 = [padding];
+    for (const item of input.reports) {
+      const data = { ...structuredClone(item.coverage[file]), path: padding };
+      for (let i = 0; i <= 20; i++) {
+        data.statementMap[i] = { start: { line: i + 1, column: 0 }, end: { line: i + 1, column: 10 } }; data.s[i] = 1;
+      }
+      item.coverage[padding] = data; item.hashes[padding] = 'b'.repeat(64);
+    }
+    expect(() => checkEvidence(input)).toThrow('C7 lines below 95%');
   });
 });
 
@@ -175,5 +253,16 @@ it('checks on-disk inventory, capture containment, source hashes and raw capture
     await expect(runCoverageCheck(root)).rejects.toThrow('changed');
     input.reports[0].coverage = { [resolve(root, '../outside.ts')]: { ...report()[file], path: resolve(root, '../outside.ts') } }; await save();
     await expect(runCoverageCheck(root)).rejects.toThrow('outside application');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it('handles absent report arrays and malformed optional report/capture collections without trusting them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'librarian-empty-coverage-'));
+  try {
+    await mkdir(join(root, 'coverage'));
+    await writeFile(join(root, 'coverage/evidence.json'), JSON.stringify({}));
+    await expect(runCoverageCheck(root)).rejects.toThrow('Missing coverage reports');
+    await writeFile(join(root, 'coverage/evidence.json'), JSON.stringify({ reports: [{ coverage: null }] }));
+    await expect(runCoverageCheck(root)).rejects.toThrow('test evidence');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

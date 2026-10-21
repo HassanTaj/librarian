@@ -39,16 +39,23 @@ function safeUrl(value: string, setting: string, localHttp = false) {
   return url;
 }
 
-/** Load only at server runtime; imports and production builds need no credentials. */
-export async function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()) {
-  const parsed = schema.safeParse(env);
+const hostSchema = schema.pick({ AUTH_TRUST_HOST: true, MONGODB_DATABASE: true, CONTENT_ROOT: true, AUTH_SECRET_FILE: true, MONGODB_URI_FILE: true, OAUTH_TOKEN_ENCRYPTION_KEY_FILE: true, PUBLIC_CATALOG_APPROVALS_FILE: true });
+
+async function secret(setting: string, pathSetting: string, cwd: string) {
+  try {
+    const path = resolve(cwd, pathSetting);
+    const info = await stat(path);
+    if (!info.isFile() || info.size > 64 * 1024) fail(setting);
+    const value = (await readFile(path, 'utf8')).trim();
+    if (!value || Buffer.byteLength(value) > 64 * 1024) fail(setting);
+    return value;
+  } catch { fail(setting); }
+}
+
+export async function loadHostConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()) {
+  const parsed = hostSchema.safeParse(env);
   if (!parsed.success) fail(parsed.error.issues.map(issue => issue.path.join('.')).join(', '));
   const settings = parsed.data;
-  const authUrl = safeUrl(settings.AUTH_URL, 'AUTH_URL', env.NODE_ENV !== 'production');
-  if (authUrl.pathname !== '/') fail('AUTH_URL');
-  const issuer = safeUrl(settings.AUTH_ZITADEL_ISSUER, 'AUTH_ZITADEL_ISSUER');
-  if (issuer.pathname !== '/') fail('AUTH_ZITADEL_ISSUER');
-
   let contentRoot: string;
   let publicRoot: string;
   try {
@@ -76,44 +83,84 @@ export async function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = pro
     } catch { fail('PUBLIC_CATALOG_APPROVALS_FILE'); }
   }
 
-  async function secret(setting: 'AUTH_SECRET_FILE' | 'AUTH_ZITADEL_SECRET_FILE' | 'MONGODB_URI_FILE' |
-    'GITHUB_APP_PRIVATE_KEY_FILE' | 'GITHUB_WEBHOOK_SECRET_FILE' | 'OAUTH_TOKEN_ENCRYPTION_KEY_FILE') {
-    try {
-      const path = resolve(cwd, settings[setting]);
-      const info = await stat(path);
-      if (!info.isFile() || info.size > 64 * 1024) fail(setting);
-      const value = (await readFile(path, 'utf8')).trim();
-      if (!value || Buffer.byteLength(value) > 64 * 1024) fail(setting);
-      return value;
-    } catch { fail(setting); }
-  }
-
-  const authSecret = await secret('AUTH_SECRET_FILE');
+  const authSecret = await secret('AUTH_SECRET_FILE', settings.AUTH_SECRET_FILE, cwd);
   if (Buffer.byteLength(authSecret) < 32) fail('AUTH_SECRET_FILE');
-  const zitadelSecret = await secret('AUTH_ZITADEL_SECRET_FILE');
-  const mongodbUri = await secret('MONGODB_URI_FILE');
+  const mongodbUri = await secret('MONGODB_URI_FILE', settings.MONGODB_URI_FILE, cwd);
   try {
     const client = new MongoClient(mongodbUri);
     const path = mongodbUri.replace(/^mongodb(?:\+srv)?:\/\/[^/]+/, '').split('?')[0];
     if (mongodbUri.includes('#') || (path && path !== '/' && client.options.dbName !== settings.MONGODB_DATABASE)) fail('MONGODB_URI_FILE');
   } catch { fail('MONGODB_URI_FILE'); }
-  const githubPrivateKey = await secret('GITHUB_APP_PRIVATE_KEY_FILE');
-  try {
-    if (createPrivateKey(githubPrivateKey).asymmetricKeyType !== 'rsa') fail('GITHUB_APP_PRIVATE_KEY_FILE');
-  } catch { fail('GITHUB_APP_PRIVATE_KEY_FILE'); }
-  const githubWebhookSecret = await secret('GITHUB_WEBHOOK_SECRET_FILE');
-  if (Buffer.byteLength(githubWebhookSecret) < 32) fail('GITHUB_WEBHOOK_SECRET_FILE');
-  const encryptionSecret = await secret('OAUTH_TOKEN_ENCRYPTION_KEY_FILE');
+  const encryptionSecret = await secret('OAUTH_TOKEN_ENCRYPTION_KEY_FILE', settings.OAUTH_TOKEN_ENCRYPTION_KEY_FILE, cwd);
   const oauthTokenEncryptionKey = Buffer.from(encryptionSecret, 'base64');
   if (oauthTokenEncryptionKey.length !== 32 || oauthTokenEncryptionKey.toString('base64') !== encryptionSecret) {
     fail('OAUTH_TOKEN_ENCRYPTION_KEY_FILE');
   }
+  return { trustHost: settings.AUTH_TRUST_HOST === 'true', authSecret, mongodbUri, mongodbDatabase: settings.MONGODB_DATABASE, oauthTokenEncryptionKey, contentRoot, publicCatalogApprovalsFile };
+}
+
+/** Validated environment-backed runtime retained for legacy installations. */
+async function loadLegacyConfig(env: NodeJS.ProcessEnv, cwd: string) {
+  const parsed = schema.safeParse(env);
+  if (!parsed.success) fail(parsed.error.issues.map(issue => issue.path.join('.')).join(', '));
+  const settings = parsed.data;
+  const authUrl = safeUrl(settings.AUTH_URL, 'AUTH_URL', env.NODE_ENV !== 'production');
+  if (authUrl.pathname !== '/') fail('AUTH_URL');
+  const issuer = safeUrl(settings.AUTH_ZITADEL_ISSUER, 'AUTH_ZITADEL_ISSUER');
+  if (issuer.pathname !== '/') fail('AUTH_ZITADEL_ISSUER');
+
+  const host = await loadHostConfig(env, cwd);
+  const zitadelSecret = await secret('AUTH_ZITADEL_SECRET_FILE', settings.AUTH_ZITADEL_SECRET_FILE, cwd);
+  const githubPrivateKey = await secret('GITHUB_APP_PRIVATE_KEY_FILE', settings.GITHUB_APP_PRIVATE_KEY_FILE, cwd);
+  try {
+    if (createPrivateKey(githubPrivateKey).asymmetricKeyType !== 'rsa') fail('GITHUB_APP_PRIVATE_KEY_FILE');
+  } catch { fail('GITHUB_APP_PRIVATE_KEY_FILE'); }
+  const githubWebhookSecret = await secret('GITHUB_WEBHOOK_SECRET_FILE', settings.GITHUB_WEBHOOK_SECRET_FILE, cwd);
+  if (Buffer.byteLength(githubWebhookSecret) < 32) fail('GITHUB_WEBHOOK_SECRET_FILE');
   return {
-    authUrl: authUrl.origin, trustHost: settings.AUTH_TRUST_HOST === 'true', authSecret,
+    ...host, authUrl: authUrl.origin,
     zitadelClientId: settings.AUTH_ZITADEL_ID, zitadelSecret, zitadelIssuer: issuer.origin,
     zitadelProjectId: settings.ZITADEL_PROJECT_ID, zitadelApiAudience: settings.ZITADEL_API_AUDIENCE,
-    mongodbUri, mongodbDatabase: settings.MONGODB_DATABASE,
     githubAppId: settings.GITHUB_APP_ID, githubPrivateKey, githubWebhookSecret,
-    oauthTokenEncryptionKey, contentRoot, publicCatalogApprovalsFile,
   };
+}
+
+/** Load only at server runtime; imports and production builds need no credentials. */
+export async function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.cwd()) {
+  if (!Object.hasOwn(env, 'INSTANCE_STATE_FILE') && !Object.hasOwn(env, 'INSTANCE_ID')) return loadLegacyConfig(env, cwd);
+  try {
+    const [{ readInstanceHost, classifyInstance }, { readInstance, InstanceBundleSchema }, { connectMongo }, { decryptInstanceSecret }] = await Promise.all([
+      import('./instance/bootstrap'), import('./instance/store'), import('./mongo'), import('./instance/secrets'),
+    ]);
+    const host = await readInstanceHost(env, cwd);
+    const storage = await connectMongo(host.config, { initializeLegacy: false });
+    try {
+      const control = await readInstance(storage.db, host.instanceId);
+      if (control?.lifecycle === 'ready' && control.gate.state === 'open' && control.initializedAt && control.bootstrap.consumedAt &&
+          host.marker.phase === 'initialized' && control.recoveryEpoch === host.marker.recoveryEpoch && control.active) {
+        const active = InstanceBundleSchema.parse(control.active);
+        const decrypt = (purpose: 'zitadelClientSecret' | 'githubPrivateKey' | 'githubWebhookSecret') => {
+          const envelope = active.secrets[purpose];
+          return decryptInstanceSecret(envelope, { instanceId: host.instanceId, purpose, credentialVersion: envelope.credentialVersion }, host.keyring);
+        };
+        const githubPrivateKey = decrypt('githubPrivateKey');
+        try {
+          const key = createPrivateKey(githubPrivateKey);
+          if (key.asymmetricKeyType !== 'rsa' || (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048) throw new Error();
+        } catch { throw new Error(); }
+        return {
+          ...host.config, authUrl: active.publicOrigin,
+          zitadelClientId: active.zitadel.clientId, zitadelSecret: decrypt('zitadelClientSecret'),
+          zitadelIssuer: active.zitadel.issuer, zitadelProjectId: active.zitadel.projectId, zitadelApiAudience: active.zitadel.audience,
+          githubAppId: active.github.appId, githubPrivateKey, githubWebhookSecret: decrypt('githubWebhookSecret'),
+        };
+      }
+      let legacy: Awaited<ReturnType<typeof loadLegacyConfig>> | undefined;
+      try { legacy = await loadLegacyConfig(env, cwd); } catch { /* Legacy inputs are eligible only when every required value validates. */ }
+      const state = classifyInstance({ marker: host.marker, record: control, legacyValid: !!legacy, empty: !control });
+      if (legacy && (state === 'legacy' || state === 'legacy_migrating')) return legacy;
+      if (legacy && control?.migration && !control.initializedAt && control.gate.state !== 'maintenance' && ['configuring', 'awaiting_owner'].includes(state)) return legacy;
+      throw new Error('Instance setup is not ready.');
+    } finally { await storage.client.close(); }
+  } catch { throw new Error('Instance setup is not ready.'); }
 }

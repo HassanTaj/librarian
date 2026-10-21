@@ -18,6 +18,7 @@ export function isCatalogSlug(value: string) {
   return /^[a-z][a-z0-9-]{0,62}$/.test(value) && !reservedSlugs.has(value);
 }
 const slug = z.string().refine(isCatalogSlug);
+const writableSlug = z.string().refine(value => isCatalogSlug(value) && value !== 'instance');
 const branch = z.string().min(1).refine(value => !/[\x00-\x20\x7f~^:?*[\\]/.test(value) &&
   !value.includes('..') && !value.includes('@{') && !value.startsWith('-') && value !== '@' &&
   value.split('/').every(part => part.length > 0 && !part.startsWith('.') && !part.endsWith('.') && !part.endsWith('.lock')));
@@ -28,7 +29,7 @@ const github = z.object({ repositoryId: positive, installationId: positive,
   owner: z.string().min(1).regex(/^[A-Za-z0-9-]+$/), name: z.string().min(1).regex(/^[A-Za-z0-9_.-]+$/).refine(value => value !== '.' && value !== '..'),
   branch, docsPath,
 }).strict();
-const configShape = { github, slug, title: display(120, true), publicDescription: display(500),
+const configShape = { github, slug: writableSlug, title: display(120, true), publicDescription: display(500),
   visibility: z.enum(['public', 'private']), readerRole: role, enabled: z.boolean(), approvalRef: approval };
 export const CatalogDefinitionSchema = z.object({ ...configShape,
   publicDescription: display(500).default(''), visibility: z.enum(['public', 'private']).default('private'),
@@ -41,8 +42,9 @@ const publication = z.object({ generationId: uuid, commitSha: sha, jobId, fence:
 const lease = z.object({ owner: uuid, fence: positive, expiresAt: z.date(), heartbeatAt: z.date() }).strict()
   .refine(value => value.expiresAt > value.heartbeatAt);
 const status = { at: z.date(), jobId };
-export const CatalogSchema = z.object({ _id: uuid, ...configShape,
+export const CatalogSchema = z.object({ _id: uuid, ...configShape, slug,
   accessState: z.enum(['unverified', 'ready', 'blocked']), configRevision: positive, authEpoch: positive,
+  instanceRuntimeRevision: integer.nullable().optional(), instanceActivationId: uuid.nullable().optional(),
   published: publication.nullable(), publicationRevision: integer,
   retained: z.array(publication.extend({ retiredAt: z.date() })).max(LIMITS.maxRetainedGenerations), lease: lease.nullable(), leaseFence: integer,
   readPins: z.array(z.object({ requestId: uuid, generationId: uuid, expiresAt: z.date() }).strict()).max(LIMITS.maxReadPins),
@@ -136,10 +138,13 @@ export async function ensureCatalogStorage(db: Db) {
 
 export async function insertCatalog(db: Db, input: unknown, now = new Date()) {
   const catalog = newCatalogRecord(input, now);
+  const { instanceCatalogAuthority, assertRuntimeInstanceEffect } = await import('./instance/access');
+  Object.assign(catalog, await instanceCatalogAuthority());
   const quota = await db.collection<CatalogQuota>('quotas').findOneAndUpdate({ _id: 'catalogs', reservations: { $gte: 0, $lt: LIMITS.maxCatalogs } }, { $inc: { reservations: 1 } }, { returnDocument: 'after' });
   if (!quota) throw new Error('catalog_quota');
   integer.max(LIMITS.maxCatalogs).parse(quota.reservations);
   // Reservation is never decremented after a failed insert: safe overcount prevents under-admission accounting.
+  await assertRuntimeInstanceEffect();
   await db.collection<Catalog>('catalogs').insertOne(catalog);
   return catalog;
 }

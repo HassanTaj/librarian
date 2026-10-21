@@ -6,6 +6,14 @@ import { getVerifiedRoles } from './roles';
 import { getOAuthAccessToken } from './tokens';
 import { LIMITS } from '../limits';
 
+export async function withAdminRuntime(operation: () => Promise<Response>) {
+  try {
+    const { db } = await getMongo();
+    const { withRuntimeInstanceAdmission } = await import('../instance/access');
+    return await withRuntimeInstanceAdmission(db, 'request', operation);
+  } catch { return adminErrorResponse(new Error('admin_unavailable')); }
+}
+
 export function adminCsrfToken(secret: string, sessionToken: string) {
   return createHmac('sha256', secret).update(`librarian-admin\0${sessionToken}`).digest('base64url');
 }

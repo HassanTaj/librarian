@@ -1,3 +1,4 @@
+import { assertRuntimeInstanceEffect, withRuntimeInstanceAdmission } from '../instance/access';
 import { z } from 'zod';
 import { MongoServerError, type Collection, type Db, type IndexDescription } from 'mongodb';
 import { LIMITS } from '../limits';
@@ -89,6 +90,7 @@ export function newManualJobId(catalogId: string, idempotencyKey: string) {
 }
 
 export async function admitControlReceipt(db: Db, inputValue: unknown) {
+  await assertRuntimeInstanceEffect();
   const receipt = ControlReceiptSchema.parse(inputValue);
   const receipts = db.collection<ControlReceipt>('controlReceipts');
   const same = (value: unknown) => {
@@ -138,6 +140,10 @@ function replayResult(existing: unknown, input: z.infer<typeof admissionInput>) 
 
 /** Reserve before inserting the permanent receipt; a failed insert may waste quota but is never acknowledged. */
 export async function admitSyncJob(db: Db, inputValue: unknown, now = new Date()) {
+  return withRuntimeInstanceAdmission(db, 'request', () => admitAdmittedSyncJob(db, inputValue, now));
+}
+async function admitAdmittedSyncJob(db: Db, inputValue: unknown, now = new Date()) {
+  await assertRuntimeInstanceEffect();
   const input = admissionInput.parse(inputValue);
   const jobs = db.collection<SyncJob>('syncJobs');
   const existing = await jobs.findOne({ _id: input._id });
@@ -209,6 +215,10 @@ async function cancelUnclaimedJob(jobs: Collection<SyncJob>, job: SyncJob) {
 
 /** Claims at most one of the next 20 due jobs; the catalog lease is the only worker authority. */
 export async function claimNextSyncJob(db: Db, ownerValue: string) {
+  return withRuntimeInstanceAdmission(db, 'worker', () => claimAdmittedSyncJob(db, ownerValue));
+}
+async function claimAdmittedSyncJob(db: Db, ownerValue: string) {
+  await assertRuntimeInstanceEffect();
   const owner = uuid.parse(ownerValue);
   const jobs = db.collection<SyncJob>('syncJobs');
   const catalogs = db.collection<Catalog>('catalogs');
@@ -235,6 +245,7 @@ export async function claimNextSyncJob(db: Db, ownerValue: string) {
     }
     const acquiredValue = await catalogs.findOneAndUpdate({
       _id: candidate.catalogId, enabled: true, accessState: 'ready', configRevision: candidate.configRevision,
+      instanceRuntimeRevision: current.instanceRuntimeRevision ?? null,
       leaseFence: { $lt: Number.MAX_SAFE_INTEGER },
       $expr: { $or: [{ $eq: ['$lease', null] }, { $lte: ['$lease.expiresAt', '$$NOW'] }] },
     }, [{ $set: {
@@ -280,6 +291,7 @@ export async function claimNextSyncJob(db: Db, ownerValue: string) {
 }
 
 export async function heartbeatSyncJob(db: Db, claimValue: unknown) {
+  await assertRuntimeInstanceEffect();
   const claim = claimInput.parse(claimValue);
   const result = await db.collection<Catalog>('catalogs').updateOne({
     _id: claim.catalogId, enabled: true, accessState: 'ready', configRevision: claim.configRevision,
@@ -296,6 +308,7 @@ export async function releaseSyncLease(db: Db, claimValue: unknown) {
 }
 
 export async function completeSyncJob(db: Db, claimValue: unknown, resultValue: unknown) {
+  await assertRuntimeInstanceEffect();
   const claim = claimInput.parse(claimValue);
   const result = successInput.parse(resultValue);
   const job = await db.collection<SyncJob>('syncJobs').findOne({
@@ -321,6 +334,7 @@ export async function completeSyncJob(db: Db, claimValue: unknown, resultValue: 
 
 /** Completes a lost terminal write from the authoritative publication pointer before retrying work. */
 export async function reconcilePublishedSyncJobs(db: Db, limit = 20) {
+  await assertRuntimeInstanceEffect();
   const jobs = await db.collection<SyncJob>('syncJobs').find({ state: 'running' })
     .sort({ requestedAt: 1 }).limit(Math.min(20, Math.max(1, limit))).toArray();
   let reconciled = 0;
@@ -345,6 +359,7 @@ export async function reconcilePublishedSyncJobs(db: Db, limit = 20) {
 }
 
 export async function setSyncTargetCommit(db: Db, claimValue: unknown, commitSha: string) {
+  await assertRuntimeInstanceEffect();
   const claim = claimInput.parse(claimValue);
   const targetCommit = commit.parse(commitSha);
   const result = await db.collection<SyncJob>('syncJobs').updateOne({
@@ -362,6 +377,7 @@ export async function setSyncTargetCommit(db: Db, claimValue: unknown, commitSha
 
 /** Fails only the still-fenced owner; a published pointer always wins over a failed terminal write. */
 export async function failSyncJob(db: Db, claimValue: unknown, failureValue: unknown) {
+  await assertRuntimeInstanceEffect();
   const claim = claimInput.parse(claimValue);
   const failure = failureInput.parse(failureValue);
   const jobs = db.collection<SyncJob>('syncJobs');

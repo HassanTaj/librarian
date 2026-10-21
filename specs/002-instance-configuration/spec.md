@@ -2,7 +2,7 @@
 
 **Feature Directory**: `specs/002-instance-configuration`
 **Created**: 2026-10-14
-**Status**: Planning input approved — owner decisions D1–D3 recorded 2026-10-19; implementation and live acceptance remain unperformed.
+**Status**: Implementation and local automated acceptance are complete as of 2026-10-21. T085 previous-image recovery compatibility and BG-01/02/03 workload, live DEV, and release gates remain open; no live provider or production verification is implied.
 **Input**: Create one cohesive v2 specification for secure first-run installation, persistent instance configuration, and administrator settings management; reconcile every v1 obligation without implementing code.
 **Authority**: [AGENTS.md](../../AGENTS.md), [adopted constitution v3.0.0](../../.specify/memory/constitution.md), [v1 requirements](../../docs/requirements/v1-requirements.md), [primary v2 requirements](../../docs/requirements/v2-requirements.md), and [mandatory reconciliation instructions](../../docs/requirements/v2-pre-requirements.md).
 
@@ -24,7 +24,7 @@ As an installation operator, I can securely initialize Librarian with minimal ho
 
 **Acceptance Scenarios**:
 
-1. **Given** a new instance without Zitadel or GitHub credentials, **When** the operator opens `/repositories/setup`, **Then** a safe welcome shows version, setup status and prerequisite availability; normal publication, catalog mutations, webhook work admission, and background synchronization remain disabled.
+1. **Given** a new instance without Zitadel or GitHub credentials, **When** the operator opens `/instance/setup`, **Then** a safe welcome shows version, setup status and prerequisite availability; normal publication, catalog mutations, webhook work admission, and background synchronization remain disabled.
 2. **Given** no valid setup authorization, **When** a person guesses, replays, or directly calls a setup operation, **Then** no configuration or owner changes occur; guessing is bounded, failures are sanitized, and the credential never appears in a URL, public log, HTML, or JavaScript.
 3. **Given** valid bootstrap authorization, **When** the operator follows welcome, database, Zitadel, GitHub App, preferences, owner verification, and review steps, **Then** validated draft progress survives browser closure and restart; a new setup session still requires authorization.
 4. **Given** a missing or unavailable host database credential, **When** the database step is used, **Then** the operator receives sanitized host-provisioning guidance and Retry Connection; the wizard neither stores the connection credential in its own database nor writes it into an application directory.
@@ -49,7 +49,7 @@ As an existing operator, I retain authentication, catalogs, snapshots, jobs, and
 3. **Given** an unauthorized catalog administrator or ordinary user, **When** migration ownership or settings activation is attempted, **Then** instance ownership is not acquired implicitly; the authorized owner-provisioning procedure must have been completed.
 4. **Given** any migration failure, **When** the operator returns to legacy operation or the compatible previous version, **Then** catalogs, role assignments, account identifiers, OAuth token ciphertext/key compatibility, source installation mappings, jobs, replay receipts, operational records, and snapshot pointers remain recoverable.
 5. **Given** existing reader and administrator journeys, **When** configuration migration or a permitted settings update succeeds, **Then** public reading, every private delivery boundary, exact role freshness, local login return, logout/cache isolation, catalog controls, and no-rebuild synchronization continue to satisfy their v1 acceptance criteria.
-6. **Given** an existing catalog uses `setup` or `settings` as a slug, **When** upgrading, **Then** its URLs remain unchanged; instance pages use `/repositories/setup` and `/repositories/settings` beneath the already reserved application route. No catalog rename or compatibility redirect is introduced.
+6. **Given** an existing catalog uses `setup` or `settings` as a slug, **When** upgrading, **Then** its URLs remain unchanged; instance pages use `/instance/setup` and `/instance/settings` beneath the dedicated instance namespace. No catalog rename or compatibility redirect is introduced.
 
 ### User Story 3 - Review and edit instance settings (Priority: P1)
 
@@ -61,13 +61,20 @@ As an explicitly authorized instance administrator, I can review and update supp
 
 **Acceptance Scenarios**:
 
-1. **Given** an authorized instance administrator, **When** opening `/repositories/settings`, **Then** grouped General, Authentication, GitHub Integration, Documentation, Security, and System information shows only supported fields, sanitized diagnostics, version, setup state, configuration revision, ownership information, and bounded audit history.
+1. **Given** an authorized instance administrator, **When** opening `/instance/settings`, **Then** grouped General, Authentication, GitHub Integration, Documentation, Security, and System information shows only supported fields, sanitized diagnostics, version, setup state, configuration revision, ownership information, and bounded audit history.
 2. **Given** any identity without instance authorization, **When** the page or its read/test/write/rotation operations are requested directly, **Then** access is denied independently on the server. Catalog administration and private reading remain separate permissions.
 3. **Given** an ordinary field edit, **When** Save or Cancel is selected, **Then** inline validation and a clear result appear; Cancel preserves stored state, unsaved navigation warns, and invalid submissions do not partially change configuration.
 4. **Given** two administrators editing the same revision, **When** one saves and the other submits stale changes, **Then** the second update is rejected with refresh guidance; neither user's changes are silently overwritten.
 5. **Given** a stored secret, **When** settings are viewed or ordinary edits saved, **Then** only configured/missing/update/validation metadata is returned; blank secret inputs retain the secret. Replacement requires an explicit action; there is no reveal-secret control.
 6. **Given** valid saved preferences, **When** the application restarts, its container is recreated, or a compatible image upgrade occurs, **Then** the same active settings and revision remain available.
 7. **Given** a small viewport or keyboard-only use, **When** forms and diagnostic actions are used, **Then** labels, focus, validation, loading/error states, confirmations, and responsive navigation remain operable.
+
+### Entry points and discovery
+
+- On a confirmed fresh installation, opening `/` leads to `/instance/setup`; its public welcome contains only safe version/state/prerequisite availability. Valid legacy and ready instances keep their normal directory. The wizard steps require protected bootstrap authorization.
+- After initialization, shared navigation shows **Instance Settings** linking to `/instance/settings` only for an authenticated user with the explicit instance binding and currently verified `librarian-instance-admin` role. Every page/API still independently enforces server authorization.
+- Setup closes permanently after initialization; direct visits cannot enroll another owner. Settings groups supported General, Authentication, GitHub Integration, Documentation, Security and System information.
+- Supported non-secret preferences and integration metadata persist in the instance record; eligible provider credentials are encrypted before MongoDB writes and never revealed to the browser. Database credentials, root/session/OAuth keys and bootstrap authority remain host-managed.
 
 ### User Story 4 - Activate settings and rotate credentials safely (Priority: P1)
 
@@ -138,7 +145,7 @@ As an operator and owner, I can diagnose failure, restore a consistent instance,
 - **V2-FR-011**: Validate GitHub App ID, RSA key/signing, App authentication, read-only permissions, relevant installation/repository access and expected webhook configuration. Show the origin-derived webhook URL and distinct structural/authentication/App/installation/signed-delivery statuses. Never request repository writes or claim an unperformed check.
 - **V2-FR-012**: Establish the initial owner only after bootstrap authorization and successful candidate Zitadel authentication, bound to stable verified issuer/subject and current draft revision, with the dedicated current project role `librarian-instance-admin`. Subsequent instance access requires both explicit binding and that role. Legacy first-owner enrollment additionally requires protected operator authorization and current `librarian-admin`. No random first login, email match, or role alone may confer ownership.
 - **V2-FR-013**: Require explicit final review/confirmation, current required check results, owner proof, and durable atomic readiness transition. Consume bootstrap authorization on committed initialization; report success only after committed settings and runtime readiness checks succeed. Recover an interrupted post-commit activation without reopening setup.
-- **V2-FR-014**: Serve Settings at `/repositories/settings` and setup at `/repositories/setup`; protect each related page/read/test/write/rotation operation using server-verified instance authorization or the narrowly scoped setup authority. Instance operations require explicit issuer/subject binding AND current `librarian-instance-admin` in the configured project. Separate instance administration, catalog administration and private reading; navigation visibility is not authorization.
+- **V2-FR-014**: Serve Settings at `/instance/settings` and setup at `/instance/setup`; protect each related page/read/test/write/rotation operation using server-verified instance authorization or the narrowly scoped setup authority. Instance operations require explicit issuer/subject binding AND current `librarian-instance-admin` in the configured project. Separate instance administration, catalog administration and private reading; navigation visibility is not authorization.
 - **V2-FR-015**: Group supported settings as US3 describes; show version, lifecycle, configuration revision, owner/security metadata and sanitized health. Do not expose raw environment, filesystem locations, credential files or private content.
 - **V2-FR-016**: Initially offer display name, site description, public origin and default documentation folder, with existing supported branding/publication options only. Defaults affect future catalogs; do not rewrite existing source paths, roles or visibility. Do not add renderer modes, sync tuning knobs, arbitrary access policies or branding upload features merely because the source lists examples.
 - **V2-FR-017**: Provide accessible labels, inline validation, Save/Cancel, unsaved-change warnings, loading and error states, connection tests, responsive layout, visible focus and impact confirmations for sensitive actions. Persist only valid submitted changes.
@@ -240,7 +247,7 @@ Backlog is normative within this feature, not a second implementation state ledg
 
 **D2 — Resolved: explicit binding plus dedicated Zitadel role.** The owner selected a dedicated Zitadel instance-admin role as well as owner binding; legacy enrollment requires protected operator authorization plus verified `librarian-admin`. Use the application project role `librarian-instance-admin` (not a Zitadel platform administrator privilege). Fresh ownership requires bootstrap authority, verified candidate issuer/subject and that role. Legacy enrollment requires all three permissions, explicit confirmation and stable binding. Additional bindings, transfer and recovery use a protected operator procedure with verified target identity and role; ordinary Settings does not provide unrestricted ownership enrollment. Neither authority grants private reading, catalog administration or publication approval.
 
-**D3 — Resolved: alternative routes preserve catalog URLs.** The owner selected alternative setup/Settings routes. Use `/repositories/setup` and `/repositories/settings` beneath the already reserved `repositories` namespace; keep `/repositories` itself and existing APIs. Existing `setup` and `settings` catalogs and their nested pages remain valid. Do not add root aliases, redirects, new reserved catalog slugs or catalog renames.
+**D3 — Revised by the owner: dedicated instance namespace.** The owner subsequently requested `/instance/setup` and `/instance/settings` explicitly, superseding the earlier choice of the repositories namespace. Keep `/repositories` for catalog administration and `/api/instance/*` for instance APIs. Do not create aliases or redirects under `/repositories`, `/setup` or `/settings`. Existing `setup` and `settings` catalogs retain their URLs. Reserve `instance` for application routing only with a pre-upgrade collision check: an existing catalog with that slug requires an explicit owner-approved resolution before the new routes are enabled, never an automatic rename, deletion or silent shadowing. This decision changes route scope without weakening secret storage, authority, coverage or deployment gates.
 
 Other reconciled tensions:
 

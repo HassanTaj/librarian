@@ -1,7 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { resolve, relative, isAbsolute, dirname, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { sourceInventory, capabilityScopes, runCoverageCheck } from './check-coverage.mjs';
+import { sourceInventory, capabilityScopes, runCoverageCheck, instanceCoverageFiles } from './check-coverage.mjs';
 
 const ids = [
   ['FR', 38, 3], ['QG', 7, 3], ['ST', 14, 2], ['SC', 14, 3],
@@ -42,6 +42,41 @@ export function validateTraceability(spec, plan, tasks) {
   const expectedTasks = Array.from({ length: 92 }, (_, index) => `T${String(index + 1).padStart(3, '0')}`);
   if (new Set(taskIds).size !== 92 || expectedTasks.some(id => !taskIds.includes(id))) throw new Error('Task inventory is incomplete or duplicated');
   return { requirements: tracked.length, tasks: taskIds.length };
+}
+
+export function validateInstanceTraceability(spec, plan, tasks, contract) {
+  const definitions = [...spec.matchAll(/\*\*(V2-(?:FR|QG|SC)-\d{3})\*\*/g)].map(match => match[1]);
+  if (!definitions.length || new Set(definitions).size !== definitions.length) throw new Error('Instance requirement inventory is incomplete or duplicated');
+  for (const prefix of ['FR', 'QG', 'SC']) {
+    const found = definitions.filter(id => id.startsWith(`V2-${prefix}-`)).sort();
+    if (!found.length || found.some((id, index) => id !== `V2-${prefix}-${String(index + 1).padStart(3, '0')}`)) throw new Error('Instance requirement inventory is incomplete');
+  }
+  const rows = [...tasks.matchAll(/^\|\s*(V2-(?:FR|QG|SC)-\d{3})\s*\|([^\n]+)/gm)];
+  if (rows.length !== definitions.length || new Set(rows.map(row => row[1])).size !== definitions.length || rows.some(row => !definitions.includes(row[1]) || !/T\d{3}/.test(row[2]))) throw new Error('Instance requirement-to-task traceability is incomplete');
+  const taskRows = [...tasks.matchAll(/^- \[[ xX]\] (T\d{3})\b([^\n]+)/gm)];
+  if (!taskRows.length || taskRows.some((row, index) => row[1] !== `T${String(index + 1).padStart(3, '0')}`) || [...tasks.matchAll(/^- \[.*\] T\d+/gm)].length !== taskRows.length) throw new Error('Task inventory is incomplete or duplicated');
+  const taskIds = new Set(taskRows.map(row => row[1]));
+  if ([...tasks.matchAll(/\bT\d{3}\b/g)].some(match => !taskIds.has(match[0]))) throw new Error('Unknown task dependency or traceability reference');
+  const phases = [...tasks.matchAll(/^## Phase (\d+):/gm)].map(match => Number(match[1]));
+  const stories = [...tasks.matchAll(/^## Phase \d+: User Story (\d+)/gm)].map(match => Number(match[1]));
+  if (phases.length < 2 || phases.some((phase, index) => phase !== index + 1) || new Set(stories).size !== 5 || stories.some(story => story < 1 || story > 5)) throw new Error('Task phase/story dependencies are incomplete');
+  const groups = [...plan.matchAll(/\*\*(?:New implementation file set|Existing boundary\/caller implementation file set):\*\*\s+```text\s+([\s\S]*?)```/g)];
+  const files = groups.flatMap(group => group[1].trim().split(/\r?\n/));
+  if (groups.length !== 2 || files.length !== instanceCoverageFiles.length || files.some((file, index) => file !== instanceCoverageFiles[index]) || files.some(file => !taskRows.some(row => row[2].includes(file)))) throw new Error('Instance source inventory differs from plan, tasks or C7');
+  const apiRows = [...contract.matchAll(/^\|\s*(GET|POST|PATCH|GET\/POST)\s+`([^`]+)`/gm)];
+  const methods = new Set();
+  if (!apiRows.length) throw new Error('Instance contract inventory is missing');
+  for (const [, verbs, route] of apiRows) {
+    const file = `app${route}/route.ts`;
+    if (!route.startsWith('/api/instance/') || !files.includes(file) || !taskRows.some(row => row[2].includes(file))) throw new Error('Instance contract/source mapping is incomplete');
+    for (const method of verbs.split('/')) {
+      const key = `${method} ${route}`;
+      if (methods.has(key)) throw new Error('Duplicate instance contract method');
+      methods.add(key);
+    }
+  }
+  if (files.filter(file => file.startsWith('app/api/instance/')).some(file => !apiRows.some(row => `app${row[2]}/route.ts` === file))) throw new Error('Instance contract handler is missing');
+  return { requirements: definitions.length, tasks: taskRows.length, sources: files.length, apiRows: apiRows.length };
 }
 
 export function assertNoLeaks(text, sentinels) {
@@ -88,7 +123,7 @@ async function localLinks(root, file, source) {
   }
 }
 
-export async function validateArtifacts(root) {
+async function featureDocuments(root) {
   const specPath = resolve(root, 'specs/001-librarian-v1-portal/spec.md');
   const planPath = resolve(root, 'specs/001-librarian-v1-portal/plan.md');
   const tasksPath = resolve(root, 'specs/001-librarian-v1-portal/tasks.md');
@@ -96,12 +131,35 @@ export async function validateArtifacts(root) {
     resolve(root, 'specs/001-librarian-v1-portal/contracts/http.md'), resolve(root, 'specs/001-librarian-v1-portal/quickstart.md'),
     resolve(root, 'docs/requirements/v1-requirements.md'), resolve(root, '.specify/memory/constitution.md')];
   const docs = await Promise.all(docPaths.map(path => readFile(path, 'utf8')));
-  const traceability = validateTraceability(docs[0], docs[1], docs[2]);
+  const original = validateTraceability(docs[0], docs[1], docs[2]);
+  let selected = 'specs/001-librarian-v1-portal';
+  try { selected = JSON.parse(await readFile(resolve(root, '.specify/feature.json'), 'utf8')).feature_directory; }
+  catch (error) { if (error?.code !== 'ENOENT') throw new Error('Invalid selected feature'); }
+  if (!['specs/001-librarian-v1-portal', 'specs/002-instance-configuration'].includes(selected)) throw new Error('Invalid selected feature');
+  let traceability = original;
+  if (selected === 'specs/002-instance-configuration') {
+    const files = ['spec.md', 'plan.md', 'tasks.md', 'research.md', 'data-model.md', 'contracts/instance-api.md', 'contracts/configuration.md', 'quickstart.md', 'requirements-traceability.md', 'checklists/requirements.md'];
+    const selectedPaths = files.map(file => resolve(root, selected, file));
+    const selectedDocs = await Promise.all(selectedPaths.map(file => readFile(file, 'utf8')));
+    traceability = validateInstanceTraceability(selectedDocs[0], selectedDocs[1], selectedDocs[2], selectedDocs[5]);
+    docPaths.push(...selectedPaths); docs.push(...selectedDocs);
+  }
   for (let index = 0; index < docPaths.length; index++) await localLinks(root, docPaths[index], docs[index]);
+  docs.forEach(text => assertNoLeaks(text, []));
+  return { docPaths, summary: { feature: selected, ...traceability, implementationVerified: false, original } };
+}
+
+export async function validateFeatureDocuments(root) {
+  return (await featureDocuments(root)).summary;
+}
+
+export async function validateArtifacts(root) {
+  const { docPaths, summary } = await featureDocuments(root);
 
   const inventory = await sourceInventory(root);
   const scopes = capabilityScopes(root, inventory);
   if (['C1', 'C2', 'C3', 'C4', 'C5', 'C6'].some(scope => !scopes[scope]?.length)) throw new Error('Capability source inventory is incomplete');
+  if (summary.feature === 'specs/002-instance-configuration' && instanceCoverageFiles.some(file => !inventory.includes(resolve(root, file)))) throw new Error('Instance implementation source inventory is incomplete');
   const coverage = await runCoverageCheck(root);
 
   const fixtureCatalogs = await readFile(resolve(root, 'tests/fixtures/catalogs.ts'), 'utf8');
@@ -118,11 +176,11 @@ export async function validateArtifacts(root) {
       if (error?.code !== 'ENOENT') throw error;
     }
   }
-  return { ...traceability, sources: inventory.length, scopes: Object.keys(scopes).length,
+  return { ...summary, implementationVerified: true, sources: inventory.length, scopes: Object.keys(scopes).length,
     scannedFiles, coverage: { global: coverage.global, scopes: Object.keys(coverage.scopes).length } };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  try { console.log(JSON.stringify(await validateArtifacts(process.cwd()), null, 2)); }
+  try { console.log(JSON.stringify(await (process.argv.includes('--documents-only') ? validateFeatureDocuments(process.cwd()) : validateArtifacts(process.cwd())), null, 2)); }
   catch { console.error('Artifact validation failed: missing evidence, invalid traceability, or sensitive content detected.'); process.exitCode = 1; }
 }

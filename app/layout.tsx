@@ -2,9 +2,11 @@ import type { ReactNode } from 'react';
 import type { Metadata } from 'next';
 import Image from 'next/image';
 import { RootProvider } from 'fumadocs-ui/provider/next';
+import { connection } from 'next/server';
+import { readInstancePreferences } from '@/lib/instance/bootstrap';
 import './globals.css';
 
-export const metadata: Metadata = {
+const metadata: Metadata = {
   title: 'Perspective V | Docs',
   description: 'Project documentation',
   icons: {
@@ -14,6 +16,12 @@ export const metadata: Metadata = {
     ],
   },
 };
+
+export async function generateMetadata(): Promise<Metadata> {
+  await connection();
+  const preferences = await readInstancePreferences().catch(() => null);
+  return { ...metadata, ...(preferences ? { title: preferences.displayName, description: preferences.description } : {}) };
+}
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (

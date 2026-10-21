@@ -4,8 +4,29 @@ import { resolve } from 'node:path';
 import { getMDXComponents, useMDXComponents } from '../../mdx-components';
 import browserConfig from '../../playwright.config';
 import lintConfig from '../../eslint.config.mjs';
+import { parse as parseYaml } from 'yaml';
 
 afterEach(() => { vi.unstubAllEnvs(); vi.resetModules(); });
+
+it('keeps local instance examples pinned, bounded and dependent on separately provisioned secret files', async () => {
+  const example = parseYaml(await readFile(resolve('docs/guides/examples/instance.compose.yml'), 'utf8'));
+  const ci = await readFile(resolve('.github/workflows/ci.yml'), 'utf8');
+  expect(ci).toContain(example.services.mongo.image);
+  expect(example.services.mongo.ports).toEqual(['127.0.0.1:27018:27017']);
+  expect(example.services.librarian.deploy.resources.limits).toEqual({ cpus: '0.5', memory: '512M' });
+  expect(example.services.librarian.environment.INSTANCE_KEYRING_FILE).toBe('/run/secrets/instance_keyring');
+  for (const entry of Object.values(example.secrets) as { file: string }[]) {
+    expect(entry.file).toMatch(/^\.\.\/\.\.\/\.\.\/\.local\//);
+    expect(entry).not.toHaveProperty('environment');
+  }
+  const ignore = await readFile(resolve('.dockerignore'), 'utf8');
+  expect(ignore).toContain('**/.local/**'); expect(ignore).toContain('**/snapshots/**');
+  const readme = await readFile(resolve('README.md'), 'utf8');
+  for (const guide of ['installation', 'administration', 'configuration', 'secrets', 'upgrade', 'recovery']) {
+    const path = `docs/guides/instance-${guide}.md`; expect(readme).toContain(path);
+    expect((await readFile(resolve(path), 'utf8')).trim()).not.toBe('');
+  }
+});
 
 it('starts production using the generated standalone server', async () => {
   const manifest = JSON.parse(await readFile(resolve('package.json'), 'utf8'));

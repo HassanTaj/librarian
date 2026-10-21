@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { MongoClient } from 'mongodb';
 import { expect, test } from '@playwright/test';
 
 const readerCookie = (browser: string) => ({ name: 'authjs.session-token', value: `synthetic-browser-reader-${browser}-session`, url: 'http://127.0.0.1:3100' });
@@ -5,6 +7,18 @@ const adminCookie = { name: 'authjs.session-token', value: 'synthetic-browser-ad
 const wrongRoleCookie = { name: 'authjs.session-token', value: 'synthetic-browser-wrong-role-session', url: 'http://127.0.0.1:3100' };
 const wrongProjectCookie = { name: 'authjs.session-token', value: 'synthetic-browser-wrong-project-session', url: 'http://127.0.0.1:3100' };
 const expiredCookie = { name: 'authjs.session-token', value: 'synthetic-browser-expired-session', url: 'http://127.0.0.1:3100' };
+
+test.beforeEach(async () => {
+  const { dbName } = JSON.parse(await readFile('.local/browser-state.json', 'utf8')) as { dbName: string };
+  const client = new MongoClient(`mongodb://127.0.0.1:27018/${dbName}`);
+  await client.connect();
+  try {
+    // The cross-browser suite outlasts the real role freshness window.
+    const refreshed = await client.db(dbName).collection('identity_authorizations').updateOne(
+      { subject: 'synthetic-browser-reader-subject' }, { $set: { verifiedAt: new Date() } });
+    expect(refreshed.matchedCount).toBe(1);
+  } finally { await client.close(); }
+});
 
 test('anonymous restricted pages show only a safe denial and a local sign-in return', async ({ page }) => {
   const response = await page.goto('/private-one');

@@ -40,9 +40,11 @@ export async function startNextHarness(options: {
   if (options.port < 1024 || options.port > 65535) throw new Error('Invalid test port');
   const appRoot = resolve(options.appRoot);
   const origin = `http://127.0.0.1:${options.port}`;
+  const capture = process.env.LIBRARIAN_COVERAGE_PROCESS_DIR && appRoot === process.cwd()
+    ? join(process.env.LIBRARIAN_COVERAGE_PROCESS_DIR, `server-${randomUUID()}.json`) : undefined;
   const child = spawn(process.execPath, [join(appRoot, 'tests/integration/next-process.mjs'), appRoot, String(options.port)], {
     cwd: appRoot,
-    env: { ...process.env, LIBRARIAN_WORKER_ENABLED: '0', ...options.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1', ...(options.coverageDirectory ? { NODE_V8_COVERAGE: options.coverageDirectory } : {}) },
+    env: { ...process.env, LIBRARIAN_WORKER_ENABLED: '0', ...(capture ? { LIBRARIAN_INSTRUMENTED_CAPTURE: capture } : {}), ...options.env, NODE_ENV: 'production', NEXT_TELEMETRY_DISABLED: '1', ...(options.coverageDirectory ? { NODE_V8_COVERAGE: options.coverageDirectory } : {}) },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     windowsHide: true,
   });

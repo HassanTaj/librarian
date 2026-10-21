@@ -16,11 +16,14 @@ test('a running reader sees a published generation without rebuilding or restart
   const client = new MongoClient(`mongodb://127.0.0.1:27018/${state.dbName}`);
   await client.connect();
   try {
+    const db = client.db(state.dbName);
+    const refreshed = await db.collection('identity_authorizations').updateOne(
+      { subject: `synthetic-browser-sync-reader-${testInfo.project.name}-subject` }, { $set: { verifiedAt: new Date() } });
+    expect(refreshed.matchedCount).toBe(1);
     await page.context().addCookies([{ name: 'authjs.session-token', value: `synthetic-browser-sync-reader-${testInfo.project.name}-session`, url: 'http://127.0.0.1:3100' }]);
     await page.goto(`/${slug}`);
     await expect(page.getByRole('heading', { name: `SYNC_READER_BASE_${testInfo.project.name.toUpperCase()}` })).toBeVisible();
     const before = await page.locator('main').innerText();
-    const db = client.db(state.dbName);
     const catalog = state.syncCatalogIds[testInfo.project.name];
     await db.collection<SyncJob>('syncJobs').deleteMany({ state: 'queued', catalogId: { $ne: catalog } });
     const key = randomUUID();

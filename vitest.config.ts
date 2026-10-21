@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { BaseSequencer, type TestSpecification } from 'vitest/node';
 import { playwright } from '@vitest/browser-playwright';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -9,6 +10,16 @@ const coverageSources = process.env.LIBRARIAN_COVERAGE_BUILD === '1'
   ? new Set(await sourceInventory(process.cwd())) : new Set<string>();
 const browserLaunchOptions = process.env.LIBRARIAN_BROWSER_EXECUTABLE
   ? { executablePath: process.env.LIBRARIAN_BROWSER_EXECUTABLE } : undefined;
+
+class CoverageBuildFirst extends BaseSequencer {
+  async sort(files: TestSpecification[]) {
+    const ordered = await super.sort(files);
+    // Integration servers need the instrumented build even on a checkout without timing caches.
+    const build = ordered.findIndex(file => file.moduleId.replaceAll('\\', '/').endsWith('/tests/integration/coverage-spike.test.ts'));
+    if (build > 0) ordered.unshift(...ordered.splice(build, 1));
+    return ordered;
+  }
+}
 
 export default defineConfig({
   // Next's browser exports use compile-time environment constants, not a browser process.
@@ -23,6 +34,7 @@ export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('.', import.meta.url)), 'next/server': fileURLToPath(new URL('./node_modules/next/server.js', import.meta.url)), 'next/image': fileURLToPath(new URL('./tests/client/mocks/next-image.tsx', import.meta.url)) } },
   optimizeDeps: { include: ['next/link'] },
   test: {
+    sequence: { sequencer: CoverageBuildFirst },
     retry: 0,
     allowOnly: false,
     passWithNoTests: false,

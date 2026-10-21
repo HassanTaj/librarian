@@ -16,6 +16,15 @@ export const LIMITS = {
   cacheIdleMs: 5 * 60 * 1000, maxCatalogPayloadBytes: 200 * 1024 ** 2, maxPortalPayloadBytes: 4 * 1024 ** 3,
   sessionAbsoluteMs: 8 * 60 * 60 * 1000, roleFreshMs: 15 * 60 * 1000,
   roleQueryTimeoutMs: 5000, maxRolePages: 10, rolePageSize: 100, roleLeaseMs: 10_000, roleContenderMs: 2000,
+  maxInstanceJsonBytes: 64 * 1024, maxInstanceControlBytes: 512 * 1024, maxInstanceKeyringKeys: 8,
+  maxInstanceClientSecretBytes: 4096, maxInstanceAppKeyBytes: 16384, maxInstanceWebhookSecretBytes: 1024,
+  maxInstanceRequestPins: 64, instanceRequestPinMs: 30_000, instanceWorkerPinMs: 120_000,
+  instanceSetupSessionMs: 30 * 60_000, instanceSetupPurgeMs: 60 * 60_000, maxInstanceSetupSessions: 8, instanceProofMs: 10 * 60_000,
+  instanceRateBucketRetentionMs: 48 * 60 * 60_000,
+  instanceBootstrapMs: 24 * 60 * 60_000, instanceActivationMs: 120_000,
+  instanceMutationsPerMinute: 30, instanceChecksPerMinute: 6, instanceSetupChecksPerMinute: 8,
+  instanceGuessesPerMinute: 5, instanceGuessesPerDay: 100, instanceSetupReceiptMs: 24 * 60 * 60_000,
+  maxInstanceAuditEvents: 10_000, instanceAuditDays: 90, maxInstanceAuditOutbox: 128,
 } as const;
 
 export const HIGHLIGHT_LANGUAGES = ['bash', 'csharp', 'css', 'dockerfile', 'html', 'java', 'javascript', 'json', 'jsx', 'markdown', 'powershell', 'python', 'sql', 'tsx', 'typescript', 'yaml'] as const;

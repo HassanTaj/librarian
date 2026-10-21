@@ -35,6 +35,7 @@ async function readPage(response: Response) {
 
 export async function listCurrentRoles(issuer: string, subject: string, projectId: string, accessToken: string,
   fetcher: typeof fetch = fetch) {
+  if (fetcher === fetch) fetcher = await (await import('../instance/validation')).runtimeProviderFetch(issuer);
   const endpoint = new URL('/zitadel.authorization.v2.AuthorizationService/ListAuthorizations', issuer);
   const roles = new Set<string>();
   const ids = new Set<string>();

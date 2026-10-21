@@ -57,8 +57,9 @@ function sameIds(left: string[], right: string[]) {
   return left.length === right.length && left.every(id => right.includes(id));
 }
 
-export function Directory({ cards, unavailable = false, showSignIn = false, showAccountControls = false, canSync = false }: {
+export function Directory({ cards, unavailable = false, showSignIn = false, showAccountControls = false, canSync = false, showInstanceSettings = false, displayName, description }: {
   cards: DirectoryCard[]; unavailable?: boolean; showSignIn?: boolean; showAccountControls?: boolean; canSync?: boolean;
+  showInstanceSettings?: boolean; displayName?: string; description?: string;
 }) {
   const [query, setQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -167,9 +168,9 @@ export function Directory({ cards, unavailable = false, showSignIn = false, show
   return (
     <main className="mx-auto w-full max-w-6xl px-5 py-12 sm:px-8">
       <header className="mb-8">
-        <SiteNavigation showSignIn={showSignIn} showAccountControls={showAccountControls} />
+        <SiteNavigation showSignIn={showSignIn} showAccountControls={showAccountControls} showInstanceSettings={showInstanceSettings} displayName={displayName} />
         <h1 className="mt-2 text-4xl font-semibold tracking-tight">Documentation Directory</h1>
-        <p className="mt-3 max-w-2xl text-muted-foreground">Browse the documentation configured for this portal.</p>
+        <p className="mt-3 max-w-2xl text-muted-foreground">{description ?? 'Browse the documentation configured for this portal.'}</p>
       </header>
       {unavailable ? (
         <p role="status" className="rounded-lg border p-5">The documentation directory is temporarily unavailable. Please try again shortly.</p>

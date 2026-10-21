@@ -32,3 +32,20 @@ export function operationEvent(error: unknown, context: unknown) {
   }
   return entry;
 }
+
+const instanceContextFields = {
+  instanceId: z.uuid(), requestId: z.uuid(), activationId: z.uuid(),
+  operation: z.enum(['candidate_saved', 'setup_finalized', 'activated', 'rollback', 'owner_enrolled', 'owner_transferred', 'recovered', 'key_rotated']),
+  resultCode: z.enum(['accepted', 'denied', 'failed', 'stale', 'unavailable', 'provider_unavailable', 'invalid_transition', 'revision_conflict', 'rate_limited', 'expired']),
+  fromVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(), toVersion: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).nullable(),
+  editRevision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+};
+
+export function instanceOperationEvent(error: unknown, context: unknown) {
+  const entry: Record<string, string | number | null> = operationError(error);
+  if (context && typeof context === 'object') for (const [key, schema] of Object.entries(instanceContextFields)) {
+    const parsed = schema.safeParse(Reflect.get(context, key));
+    if (parsed.success) entry[key] = parsed.data;
+  }
+  return entry;
+}

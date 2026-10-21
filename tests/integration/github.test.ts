@@ -288,7 +288,7 @@ it('uses a short-lived JWT, a selected read-only installation token, immutable t
   expect(fixture.requests.filter(request => request.url.pathname.includes('/git/ref/')).length).toBe(2);
   expect(fixture.requests.some(request => request.url.searchParams.get('recursive') === '1')).toBe(true);
   expect(fixture.requests.find(request => request.url.searchParams.get('recursive') === '1')?.url.pathname.endsWith(`/git/trees/${docsTreeSha}`)).toBe(true);
-  expect(fixture.requests.every(request => request.init.redirect === 'error')).toBe(true);
+  expect(fixture.requests.every(request => request.init.redirect === 'manual')).toBe(true);
 });
 
 it('validates repository identity, selected installation access, branch and docs folder before catalog admission', async () => {

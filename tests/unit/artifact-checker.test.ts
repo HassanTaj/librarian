@@ -1,12 +1,14 @@
 import { expect, it } from 'vitest';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import type { CoverageMapData } from '@vitest/istanbul-lib-coverage';
 import { instrumentSource } from '../../scripts/coverage-loader.mjs';
 import { capabilityScopes, sourceInventory } from '../../scripts/check-coverage.mjs';
-import { assertNoLeaks, scanArtifactTree, validateArtifacts, validateTraceability } from '../../scripts/validate-artifacts.mjs';
+import { assertNoLeaks, scanArtifactTree, validateArtifacts, validateFeatureDocuments, validateInstanceTraceability, validateTraceability } from '../../scripts/validate-artifacts.mjs';
 
 const ids = [['FR', 38, 3], ['QG', 7, 3], ['ST', 14, 2], ['SC', 14, 3]] as const;
 function docs() {
@@ -121,7 +123,7 @@ it('validates documents, source scopes, coverage evidence, and built public arti
   const root = await fixture();
   try {
     const result = await validateArtifacts(root);
-    expect(result).toMatchObject({ requirements: 73, tasks: 92, scopes: 6, scannedFiles: 3 });
+    expect(result).toMatchObject({ requirements: 73, tasks: 92, scopes: 7, scannedFiles: 3 });
     await writeFile(join(root, 'specs/001-librarian-v1-portal/data-model.md'), '[escape](../../../../outside)');
     await expect(validateArtifacts(root)).rejects.toThrow('escaped');
     await writeFile(join(root, 'specs/001-librarian-v1-portal/data-model.md'), '[missing](./missing.md)');
@@ -129,5 +131,81 @@ it('validates documents, source scopes, coverage evidence, and built public arti
     await writeFile(join(root, 'specs/001-librarian-v1-portal/data-model.md'), '[local file](./terms.md#safe) [local directory](./navigation/) [external](https://example.invalid)');
     await writeFile(join(root, 'public/health.json'), '{"status":"ok","title":"SYNTHETIC_TOKEN_NEVER_PUBLIC"}');
     await expect(validateArtifacts(root)).rejects.toThrow('Sensitive content');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+async function instanceDocs() {
+  const base = 'specs/002-instance-configuration';
+  const [spec, plan, tasks, contract] = await Promise.all(['spec.md', 'plan.md', 'tasks.md', 'contracts/instance-api.md'].map(file => readFile(join(base, file), 'utf8')));
+  return { spec, plan, tasks, contract };
+}
+
+it('derives the selected instance requirement/task/source/API inventory and rejects broken mappings', async () => {
+  const { spec, plan, tasks, contract } = await instanceDocs();
+  expect(validateInstanceTraceability(spec, plan, tasks, contract)).toMatchObject({ requirements: 58, tasks: 94, sources: 66, apiRows: 15 });
+  for (const [changed, expected] of [
+    [tasks.replace('T094 Prepare', 'T093 Prepare'), 'Task inventory'],
+    [tasks.replace('| V2-FR-036 |', '| V2-FR-999 |'), 'traceability'],
+    [tasks.replace(/^- \[[ xX]\] T003 /m, '- [?] T003 '), 'Task inventory'],
+    [tasks.replace('T001-T006', 'T001-T999'), 'dependency'],
+  ]) expect(() => validateInstanceTraceability(spec, plan, changed, contract)).toThrow(expected);
+  expect(() => validateInstanceTraceability(spec.replace('**V2-FR-036**', '**V2-FR-035**'), plan, tasks, contract)).toThrow('requirement inventory');
+  expect(() => validateInstanceTraceability(spec, plan.replace('lib/instance/store.ts\n', 'lib/instance/missing.ts\n'), tasks, contract)).toThrow('source inventory');
+  expect(() => validateInstanceTraceability(spec, plan, tasks, contract.replace('/api/instance/status', '/api/instance/unplanned'))).toThrow('contract');
+  for (const changed of [spec.replace(/\*\*V2-FR-\d{3}\*\*/g, '**omitted**'), spec.replace('**V2-FR-001**', '**V2-FR-999**')]) {
+    expect(() => validateInstanceTraceability(changed, plan, tasks, contract)).toThrow('requirement inventory');
+  }
+  for (const changed of [tasks.replace(/^## Phase .*$/gm, ''), tasks.replace('## Phase 2:', '## Phase 1:'), tasks.replaceAll('User Story 5', 'User Story 6')]) {
+    expect(() => validateInstanceTraceability(spec, plan, changed, contract)).toThrow('phase/story');
+  }
+  expect(() => validateInstanceTraceability(spec, plan, tasks, '')).toThrow('contract inventory');
+  const firstRow = contract.match(/^\|\s*(?:GET|POST|PATCH|GET\/POST)\s+`[^`]+`[^\n]*/m)![0];
+  expect(() => validateInstanceTraceability(spec, plan, tasks, `${contract}\n${firstRow}`)).toThrow('Duplicate');
+  expect(() => validateInstanceTraceability(spec, plan, tasks, contract.split('\n').filter(line => !line.includes('/api/instance/settings/check')).join('\n'))).toThrow('handler is missing');
+});
+
+it('runs the actual documents CLI successfully and reports missing documents with a failing exit', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'librarian-artifact-cli-'));
+  try {
+    const capture = process.env.LIBRARIAN_COVERAGE_PROCESS_DIR ? [`--import=${pathToFileURL(resolve('tests/integration/native-coverage-register.mjs')).href}`] : [];
+    const script = resolve('scripts/validate-artifacts.mjs');
+    const invoke = (cwd: string) => spawnSync(process.execPath, [...(cwd === process.cwd() ? capture : []), script, '--documents-only'], { cwd,
+      env: process.env, encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+    const valid = invoke(process.cwd()); expect(valid.status, valid.stderr).toBe(0);
+    expect(JSON.parse(valid.stdout)).toMatchObject({ requirements: 58, tasks: 94, implementationVerified: false });
+    const missing = invoke(root); expect(missing.status).toBe(1); expect(missing.stderr).toContain('Artifact validation failed');
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it('rejects an escaped artifact directory and malformed selected-feature metadata', async () => {
+  const root = await fixture(); const outside = await mkdtemp(join(tmpdir(), 'librarian-artifact-outside-'));
+  try {
+    await writeFile(join(outside, 'synthetic.txt'), 'safe synthetic artifact');
+    await expect(scanArtifactTree(root, outside, [])).rejects.toThrow('escaped');
+    await writeFile(join(root, '.specify/feature.json'), '{');
+    await expect(validateFeatureDocuments(root)).rejects.toThrow('Invalid selected feature');
+  } finally { await rm(outside, { recursive: true, force: true }); await rm(root, { recursive: true, force: true }); }
+});
+
+it('validates selected 002 documents without calling them implemented and retains independent 001 validation', async () => {
+  const root = await fixture();
+  try {
+    await cp('specs/002-instance-configuration', join(root, 'specs/002-instance-configuration'), { recursive: true });
+    await cp('docs', join(root, 'docs'), { recursive: true });
+    await writeFile(join(root, 'AGENTS.md'), 'Synthetic governance link target.');
+    await writeFile(join(root, '.specify/feature.json'), JSON.stringify({ feature_directory: 'specs/002-instance-configuration' }));
+    const result = await validateFeatureDocuments(root);
+    expect(result).toMatchObject({ feature: 'specs/002-instance-configuration', requirements: 58, tasks: 94, sources: 66, apiRows: 15, implementationVerified: false, original: { requirements: 73, tasks: 92 } });
+    await expect(validateArtifacts(root)).rejects.toThrow('implementation source');
+    const spec = join(root, 'specs/001-librarian-v1-portal/spec.md');
+    const original = await readFile(spec, 'utf8');
+    await writeFile(spec, '');
+    await expect(validateFeatureDocuments(root)).rejects.toThrow('Specification requirement inventory');
+    await writeFile(spec, original);
+    const model = join(root, 'specs/002-instance-configuration/data-model.md');
+    await writeFile(model, '[missing](./missing.md)');
+    await expect(validateFeatureDocuments(root)).rejects.toThrow('missing');
+    await writeFile(join(root, '.specify/feature.json'), JSON.stringify({ feature_directory: '../outside' }));
+    await expect(validateFeatureDocuments(root)).rejects.toThrow('selected feature');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

@@ -1,6 +1,6 @@
 # Validation Guide: Secure Installation and Instance Settings
 
-**Status**: Design guide dated 2026-10-19. The new setup/settings code, operator script, fixtures and tests must be implemented before these journeys can pass. Planning did not run application tests or contact providers. Existing command names below were inspected in package.json; no nonexistent v2 test script is claimed.
+**Status — 2026-10-21**: The local automated gates and synthetic journeys below pass: 1,022 coverage tests, 99/99 Chromium/Firefox/WebKit cases, the production build, artifact validation, and one disposable image/container acceptance. T085 previous-image compatibility and BG-01/02/03 remain open. These results do not prove genuine provider, workload, DEV, or production behavior.
 
 ## Prerequisites and isolation
 
@@ -23,24 +23,25 @@ npm run build
 npm run test:e2e
 ```
 
-Expected: required tests pass without retries/skips; source provenance and zero-hit inventory are present; statements, branches, functions and lines each >=95% globally, C7 and every applicable existing C1-C6 scope. Scope names/membership/checker schema must be extended first as the plan requires; the current checker only supports C1-C6. Browser acceptance covers Chromium, Firefox and WebKit. Type/lint/build must pass against the completed current source. Missing instrumentation/report or unassigned new runtime file fails acceptance.
+Expected: required tests pass without retries/skips; source provenance and zero-hit inventory are present; statements, branches, functions and lines each >=95% globally and in C1-C7. Browser acceptance covers Chromium, Firefox and WebKit. Type/lint/build must pass against the completed current source. Missing instrumentation/report or unassigned new runtime file fails acceptance. `npm run test:coverage` collects the unit, integration, and client projects with actual server evidence.
 
 For container acceptance, build a disposable local image using the existing Dockerfile/CI pattern, never publish it:
 
 ```powershell
-docker build --tag librarian:ci .
-$env:LIBRARIAN_TEST_IMAGE = 'librarian:ci'
+$env:LIBRARIAN_TEST_IMAGE = "librarian:local-acceptance-$([guid]::NewGuid().ToString('N'))"
+docker build --tag $env:LIBRARIAN_TEST_IMAGE .
 npm run test:container
+docker image rm $env:LIBRARIAN_TEST_IMAGE
 Remove-Item Env:LIBRARIAN_TEST_IMAGE
 ```
 
-This block is a future local-only validation procedure, not an operation executed during planning. Do not start/recreate shared Docker services. `npm run validate:artifacts` currently validates 001 and depends on coverage evidence; after the planned v2-aware extension it must validate 002 without weakening 001. Until then use direct v2 Markdown link, identifier, inventory and preservation checks; a v1 validator pass does not prove v2 completeness.
+This is a local-only procedure. The container harness creates uniquely named test containers and a volume, then removes only those resources. Do not start/recreate shared Docker services. `npm run validate:artifacts` validates both selected feature 002 and historical feature 001 without weakening original requirements or task counts. `git diff --check` reports whitespace errors while Git may still print line-ending notices.
 
 ## Acceptance journeys
 
 | Journey / requirements | Procedure with synthetic fixtures | Required evidence |
 |---|---|---|
-| Fresh installation: FR001-013; SC001-003 | Empty isolated storage and explicit protected fresh intent; start without optional providers; visit `/repositories/setup`; authorize; complete welcome/database/Zitadel/GitHub/preferences/owner/review. Restart between steps; expire session and reauthorize. | Safe prerequisite guidance, durable draft, no normal delivery/jobs before readiness; verified candidate identity AND current instance-admin role; exactly one ready/owner commit and consumed bootstrap |
+| Fresh installation: FR001-013; SC001-003 | Empty isolated storage and explicit protected fresh intent; start without optional providers; visit `/instance/setup`; authorize; complete welcome/database/Zitadel/GitHub/preferences/owner/review. Restart between steps; expire session and reauthorize. | Safe prerequisite guidance, durable draft, no normal delivery/jobs before readiness; verified candidate identity AND current instance-admin role; exactly one ready/owner commit and consumed bootstrap |
 | Setup attacks: FR006-008,012-013,025; QG004 | Direct API requests without session; wrong credential/CSRF/origin; guessing/replay/expired cookies; altered revision/state/issuer/subject; two finalizers; interrupt at every write and restart. | Zero unauthorized mutation; bounded 429 quotas across processes; safe errors/logs; exactly one owner; committed adoption failure reports pending/maintenance, never resets setup |
 | Provider truth/security: FR010-011,019,024-025 | Fixture discovery succeeds while login fails; App signing succeeds without installation; no webhook delivery; redirects, metadata/private/mapped addresses and DNS answer changes; bad keys and response-size/time limits. | Separate actual check statuses/times/versions; required failures block activation; absent install/delivery visible warning only where allowed; no prohibited outbound connection or secret/body leakage |
 | Settings authorization: FR014-015,025; SC004 | Anonymous, wrong issuer/project, catalog-only admin, role-only, binding-only, reader, bound instance admin and owner; call every page/read/test/write/rollback/audit route directly. | Only permitted binding+current-role identities succeed; instance authority grants neither private reading nor catalog mutations; exact 15-minute role deadline/failed refresh fail closed |

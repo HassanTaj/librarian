@@ -18,12 +18,12 @@ Exactly one authoritative document, <=512 KiB encoded BSON; validate the encoded
 | `revision`, `nextBundleVersion` | Monotonic safe integers | CAS revision for every durable control mutation; bundle versions never reused |
 | `lifecycle` | `configuring`, `awaiting_owner`, `ready`, `maintenance`, `legacy_migrating` | Fresh and legacy detection precede document creation; no ready-to-fresh transition |
 | `createdAt`, `updatedAt`, `initializedAt` | Server dates; initialization nullable until finalization | No client-supplied time authority |
-| `bootstrap` | `epoch`, verifier hash, expiry, `consumedAt`, aggregated quotas | High-entropy credential verifier; finalization consumes within same document update as owner/ready state |
+| `bootstrap` | `epoch`, verifier hash, expiry, `consumedAt`, <=8 `{sessionHash,expiresAt}` reservations | High-entropy credential verifier and atomic live-session cap; finalization consumes within same document update as owner/ready state |
 | `securityEpoch`, `recoveryEpoch` | Monotonic integer / host-matching token | Logical session invalidation and independent restore fence |
-| `active`, `previous`, `candidate` | Nullable complete bundles below; one of each | No dangling authoritative revision/secret pointers |
+| `active`, `previous`, `candidate` | Nullable complete active/previous bundles and one validated candidate draft | Active/previous bundles always have every required encrypted secret; a fresh candidate may retain blank provider identifiers and null envelopes until the user supplies them |
 | `administrators` | <=20 stable issuer/subject bindings; exactly one current owner after initialization | Binds authority; role requirement is checked separately on every instance operation |
 | `gate` | `open`, `closing`, `maintenance`; activation token; deadline | Atomic admission barrier |
-| `admissions` | <=64 request pins and <=1 worker pin | Server-generated random ID, bundle/security epoch, purpose, hard expiry; bounded operations release explicitly |
+| `admissions` | <=64 request pins and <=1 worker pin | Server-generated random ID, bundle version, security/recovery epochs, purpose, creation time and hard expiry; bounded operations release explicitly |
 | `activation` | Nullable `{id, from, to, phase, actor, deadline, fencedCatalogIds, result}` | One resumable cutover at a time; at most 20 catalog entries; CAS token guards delayed reconcilers |
 | `auditOutbox` | <=128 bounded events | Appended atomically with accepted authority/config change; consumed idempotently into audit collection |
 | `migration` | Nullable sanitized source digest, mode, timestamp, verification summary | Digest uses safe non-secret fields plus keyed secret fingerprints; never raw env/path/credential values |
@@ -39,13 +39,13 @@ Exactly one authoritative document, <=512 KiB encoded BSON; validate the encoded
 | `publicOrigin` | Exact HTTPS origin, no credentials/path/query/fragment; loopback HTTP only in isolated DEV |
 | `zitadel` | Exact approved issuer origin; client/project/audience identifiers retain current config validation; no subject/email hints as authorization |
 | `github` | Positive decimal App ID; provider fixed to GitHub; no repository write scopes |
-| `secrets` | Purpose-keyed encrypted client secret, App key, webhook current and optional expiring previous secret |
+| `secrets` | Active/previous bundles require purpose-keyed encrypted client secret, App key and webhook secret; candidate drafts may keep each envelope null until replaced. Optional prior webhook secret expires on its declared deadline |
 | `checks` | <=12 typed revision/time-bound results; status `not_run`, `passed`, `failed`, `warning`; safe code only |
 | `ownerProof` | Optional candidate instance/version/issuer/subject/project/security epoch/nonce/expiry; derived from actual candidate callback, not browser input |
 | `impact` | Changed categories, required auth epoch increment, affected source revalidation, confirmation nonce; server-derived |
 | `previousUntil` | Previous bundle only; <=24 h, or explicit protected maintenance recovery hold |
 
-Allowed runtime preferences are the finite fields above plus existing trusted assets; no new renderer mode, sync knob or upload. Source defaults affect future catalogs only. Blank secret input means unchanged; explicit nonempty `replace` creates a new credential version/envelope, invalidates checks and preserves active credentials. No ordinary delete/reveal action exists. Candidate edits increment bundle version and invalidate all checks/proofs; update CAS requires the returned `editRevision` and candidate version.
+Allowed runtime preferences are the finite fields above plus existing trusted assets; no new renderer mode, sync knob or upload. Source defaults affect future catalogs only. Fresh setup persists a validated, possibly incomplete candidate draft so the seven-step wizard can resume after session expiry or process restart. Blank secret input means unchanged; explicit nonempty `replace` creates a new credential version/envelope, invalidates checks and preserves active credentials. No ordinary delete/reveal action exists. Candidate edits increment bundle version and invalidate all checks/proofs; update CAS requires the returned `editRevision` and candidate version. Provider checks and finalization reject missing required identifiers or envelopes; partial candidates cannot become active bundles.
 
 ### Authenticated secret envelope
 

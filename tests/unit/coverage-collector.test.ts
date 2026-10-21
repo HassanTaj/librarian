@@ -32,12 +32,19 @@ it('assembles actual test counts, source hashes and capability membership withou
     const evidence = await assembleEvidence(root, coverage, server, tests, sources);
     expect(evidence.tests).toEqual({ passed: 3, failed: 1, skipped: 3 });
     expect(evidence.inventory).toEqual([file]);
-    expect(evidence.scopes).toEqual({ C6: [file] });
+    expect(evidence.scopes).toEqual({ C7: [file], C6: [file] });
     expect(evidence.reports[0].hashes[file]).toBe(sources[file].hash);
     expect(Object.values(evidence.reports[0].coverage[file].f)).toEqual([0]);
     expect(evidence.reports[1].kind).toBe('node');
     expect(evidence.reports[2]).toEqual(server.reports[0]);
     expect(evidence.browser).toEqual(server.browser);
+    const counters = structuredClone(coverage);
+    counters[file].s['0'] = 1;
+    const withProcess = await assembleEvidence(root, coverage, server, tests, sources, [{ kind: 'server', coverage: counters }]);
+    expect(withProcess.reports[3]).toEqual({ kind: 'server', coverage: counters, hashes: { [file]: sources[file].hash } });
+    const invalid = structuredClone(counters);
+    invalid[file].statementMap['0'].start.line++;
+    await expect(assembleEvidence(root, coverage, server, tests, sources, [{ kind: 'server', coverage: invalid }])).rejects.toThrow('differs from original');
     await writeFile(file, `${code}// mutation`);
     await expect(assembleEvidence(root, coverage, server, tests, sources)).rejects.toThrow('changed');
   } finally { await rm(root, { recursive: true, force: true }); }
@@ -49,6 +56,20 @@ it('fails when a real passing Node suite has no actual server evidence', async (
     await expect(collectCoverage(root)).rejects.toThrow('server-evidence.json');
   } finally { await rm(root, { recursive: true, force: true }); }
 }, 30_000);
+
+it('includes unexecuted instance runtime files in both the baseline and C7 instead of excluding them', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'librarian-instance-evidence-'));
+  try {
+    await mkdir(join(root, 'lib/instance'), { recursive: true });
+    const file = join(root, 'lib/instance/store.ts');
+    await writeFile(file, 'export function store() { return 1; }');
+    const sources = await captureSources(root);
+    const evidence = await assembleEvidence(root, {}, { reports: [], server: {}, browser: {} }, { numPassedTests: 1, numFailedTests: 0, numPendingTests: 0, numTodoTests: 0 }, sources);
+    expect(evidence.inventory).toEqual([file]);
+    expect(evidence.scopes.C7).toEqual([file]);
+    expect(Object.values(evidence.reports[0].coverage[file].f)).toEqual([0]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 it('fails coverage collection when a required test project exits unsuccessfully', async () => {
   const root = await createCoverageFixture('import { it, expect } from "vitest"; it("fails the required suite", () => { expect(false).toBe(true); });');

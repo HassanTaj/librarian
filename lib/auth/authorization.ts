@@ -1,3 +1,4 @@
+import { withRuntimeInstanceAdmission } from '../instance/access';
 import type { Db } from 'mongodb';
 import { CatalogSchema, isCatalogSlug, type Catalog } from '../catalog';
 import { withGeneration, type GenerationPin, type Manifest } from '../content/generations';
@@ -54,6 +55,7 @@ export async function authorizeCatalog(db: Db, slug: string) {
 
 export async function readAuthorizedGeneration<T>(db: Db, contentRoot: string, slug: string, generationId: string | undefined,
   read: (manifest: Manifest, signal: AbortSignal, pin: GenerationPin, authorization: AuthorizationContext) => Promise<T>, signal?: AbortSignal) {
+  return withRuntimeInstanceAdmission(db, 'request', async () => {
   let authorization = await authorizeCatalog(db, slug);
   const { catalog } = authorization;
   const request = { catalogId: catalog._id, configRevision: catalog.configRevision, authEpoch: catalog.authEpoch, generationId };
@@ -70,4 +72,5 @@ export async function readAuthorizedGeneration<T>(db: Db, contentRoot: string, s
     await recheck();
     return result;
   }, signal);
+  });
 }

@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import { LIMITS, HIGHLIGHT_LANGUAGES } from '../../lib/limits';
 
-it('freezes the approved finite v1 policy values and units', () => {
+it('freezes the approved finite v1 and instance policy values and units', () => {
   expect(LIMITS).toEqual({
     maxCatalogs: 20, maxFiles: 1000, maxPages: 500, maxSnapshotBytes: 52_428_800,
     maxMarkdownBytes: 262_144, maxMetadataBytes: 16_384, maxAssetBytes: 5_242_880, maxGitHubTreeBytes: 7_000_000,
@@ -19,6 +19,14 @@ it('freezes the approved finite v1 policy values and units', () => {
     cacheIdleMs: 300_000, maxCatalogPayloadBytes: 209_715_200, maxPortalPayloadBytes: 4_294_967_296,
     sessionAbsoluteMs: 28_800_000, roleFreshMs: 900_000,
     roleQueryTimeoutMs: 5000, maxRolePages: 10, rolePageSize: 100, roleLeaseMs: 10_000, roleContenderMs: 2000,
+    maxInstanceJsonBytes: 65_536, maxInstanceControlBytes: 524_288,
+    maxInstanceClientSecretBytes: 4096, maxInstanceAppKeyBytes: 16_384, maxInstanceWebhookSecretBytes: 1024,
+    maxInstanceRequestPins: 64, instanceRequestPinMs: 30_000, instanceWorkerPinMs: 120_000,
+    maxInstanceKeyringKeys: 8, instanceRateBucketRetentionMs: 48 * 60 * 60_000,
+    instanceSetupSessionMs: 1_800_000, instanceSetupPurgeMs: 3_600_000, instanceSetupReceiptMs: 86_400_000, maxInstanceSetupSessions: 8, instanceProofMs: 600_000,
+    instanceBootstrapMs: 86_400_000, instanceActivationMs: 120_000,
+    instanceMutationsPerMinute: 30, instanceChecksPerMinute: 6, instanceSetupChecksPerMinute: 8, instanceGuessesPerMinute: 5, instanceGuessesPerDay: 100,
+    maxInstanceAuditEvents: 10_000, instanceAuditDays: 90, maxInstanceAuditOutbox: 128,
   });
   expect(new Set(HIGHLIGHT_LANGUAGES).size).toBe(LIMITS.maxHighlightedLanguages);
   expect(LIMITS.retryDelaysMs).toHaveLength(LIMITS.maxAttempts - 1);

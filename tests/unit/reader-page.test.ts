@@ -18,7 +18,7 @@ vi.mock('@/lib/mongo', () => ({ getMongo: state.getMongo }));
 vi.mock('@/lib/content/source', () => ({ withRuntimeContent: state.withRuntimeContent }));
 vi.mock('@/lib/content/paths', () => ({ resolveContentLink: (slug: string, generation: string, path: string, href: string) =>
   href.startsWith('https:') ? href : `/${slug}/${generation}/${path}/${href}` }));
-vi.mock('@/lib/layout.shared', () => ({ baseOptions: { nav: {} } }));
+vi.mock('@/lib/layout.shared', () => ({ instanceLayoutOptions: () => ({ nav: {} }) }));
 vi.mock('@/mdx-components', () => ({ getMDXComponents: (components = {}) => ({ a: () => null, ...components }) }));
 vi.mock('fumadocs-ui/layouts/docs', () => ({ DocsLayout: state.docsLayout }));
 vi.mock('fumadocs-ui/page', () => ({ DocsBody: () => null, DocsDescription: () => null, DocsPage: () => null, DocsTitle: () => null }));

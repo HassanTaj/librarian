@@ -102,7 +102,7 @@ it('fails safely when cache storage is not a directory', async () => {
 it('rejects cache directories that exceed the bounded entry scan', async () => {
   const f = await setup();
   await mkdir(f.directory, { recursive: true });
-  for (let i = 0; i < LIMITS.maxFiles * 2 + 3; i++) await writeFile(join(f.directory, `tmp-${randomUUID()}`), '');
+  await Promise.all(Array.from({ length: LIMITS.maxFiles * 2 + 3 }, () => writeFile(join(f.directory, `tmp-${randomUUID()}`), '')));
   await expect(trimBlobCache(f.root, f.id, 1, LIMITS.maxSnapshotBytes)).rejects.toThrow('generation_invalid_path');
 });
 

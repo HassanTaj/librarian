@@ -2,6 +2,8 @@ import { headers } from 'next/headers';
 import { AdminConsole } from '@/components/admin-console';
 import { SiteNavigation } from '@/components/site-navigation';
 import { requireAdmin } from '@/lib/auth/admin';
+import { requireInstanceAdmin } from '@/lib/instance/access';
+import { readInstancePreferences } from '@/lib/instance/bootstrap';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -14,7 +16,13 @@ export default async function RepositoriesPage() {
   let code: string | null = null;
   try { await requireAdmin(new Request('http://localhost/repositories', { headers: requestHeaders })); }
   catch (error) { code = error instanceof Error ? error.message : 'admin_unavailable'; }
-  if (code === null) return <AdminConsole />;
+  if (code === null) {
+    const preferences = await readInstancePreferences().catch(() => null);
+    let showInstanceSettings = false;
+    try { await requireInstanceAdmin(new Request('http://localhost/repositories', { headers: requestHeaders })); showInstanceSettings = true; }
+    catch { /* Catalog authority grants no instance authority. */ }
+    return <AdminConsole defaultDocsFolder={preferences?.docsFolder} displayName={preferences?.displayName} showInstanceSettings={showInstanceSettings} />;
+  }
   const signIn = code === 'admin_unauthorized';
   const title = signIn ? 'Sign in required' : code === 'admin_forbidden' ? 'Administrator access denied' : 'Administration unavailable';
   return <main className="mx-auto max-w-3xl px-5 py-16"><SiteNavigation showSignIn={signIn} showAccountControls={!signIn} /><h1 className="text-2xl font-semibold">{title}</h1>

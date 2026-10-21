@@ -12,3 +12,11 @@ export const baseOptions: BaseLayoutProps = {
     ),
   },
 };
+
+export function instanceLayoutOptions(displayName?: string): BaseLayoutProps {
+  if (!displayName) return baseOptions;
+  return { ...baseOptions, nav: { ...baseOptions.nav, title: <>
+    <Image src="/librarian-github-app-icon.png" alt="" width={32} height={32} className="rounded-md" />
+    <span className="max-md:sr-only">{displayName}</span>
+  </> } };
+}
