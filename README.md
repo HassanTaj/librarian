@@ -6,10 +6,12 @@ Fumadocs, Auth.js/Zitadel, MongoDB, a read-only GitHub App and persistent snapsh
 
 Operator guides:
 
+- [Author documentation for Librarian](docs/guides/documentation-authoring.md)
 - [Install an instance](docs/guides/instance-installation.md)
 - [Administer instance settings](docs/guides/instance-administration.md)
 - [Configuration sources](docs/guides/instance-configuration.md)
 - [Provider secrets and root keys](docs/guides/instance-secrets.md)
+- [Publish the application image](docs/guides/image-publication.md)
 - [Upgrade a legacy installation](docs/guides/instance-upgrade.md)
 - [Recovery and limitations](docs/guides/instance-recovery.md)
 

@@ -33,9 +33,14 @@ in GitHub Actions is disposable test infrastructure for database integration tes
 secret files are mounted from scoped Swarm secrets and `CONTENT_ROOT` is set to the persistent volume.
 
 GitHub Actions CI uses synthetic fixtures and no live provider credentials. The image-publish workflow
-requires the GitHub Actions repository variable `REGISTRY_URL` to contain the registry host only (for
-example, `gitea.perspective-v.com`); `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` remain repository
-secrets. Deployed application credentials are provisioned through scoped Swarm secrets, as required
+requires the GitHub Actions repository secrets `REGISTRY_URL`, `REGISTRY_IMAGE`, `REGISTRY_USERNAME`, and
+`REGISTRY_PASSWORD`. `REGISTRY_URL` must contain the registry host only, without a scheme or path.
+`REGISTRY_IMAGE` must contain the full image name (`registry.example.com/namespace/repository`),
+using the same host as `REGISTRY_URL`, without a tag or digest; the workflow appends the tags.
+The workflow reads registry configuration exclusively from secrets, with no repository-variable fallback.
+See the [image publication guide](../../docs/guides/image-publication.md) for secret provisioning,
+the previous-variable migration, generated tags and publication boundaries.
+Deployed application credentials are provisioned through scoped Swarm secrets, as required
 by the project; they are never baked into a .env file, Docker build context or client-visible variable.
 
 ## Checks Available Now
