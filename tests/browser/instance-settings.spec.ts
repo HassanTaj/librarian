@@ -56,11 +56,16 @@ test('protects grouped Settings, saves a private draft, pages audit and preserve
   await authenticate(page.context());
   await openSettings(page);
   await expect(page.locator('html')).toHaveClass(/dark/);
-  for (const group of ['General', 'Authentication', 'GitHub Integration', 'Documentation', 'Security']) {
+  for (const [tab, group] of [['Auth', 'Auth'], ['Zitadel', 'Zitadel'], ['MongoDB', 'MongoDB connection'], ['GitHub App', 'GitHub App'],
+    ['GitHub webhook', 'GitHub webhook'], ['Runtime and documentation', 'Runtime and documentation'], ['Host prerequisites', 'Host prerequisites']]) {
+    await page.getByRole('tab', { name: tab }).click();
     await expect(page.getByRole('group', { name: group })).toBeVisible();
   }
-  await expect(page.getByRole('heading', { name: 'Checks and activation' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Validation' }).click();
+  await expect(page.getByRole('heading', { name: 'Validation and activation' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Audit' }).click();
   await expect(page.getByRole('heading', { name: 'System and audit' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Runtime and documentation' }).click();
   await expect(page.getByRole('link', { name: 'Synthetic Settings Portal' })).toHaveAttribute('href', '/');
   await expect(page.getByRole('link', { name: 'Instance Settings' })).toHaveAttribute('href', '/instance/settings');
   await page.getByLabel('Display name').focus();
@@ -82,8 +87,10 @@ test('protects grouped Settings, saves a private draft, pages audit and preserve
   await page.getByLabel('Default documentation folder').fill('docs');
   await page.getByLabel('Display name').fill('Saved browser draft');
   await page.getByLabel('Description').fill('Saved only as a candidate.');
-  await page.getByLabel(/Replace Webhook signing secret/).check();
-  await page.getByLabel('New Webhook signing secret').fill(replacementSecret);
+  await page.getByRole('tab', { name: 'GitHub webhook' }).click();
+  await page.getByLabel(/Replace GitHub webhook signing secret/).check();
+  await page.getByLabel('New GitHub webhook signing secret').fill(replacementSecret);
+  await page.getByRole('tab', { name: 'Runtime and documentation' }).click();
   const savedResponse = page.waitForResponse(response => response.url().endsWith('/api/instance/settings') && response.request().method() === 'PATCH');
   await page.getByRole('button', { name: 'Save draft' }).click();
   const saved = await savedResponse;
@@ -91,8 +98,8 @@ test('protects grouped Settings, saves a private draft, pages audit and preserve
   const savedBody = await saved.text();
   expect(savedBody).not.toContain(replacementSecret);
   await expect(page.getByRole('status')).toContainText('Draft saved. Active settings have not changed.');
-  await expect(page.getByText('Saved draft 2 has not been activated.')).toBeVisible();
-  await expect(page.getByLabel('New Webhook signing secret')).toHaveValue('');
+  await page.getByRole('tab', { name: 'GitHub webhook' }).click();
+  await expect(page.getByLabel('New GitHub webhook signing secret')).toHaveValue('');
   const snapshot = await page.evaluate(async () => (await (await fetch('/api/instance/settings', { cache: 'no-store' })).json()));
   expect(snapshot.active.preferences.displayName).toBe('Synthetic Settings Portal');
   expect(snapshot.candidate.preferences.displayName).toBe('Saved browser draft');
@@ -100,8 +107,9 @@ test('protects grouped Settings, saves a private draft, pages audit and preserve
   expect(await page.content()).not.toContain(replacementSecret);
   await expect(page.getByRole('link', { name: 'Synthetic Settings Portal' })).toBeVisible();
 
-  await page.getByRole('button', { name: 'database', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText('database: passed (database_ok)');
+  await page.getByRole('tab', { name: 'Validation' }).click();
+  await page.getByRole('button', { name: 'Run database connection check' }).click();
+  await expect(page.getByRole('status')).toContainText('Database connection: passed (database_ok)');
   const writes = await page.evaluate(async () => {
     const statuses: number[] = [];
     for (let index = 0; index < 20; index++) {
@@ -117,6 +125,7 @@ test('protects grouped Settings, saves a private draft, pages audit and preserve
   });
   expect(writes).toEqual(Array(20).fill(200));
 
+  await page.getByRole('tab', { name: 'Audit' }).click();
   const audit = page.getByRole('heading', { name: 'System and audit' }).locator('..');
   await audit.getByRole('button', { name: 'Load audit' }).click();
   await expect(audit.locator('ul li')).toHaveCount(20);

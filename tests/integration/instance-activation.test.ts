@@ -3,8 +3,9 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { expect, it } from 'vitest';
 import { acquireInstanceAdmission, issueSetupOwnerProof, releaseInstanceAdmission, withInstanceAdmission } from '../../lib/instance/access';
 import { beginInstanceActivation, commitInitialInstance, reconcileInitialAdoption, reconcileInstanceActivation } from '../../lib/instance/activation';
+import { readInstanceHost } from '../../lib/instance/bootstrap';
 import type { Catalog } from '../../lib/catalog';
-import { readInstance, updateInstance, type InstanceControl } from '../../lib/instance/store';
+import { readInstance, serializeInstanceControl, updateInstance, type InstanceControl, type StoredInstanceControl } from '../../lib/instance/store';
 import { CatalogSchema } from '../../lib/catalog';
 import { catalogs } from '../fixtures/catalogs';
 import { createInstanceHarness, seedReadyInstance } from './instance-harness';
@@ -61,7 +62,7 @@ it('drains a real request pin, fences catalog leases and commits one retained pr
 
     await releaseInstanceAdmission(harness.storage.db, harness.instanceId, pin.id);
     expect(await reconcileInstanceActivation(harness.env, process.cwd())).toBe(true);
-    const activated = await harness.storage.db.collection<InstanceControl>('instance_configuration').findOne({ _id: 'instance' });
+    const activated = await readInstance(harness.storage.db, harness.instanceId);
     expect(activated).toMatchObject({ lifecycle: 'ready', gate: { state: 'open' }, activation: null,
       active: { version: candidateState.candidate!.version, preferences: { displayName: 'Reviewed synthetic portal' } },
       previous: { version: original.version }, securityEpoch: fixture.control.securityEpoch,
@@ -284,7 +285,9 @@ it('resumes initial legacy adoption after requests drain and fences persisted ca
     control.candidate.ownerProof = issueSetupOwnerProof(control, { issuer: control.candidate.zitadel.issuer,
       subject: 'synthetic-owner', projectId: control.candidate.zitadel.projectId }, now);
     control.migration = { sourceDigest: 'b'.repeat(64), mode: 'import', at: now, verificationSummary: ['legacy_drained'] };
-    await harness.storage.db.collection<InstanceControl>('instance_configuration').replaceOne({ _id: 'instance' }, control);
+    const { keyring } = await readInstanceHost(harness.env);
+    await harness.storage.db.collection<StoredInstanceControl>('instance_configuration').replaceOne({ _id: 'instance' },
+      await serializeInstanceControl(control, harness.instanceId, keyring));
     await writeFile(harness.env.INSTANCE_STATE_FILE, JSON.stringify({ instanceId: harness.instanceId, phase: 'sealed', recoveryEpoch: 1 }));
     const catalog = CatalogSchema.parse(catalogs[0]); await harness.storage.db.collection<Catalog>('catalogs').insertOne(catalog);
     const pin = await acquireInstanceAdmission(harness.storage.db, harness.instanceId, 'request');
@@ -331,7 +334,7 @@ it('turns rollback into a monotonic candidate and rejects stale confirmation wit
     });
     expect(JSON.stringify(draft)).not.toContain('SYNTHETIC_CLIENT_SENTINEL');
     expect(JSON.stringify(draft)).not.toContain('ciphertext');
-    const current = await harness.storage.db.collection<InstanceControl>('instance_configuration').findOne({ _id: 'instance' });
+    const current = await readInstance(harness.storage.db, harness.instanceId);
     expect(current).toMatchObject({ active: { version: 2 }, previous: { version: 1 }, candidate: { version: 3 }, nextBundleVersion: 4 });
     expect(current!.active!.secrets.githubWebhookSecret.credentialVersion).toBe(previous.secrets.githubWebhookSecret.credentialVersion);
 
@@ -350,13 +353,12 @@ it('turns rollback into a monotonic candidate and rejects stale confirmation wit
     });
     expect(retiredRollback.status).toBe(409);
     expect(await retiredRollback.json()).toMatchObject({ error: { code: 'owner_continuity_required' } });
-    expect(await harness.storage.db.collection<InstanceControl>('instance_configuration').findOne({ _id: 'instance' }))
-      .toMatchObject({ active: { version: 2 }, candidate: { version: 3 } });
+    expect(await readInstance(harness.storage.db, harness.instanceId)).toMatchObject({ active: { version: 2 }, candidate: { version: 3 } });
 
     const stale = await fetch(`${server.origin}/api/instance/settings/rollback`, { method: 'POST', headers,
       body: JSON.stringify({ previousVersion: previous.version, confirmationNonce: active.impact!.confirmationNonce, confirm: true }),
     });
     expect(stale.status).toBe(409);
-    expect((await harness.storage.db.collection<InstanceControl>('instance_configuration').findOne({ _id: 'instance' }))?.active?.version).toBe(2);
+    expect((await readInstance(harness.storage.db, harness.instanceId))?.active?.version).toBe(2);
   } finally { await harness.close(); }
 }, 30_000);

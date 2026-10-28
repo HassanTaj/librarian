@@ -58,3 +58,20 @@ it('regenerates a colliding root key and permits only system metadata in a fresh
   expect(key.equals(authKey)).toBe(false); expect(key.equals(oauthKey)).toBe(false);
   expect(state.insert).toHaveBeenCalledOnce();
 });
+
+it('uses valid direct host prerequisites and rejects empty or oversized direct values before creating authority', async () => {
+  const direct = { MONGODB_URI: 'mongodb://127.0.0.1:27018/librarian_test_operator_storage',
+    AUTH_SECRET: Buffer.alloc(32, 8).toString('base64url'), OAUTH_TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 9).toString('base64') };
+  const destination = join(root, 'direct-authority');
+  await prepareInstance({ root: destination, origin: 'https://setup.example.test', env: { ...env, ...direct } });
+  expect(JSON.parse(await readFile(join(destination, 'instance-state.json'), 'utf8')).phase).toBe('sealed');
+
+  for (const name of Object.keys(direct) as (keyof typeof direct)[]) {
+    for (const value of ['', 'x'.repeat(65 * 1024)]) {
+      const invalidRoot = join(root, `invalid-${name}-${value.length}`);
+      await expect(prepareInstance({ root: invalidRoot, origin: 'https://setup.example.test', env: { ...env, ...direct, [name]: value } }))
+        .rejects.toThrow('operator_host_prerequisite_missing');
+      await expect(access(invalidRoot)).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  }
+});

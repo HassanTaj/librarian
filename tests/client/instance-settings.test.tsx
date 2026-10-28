@@ -73,9 +73,9 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-it('renders supported groups and configured indicators without revealing saved credentials', async () => {
+it('renders separate settings groups and configured indicators without revealing saved credentials', async () => {
   await render();
-  for (const name of ['General', 'Authentication', 'GitHub Integration', 'Documentation', 'Security', 'System and audit']) expect(container.textContent).toContain(name);
+  for (const name of ['Auth', 'Zitadel', 'MongoDB', 'GitHub App', 'GitHub webhook', 'Runtime and documentation', 'Host prerequisites', 'System and audit']) expect(container.textContent).toContain(name);
   for (const element of container.querySelectorAll<HTMLInputElement>('input[type="password"]')) expect(element.value).toBe('');
   expect(container.textContent).toContain('Up to date · v1'); expect(button('Save draft').disabled).toBe(true);
   expect(button('Run database connection check').disabled).toBe(true);
@@ -246,15 +246,15 @@ it.each(['resolve', 'reject'] as const)('discards a late initial %s after naviga
 
 it('switches real sections while retaining unsaved webhook and database fields', async () => {
   await render();
-  await click('GitHub');
-  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('GitHub');
+  await click('GitHub webhook');
+  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('GitHub webhook');
   await input('webhookUrl', 'https://hooks.example.test/librarian/github');
-  await click('Database');
-  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Database');
+  await click('MongoDB');
+  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('MongoDB');
   await input('mongodbDatabase', 'librarian_new');
   await act(async () => container.querySelector<HTMLInputElement>('[name="replace-database"]')!.click());
   await input('mongodbUri', 'mongodb://synthetic-user:synthetic-password@database.example.test/librarian_new');
-  await click('GitHub');
+  await click('GitHub webhook');
   expect(container.querySelector<HTMLInputElement>('[name="webhookUrl"]')!.value).toBe('https://hooks.example.test/librarian/github');
   await click('Save draft');
   const saved = JSON.parse(requests.find(item => item.init?.method === 'PATCH')!.init!.body as string);
@@ -267,7 +267,7 @@ it('switches real sections while retaining unsaved webhook and database fields',
 });
 
 it('submits multiline App keys only after explicit replacement and clears the field after saving', async () => {
-  await render(); await click('Security');
+  await render(); await click('GitHub App');
   await act(async () => container.querySelector<HTMLInputElement>('[name="replace-githubPrivateKey"]')!.click());
   const pem = '-----BEGIN PRIVATE KEY-----\nSYNTHETIC MULTILINE VALUE\n-----END PRIVATE KEY-----';
   await input('githubPrivateKey', pem); await click('Save draft');
@@ -284,8 +284,8 @@ it('allows a non-owner to save preferences without submitting disabled database 
 });
 
 it('opens the section containing an invalid field when saving from another tab', async () => {
-  await render(); await click('GitHub'); await input('webhookUrl', 'invalid-url'); await click('General');
+  await render(); await click('GitHub webhook'); await input('webhookUrl', 'invalid-url'); await click('Runtime and documentation');
   await click('Save draft');
-  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('GitHub');
+  expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('GitHub webhook');
   expect(requests.some(item => item.init?.method === 'PATCH')).toBe(false);
 });

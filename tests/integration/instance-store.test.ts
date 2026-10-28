@@ -1,22 +1,51 @@
 import { expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { Db } from 'mongodb';
-import { createStorageHarness, insertInstanceControl } from './http-harness';
+import { createStorageHarness, insertInstanceControl, instanceTestKeyring } from './http-harness';
 import { instanceControl, readyInstance } from '../fixtures/instance';
-import { initializeInstance, readInstance, updateInstance, drainInstanceAudit, type StoredInstanceControl } from '../../lib/instance/store';
+import { attachInstanceKeyring, initializeInstance, readInstance, updateInstance, drainInstanceAudit, type InstanceControl, type StoredInstanceControl } from '../../lib/instance/store';
 import { createInstanceHarness } from './instance-harness';
 import { readInstanceHost } from '../../lib/instance/bootstrap';
+import { beginInstanceKeyRotation, rotateInstanceBundles } from '../../lib/instance/secrets';
 import { writeFile, readFile } from 'node:fs/promises';
 
-it('stores the active logical configuration only as authenticated ciphertext', async () => {
+it('stores active, previous and candidate configuration only as authenticated ciphertext', async () => {
   const storage = await createStorageHarness();
   try {
     const control = readyInstance();
+    const now = control.updatedAt;
+    const previous = structuredClone(control.active!);
+    previous.version = 1;
+    previous.previousUntil = new Date(now.getTime() + 60_000);
+    previous.preferences.displayName = 'PREVIOUS_DISPLAY_SENTINEL';
+    previous.runtime!.authSecret = 'PREVIOUS_AUTH_SECRET_SENTINEL_0123456789012345';
+    previous.runtime!.mongodbUri = 'mongodb://previous-user:previous-password@previous.example.test/librarian';
+    const candidate = structuredClone(control.active!) as NonNullable<InstanceControl['candidate']>;
+    candidate.version = 3;
+    candidate.createdBy = 'candidate-owner-sentinel';
+    candidate.preferences.displayName = 'CANDIDATE_DISPLAY_SENTINEL';
+    candidate.runtime!.authSecret = 'CANDIDATE_AUTH_SECRET_SENTINEL_0123456789012345';
+    candidate.runtime!.mongodbUri = 'mongodb://candidate-user:candidate-password@candidate.example.test/librarian';
+    control.active!.version = 2;
+    control.active!.preferences.displayName = 'ACTIVE_DISPLAY_SENTINEL';
+    control.active!.runtime!.authSecret = 'ACTIVE_AUTH_SECRET_SENTINEL_0123456789012345';
+    control.active!.runtime!.mongodbUri = 'mongodb://active-user:active-password@active.example.test/librarian';
+    control.previous = previous;
+    control.candidate = candidate;
+    control.nextBundleVersion = 4;
     await insertInstanceControl(storage.db, control);
     const stored = await storage.db.collection<StoredInstanceControl>('instance_configuration').findOne({ _id: 'instance' });
-    expect(stored?.active?.configuration).toMatchObject({ formatVersion: 2, algorithm: 'aes-256-gcm', bundleVersion: control.active!.version });
-    const rawConfiguration = JSON.stringify(stored?.active);
-    for (const value of ['https://portal.example.test', 'https://identity.example.test', 'Synthetic', '"synthetic"']) expect(rawConfiguration).not.toContain(value);
+    for (const [name, version] of [['active', 2], ['previous', 1], ['candidate', 3]] as const) {
+      expect(stored?.[name]?.configuration).toMatchObject({ formatVersion: 2, algorithm: 'aes-256-gcm', bundleVersion: version });
+    }
+    const rawConfiguration = JSON.stringify(stored);
+    // The issuer also appears in the intentionally queryable owner binding.
+    for (const value of ['ACTIVE_DISPLAY_SENTINEL', 'PREVIOUS_DISPLAY_SENTINEL', 'CANDIDATE_DISPLAY_SENTINEL',
+      'ACTIVE_AUTH_SECRET_SENTINEL_0123456789012345', 'PREVIOUS_AUTH_SECRET_SENTINEL_0123456789012345',
+      'CANDIDATE_AUTH_SECRET_SENTINEL_0123456789012345', 'active-user:active-password', 'previous-user:previous-password',
+      'candidate-user:candidate-password', 'https://portal.example.test', 'Synthetic', '"synthetic"']) {
+      expect(rawConfiguration).not.toContain(value);
+    }
     await expect(readInstance(storage.db, control.instanceId)).resolves.toEqual(control);
 
     const ciphertext = Buffer.from(stored!.active!.configuration.ciphertext, 'base64');
@@ -25,6 +54,35 @@ it('stores the active logical configuration only as authenticated ciphertext', a
       $set: { 'active.configuration.ciphertext': ciphertext.toString('base64') },
     });
     await expect(readInstance(storage.db, control.instanceId)).rejects.toThrow('instance_unavailable');
+  } finally { await storage.close(); }
+});
+
+it('re-encrypts every retained bundle with the active key during rotation, including an empty candidate', async () => {
+  const storage = await createStorageHarness();
+  try {
+    const control = readyInstance();
+    const now = new Date(control.updatedAt.getTime() + 1);
+    control.active!.version = 2;
+    const previous = structuredClone(control.active!);
+    previous.version = 1;
+    previous.previousUntil = new Date(now.getTime() + 60_000);
+    control.previous = previous;
+    const candidate = structuredClone(control.active!) as NonNullable<InstanceControl['candidate']>;
+    candidate.version = 3;
+    candidate.secrets = { zitadelClientSecret: null, githubPrivateKey: null, githubWebhookSecret: null, previousWebhook: null };
+    control.candidate = candidate;
+    control.nextBundleVersion = 4;
+    await insertInstanceControl(storage.db, control);
+
+    const keyring = beginInstanceKeyRotation(instanceTestKeyring, control.revision, [], now);
+    attachInstanceKeyring(storage.db, keyring);
+    const rotated = rotateInstanceBundles(control, keyring, now);
+    const updated = await updateInstance(storage.db, control.instanceId, control.revision, value => ({ ...value, ...rotated }), now);
+    const stored = await storage.db.collection<StoredInstanceControl>('instance_configuration').findOne({ _id: 'instance' });
+
+    expect([stored?.active?.configuration.keyId, stored?.previous?.configuration.keyId, stored?.candidate?.configuration.keyId])
+      .toEqual([keyring.activeKeyId, keyring.activeKeyId, keyring.activeKeyId]);
+    await expect(readInstance(storage.db, control.instanceId)).resolves.toEqual(updated);
   } finally { await storage.close(); }
 });
 

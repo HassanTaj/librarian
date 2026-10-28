@@ -154,7 +154,7 @@ export async function serializeInstanceControl(input: unknown, instanceId: strin
   const control = parseInstanceControl(input, instanceId);
   const { encryptInstanceBundle } = await import('./secrets');
   const storeBundle = (bundle: InstanceControl['active'] | InstanceControl['candidate'] | InstanceControl['previous'], previous: PriorControl['control']['active'] | PriorControl['control']['candidate'] | PriorControl['control']['previous'], stored: StoredBundle | null): StoredBundle | null => bundle
-    ? previous && stored && BSON.EJSON.stringify(bundle) === BSON.EJSON.stringify(previous) ? stored
+    ? previous && stored && stored.configuration.keyId === keyring.activeKeyId && BSON.EJSON.stringify(bundle) === BSON.EJSON.stringify(previous) ? stored
       : { version: bundle.version, configuration: encryptInstanceBundle(bundle, { instanceId, bundleVersion: bundle.version }, keyring, control.updatedAt) }
     : null;
   const result = StoredInstanceControlSchema.parse({ ...control,

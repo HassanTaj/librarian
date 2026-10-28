@@ -21,6 +21,12 @@ function evidence() {
 }
 
 describe('coverage integrity and exact thresholds', () => {
+  it('returns an empty inventory when a root has no first-party source directories', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'librarian-empty-inventory-'));
+    try { await expect(sourceInventory(root)).resolves.toEqual([]); }
+    finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it('requires browser capture and a report whenever original client code was captured', () => {
     for (const browser of [undefined, { exited: false, captured: true, originalSourceFiles: 0 }, { exited: true, captured: false, originalSourceFiles: 0 }, { exited: true, captured: true, originalSourceFiles: -1 }]) {
       expect(() => checkEvidence({ ...evidence(), browser })).toThrow('browser');

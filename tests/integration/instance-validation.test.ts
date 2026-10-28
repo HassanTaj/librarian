@@ -5,7 +5,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { expect, it } from 'vitest';
 import { createInstanceHarness } from './instance-harness';
 import { instanceControl, readyInstance } from '../fixtures/instance';
-import { initializeInstance, readInstance, updateInstance } from '../../lib/instance/store';
+import { attachInstanceKeyring, initializeInstance, readInstance, updateInstance } from '../../lib/instance/store';
 import { createProviderCheckRunner } from '../../lib/instance/validation';
 import { encryptInstanceSecret } from '../../lib/instance/secrets';
 
@@ -108,7 +108,9 @@ async function createSetupSession(port: number, issuer: string) {
     candidate.impact = null;
     control.candidate = candidate;
     control.updatedAt = now;
-    await writeFile(fixture.env.INSTANCE_KEYRING_FILE!, JSON.stringify({ activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1).toString('base64') } }));
+    const keyring = { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1) } };
+    attachInstanceKeyring(fixture.storage.db, keyring);
+    await writeFile(fixture.env.INSTANCE_KEYRING_FILE!, JSON.stringify({ activeKeyId: keyring.activeKeyId, keys: { 'synthetic-root': keyring.keys['synthetic-root'].toString('base64') } }));
     await writeFile(policyPath, JSON.stringify({ origins: [] }));
     await initializeInstance(fixture.storage.db, control);
     await writeFile(fixture.env.INSTANCE_STATE_FILE!, JSON.stringify({ instanceId: fixture.instanceId, phase: 'sealed', recoveryEpoch: 1 }));

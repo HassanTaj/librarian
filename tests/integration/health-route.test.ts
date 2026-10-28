@@ -6,7 +6,7 @@ import { createStorageHarness } from './http-harness';
 const mocks = vi.hoisted(() => ({ getMongo: vi.fn(), readInstanceHost: vi.fn(), readInstance: vi.fn(), cleanupInstanceState: vi.fn(), drainInstanceAudit: vi.fn(), startConfiguredWorker: vi.fn() }));
 vi.mock('../../lib/mongo', () => ({ getMongo: mocks.getMongo }));
 vi.mock('../../lib/instance/bootstrap', () => ({ readInstanceHost: mocks.readInstanceHost }));
-vi.mock('../../lib/instance/store', () => ({ readInstance: mocks.readInstance, cleanupInstanceState: mocks.cleanupInstanceState, drainInstanceAudit: mocks.drainInstanceAudit }));
+vi.mock('../../lib/instance/store', () => ({ attachInstanceKeyring: vi.fn(), readInstance: mocks.readInstance, cleanupInstanceState: mocks.cleanupInstanceState, drainInstanceAudit: mocks.drainInstanceAudit }));
 vi.mock('../../lib/sync/worker-startup', () => ({ startConfiguredWorker: mocks.startConfiguredWorker }));
 
 it('reports only ready or not-ready using real Mongo/filesystem checks and worker state', async () => {

@@ -1,14 +1,18 @@
 import { createHash, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { ObjectId, type Document } from 'mongodb';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { encryptOAuthToken } from '../../lib/auth/tokens';
+import { loadConfig } from '../../lib/config';
+import { decryptOAuthToken, encryptOAuthToken } from '../../lib/auth/tokens';
 import { CatalogSchema } from '../../lib/catalog';
 import { POST as authorizeMigration } from '../../app/api/instance/migration/authorize/route';
 import { POST as importLegacyInstance } from '../../app/api/instance/migration/route';
 import { legacyInstanceDigest, readInstanceHost } from '../../lib/instance/bootstrap';
 import { decryptInstanceSecret } from '../../lib/instance/secrets';
 import { ControlReceiptSchema, SyncJobSchema } from '../../lib/sync/jobs';
-import { initializeInstance, readInstance, updateInstance, type InstanceControl } from '../../lib/instance/store';
+import { initializeInstance, readInstance, updateInstance, type InstanceControl, type StoredInstanceControl } from '../../lib/instance/store';
 import { instanceControl } from '../fixtures/instance';
 import { createStorageHarness } from './http-harness';
 
@@ -27,17 +31,30 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 
 async function legacyFixture(options: { purpose?: string; expiresAt?: Date; drained?: boolean } = {}) {
   const storage = await createStorageHarness();
+  const root = await mkdtemp(join(tmpdir(), 'librarian-legacy-import-'));
+  await Promise.all([mkdir(join(root, 'content')), mkdir(join(root, 'public')), mkdir(join(root, '.local', 'secrets'), { recursive: true })]);
   const instanceId = randomUUID();
   const now = new Date();
   const credential = randomBytes(32).toString('base64url');
   const keyring = { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': randomBytes(32) } };
   const privateKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
-  const config = {
-    authSecret: randomBytes(32).toString('base64url'), authUrl: setupOrigin,
-    zitadelIssuer: 'https://identity.synthetic.invalid', zitadelClientId: 'synthetic-client',
-    zitadelProjectId: 'synthetic-project', zitadelApiAudience: 'synthetic-api', zitadelSecret: 'SYNTHETIC_OIDC_SECRET',
-    githubAppId: '12345', githubPrivateKey: privateKey, githubWebhookSecret: 'SYNTHETIC_WEBHOOK_SECRET'.repeat(2),
-  } as Parameters<typeof legacyInstanceDigest>[0];
+  const env: NodeJS.ProcessEnv = {
+    NODE_ENV: 'test', AUTH_URL: setupOrigin, AUTH_TRUST_HOST: 'true', AUTH_ZITADEL_ID: 'synthetic-client',
+    AUTH_ZITADEL_ISSUER: 'https://identity.synthetic.invalid', ZITADEL_PROJECT_ID: 'synthetic-project', ZITADEL_API_AUDIENCE: 'synthetic-api',
+    MONGODB_DATABASE: 'librarian_test_migration', GITHUB_APP_ID: '12345', CONTENT_ROOT: 'content',
+    AUTH_SECRET_FILE: '.local/secrets/auth', AUTH_ZITADEL_SECRET_FILE: '.local/secrets/zitadel',
+    MONGODB_URI_FILE: '.local/secrets/mongo', GITHUB_APP_PRIVATE_KEY_FILE: '.local/secrets/github',
+    GITHUB_WEBHOOK_SECRET_FILE: '.local/secrets/webhook', OAUTH_TOKEN_ENCRYPTION_KEY_FILE: '.local/secrets/oauth',
+  };
+  const secretFiles = {
+    auth: randomBytes(32).toString('base64url'), zitadel: 'SYNTHETIC_OIDC_SECRET',
+    mongo: 'mongodb://127.0.0.1:27018/librarian_test_migration', github: privateKey,
+    webhook: 'SYNTHETIC_WEBHOOK_SECRET'.repeat(2), oauth: randomBytes(32).toString('base64'),
+  };
+  await Promise.all(Object.entries(secretFiles).map(([name, value]) => writeFile(join(root, '.local', 'secrets', name), `${value}\n`)));
+  // An oversized unreferenced file proves the loader only reads names from the environment.
+  await writeFile(join(root, '.local', 'secrets', 'unreferenced'), Buffer.alloc(64 * 1024 + 1));
+  const config = await loadConfig(env, root) as Parameters<typeof legacyInstanceDigest>[0];
   const expiresAt = options.expiresAt ?? new Date(now.getTime() + 60 * 60_000);
   const host = {
     instanceId, setupOrigin, keyring,
@@ -48,13 +65,13 @@ async function legacyFixture(options: { purpose?: string; expiresAt?: Date; drai
   control.bootstrap.expiresAt = expiresAt;
   await initializeInstance(storage.db, control);
   await updateInstance(storage.db, instanceId, 0, current => ({ ...current, lifecycle: 'legacy_migrating', migration: {
-    sourceDigest: legacyInstanceDigest(config), mode: 'import', at: now,
+    sourceDigest: digest(instanceId), mode: 'import', at: now,
     verificationSummary: options.drained === false ? [] : ['legacy_drained'],
   } }), new Date(now.getTime() + 1));
   mocks.requireLegacyEnrollmentAuthority.mockResolvedValue({ db: storage.db, config, userId: 'synthetic-admin',
     identity: { issuer: config.zitadelIssuer, subject: 'synthetic-owner', projectId: config.zitadelProjectId } });
   mocks.readInstanceHost.mockResolvedValue(host);
-  return { storage, instanceId, credential, config, host, identity: { issuer: config.zitadelIssuer, subject: 'synthetic-owner', projectId: config.zitadelProjectId } };
+  return { storage, root, instanceId, credential, config, host, identity: { issuer: config.zitadelIssuer, subject: 'synthetic-owner', projectId: config.zitadelProjectId } };
 }
 
 const post = (path: string, body: unknown, headers: Record<string, string> = {}) => new Request(`https://portal.synthetic.invalid${path}`, {
@@ -81,7 +98,7 @@ it('requires the protected enroll purpose and a drained legacy migration before 
     const malformed = await authorizeMigration(post('/api/instance/migration/authorize', { credential: 'short' }));
     expect(malformed.status).toBe(400);
     expect(await fixture.storage.db.collection('instance_setup_sessions').countDocuments({})).toBe(0);
-  } finally { await fixture.storage.close(); }
+  } finally { await fixture.storage.close(); await rm(fixture.root, { recursive: true, force: true }); }
 
   const undrained = await legacyFixture({ drained: false });
   try {
@@ -117,7 +134,7 @@ it('issues one scoped enrollment session, rejects stale import proof, then impor
     const grantId = digest(`${ownerIdentity.issuer}\0${ownerIdentity.subject}\0${ownerIdentity.projectId}`);
     const legacyRecords: Array<{ collection: string; document: Document }> = [
       { collection: 'accounts', document: { _id: new ObjectId(), userId, provider: 'zitadel', type: 'oidc', providerAccountId: ownerIdentity.subject,
-        issuer: ownerIdentity.issuer, encryptedTokens: { access_token: encryptOAuthToken('SYNTHETIC_LEGACY_ACCESS_TOKEN', randomBytes(32)) }, tokenVersion: 3, refreshFence: 2 } },
+        issuer: ownerIdentity.issuer, encryptedTokens: { access_token: encryptOAuthToken('SYNTHETIC_LEGACY_ACCESS_TOKEN', fixture.config.oauthTokenEncryptionKey) }, tokenVersion: 3, refreshFence: 2 } },
       { collection: 'sessions', document: { _id: new ObjectId(), sessionToken: 'SYNTHETIC_LEGACY_SESSION', userId,
         expires: new Date(now.getTime() + 60 * 60_000), absoluteExpiresAt: new Date(now.getTime() + 24 * 60 * 60_000) } },
       { collection: 'identity_authorizations', document: { _id: grantId, ...ownerIdentity, roles: ['librarian-admin', 'docs:private:reader'], verifiedAt: now, leaseFence: 4, lease: null } },
@@ -137,6 +154,7 @@ it('issues one scoped enrollment session, rejects stale import proof, then impor
     expect(authorization.status).toBe(200);
     expect(authorization.headers.get('cache-control')).toBe('private, no-store');
     const authorizationBody = await authorization.json() as { csrfToken: string; confirmationNonce: string; editRevision: number };
+    expect((await readInstance(fixture.storage.db, fixture.instanceId))?.migration?.sourceDigest).toBe(legacyInstanceDigest(fixture.config));
     const cookies = authorization.headers.get('set-cookie') ?? '';
     expect(cookies).toContain('__Host-librarian_setup=');
     expect(cookies).toContain('__Host-librarian_setup_csrf=');
@@ -175,6 +193,12 @@ it('issues one scoped enrollment session, rejects stale import proof, then impor
       migration: { mode: 'import', sourceDigest: legacyInstanceDigest(fixture.config) } });
     expect(control.candidate?.ownerProof).toMatchObject(fixture.identity);
     expect(control.candidate?.checks).toContainEqual(expect.objectContaining({ type: 'zitadel_owner_login', status: 'passed', code: 'provider_ok' }));
+    expect(control.candidate?.runtime).toMatchObject({ authSecret: fixture.config.authSecret,
+      oauthTokenEncryptionKey: fixture.config.oauthTokenEncryptionKey.toString('base64'), mongodbUri: fixture.config.mongodbUri,
+      mongodbDatabase: fixture.config.mongodbDatabase, trustHost: fixture.config.trustHost, workerEnabled: fixture.config.workerEnabled });
+    const retainedAccount = await fixture.storage.db.collection('accounts').findOne({ providerAccountId: 'legacy-owner' });
+    expect(decryptOAuthToken(retainedAccount!.encryptedTokens.access_token, Buffer.from(control.candidate!.runtime!.oauthTokenEncryptionKey, 'base64')))
+      .toBe('SYNTHETIC_LEGACY_ACCESS_TOKEN');
     const secrets = control.candidate!.secrets;
     expect(JSON.stringify(secrets)).not.toContain(fixture.config.zitadelSecret);
     expect(decryptInstanceSecret(secrets.zitadelClientSecret!, { instanceId: fixture.instanceId, purpose: 'zitadelClientSecret',
@@ -184,7 +208,12 @@ it('issues one scoped enrollment session, rejects stale import proof, then impor
     }
     expect(control.candidate?.zitadel.issuer).toBe(fixture.config.zitadelIssuer);
     expect(control.candidate?.github.appId).toBe(fixture.config.githubAppId);
-  } finally { await fixture.storage.close(); }
+    const storedControl = await fixture.storage.db.collection<StoredInstanceControl>('instance_configuration').findOne({ _id: 'instance' });
+    const rawControl = JSON.stringify(storedControl);
+    for (const value of [fixture.config.authSecret, fixture.config.oauthTokenEncryptionKey.toString('base64'), fixture.config.mongodbUri,
+      fixture.config.zitadelSecret, fixture.config.githubPrivateKey, fixture.config.githubWebhookSecret]) expect(rawControl).not.toContain(value);
+    expect((await importLegacyInstance(importRequest(authorizationBody.confirmationNonce))).status).toBe(409);
+  } finally { await fixture.storage.close(); await rm(fixture.root, { recursive: true, force: true }); }
 });
 
 it('rejects malformed confirmation and missing session cookies without importing data', async () => {
@@ -197,5 +226,5 @@ it('rejects malformed confirmation and missing session cookies without importing
     const missingCookie = await importLegacyInstance(post('/api/instance/migration', { confirmImport: true, confirmationNonce: randomUUID() }));
     expect(missingCookie.status).toBe(401);
     expect((await readInstance(fixture.storage.db, fixture.instanceId))?.candidate).toBeNull();
-  } finally { await fixture.storage.close(); }
+  } finally { await fixture.storage.close(); await rm(fixture.root, { recursive: true, force: true }); }
 });

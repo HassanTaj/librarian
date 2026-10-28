@@ -17,7 +17,7 @@ const button = styles.button;
 const secretLabels = { zitadelClientSecret: 'Zitadel client secret', githubPrivateKey: 'GitHub App private key', githubWebhookSecret: 'Webhook signing secret' };
 
 export function InstanceSettings() {
-  const [section, setSection] = useState('general');
+  const [section, setSection] = useState('runtime');
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [audit, setAudit] = useState<Audit | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -41,6 +41,7 @@ export function InstanceSettings() {
     }).catch(() => { if (active) setError('Settings could not be loaded. Refresh to try again.'); });
     return () => { active = false; };
   }, []);
+  useEffect(() => { if (error || message) feedback.current?.focus(); }, [error, message]);
   useEffect(() => {
     if (!dirty) return;
     const unload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -55,7 +56,7 @@ export function InstanceSettings() {
     setBusy(true); setError(''); setMessage('');
     try { await operation(); }
     catch (error) { setError(error instanceof Error ? error.message : 'The request failed.'); }
-    finally { setBusy(false); feedback.current?.focus(); }
+    finally { setBusy(false); }
   }
   async function mutation(path: string, body: unknown, method = 'POST') {
     const response = await fetch(`/api/instance/settings${path}`, { method, headers: {
@@ -73,7 +74,7 @@ export function InstanceSettings() {
     <div className={styles.overview}><div><h2>Configuration</h2><p>Manage this instance’s providers, credentials and documentation defaults.</p></div>
       <span className={styles.badge}>{snapshot.candidate ? 'Draft saved' : 'Up to date'} · v{snapshot.activeVersion}</span></div>
     <TabsList className={styles.tabList} aria-label="Settings sections">
-      {Object.entries({ general: 'General', authentication: 'Authentication', github: 'GitHub', database: 'Database', documentation: 'Documentation', security: 'Security', validation: 'Validation', audit: 'Audit' }).map(([value, label]) => <TabsTrigger key={value} value={value} className={styles.tab}>{label}</TabsTrigger>)}
+      {Object.entries({ auth: 'Auth', zitadel: 'Zitadel', mongodb: 'MongoDB', githubApp: 'GitHub App', githubWebhook: 'GitHub webhook', runtime: 'Runtime and documentation', host: 'Host prerequisites', validation: 'Validation', audit: 'Audit' }).map(([value, label]) => <TabsTrigger key={value} value={value} className={styles.tab}>{label}</TabsTrigger>)}
     </TabsList>
     <p className={styles.feedback} ref={feedback} tabIndex={-1} role={error ? 'alert' : 'status'}>{error || message}</p>
     <form onInvalid={event => {
@@ -101,21 +102,22 @@ export function InstanceSettings() {
         setSnapshot(current => ({ ...current, ...data })); setDirty(false); form.current?.reset(); setMessage('Draft saved. Active settings have not changed.');
       });
     }} className="space-y-6">
-      <TabsContent data-section="general" value="general" forceMount hidden={section !== 'general'} className={styles.panel}>
-      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>General</legend>
-        {input('displayName', 'Display name', bundle.preferences.displayName)}
-        <label className="grid gap-1 text-sm">Description<textarea name="description" defaultValue={bundle.preferences.description} maxLength={500} className={fields} /></label>
-        {input('publicOrigin', 'Public origin', bundle.publicOrigin, 'url')}
+      <TabsContent data-section="auth" value="auth" forceMount hidden={section !== 'auth'} className={styles.panel}>
+      <fieldset className={styles.group}><legend className={styles.legend}>Auth</legend>
+        <p>Auth.js session secret: {bundle.runtime?.authSecretConfigured ? 'configured' : 'missing'}. OAuth token encryption key: {bundle.runtime?.oauthTokenEncryptionKeyConfigured ? 'configured' : 'missing'}. Credentials are never returned or editable here.</p>
       </fieldset>
       </TabsContent>
-      <TabsContent data-section="authentication" value="authentication" forceMount hidden={section !== 'authentication'} className={styles.panel}>
-      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>Authentication</legend>
+      <TabsContent data-section="zitadel" value="zitadel" forceMount hidden={section !== 'zitadel'} className={styles.panel}>
+      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>Zitadel</legend>
         {input('issuer', 'Zitadel issuer', bundle.zitadel.issuer, 'url')}{input('clientId', 'Client ID', bundle.zitadel.clientId)}
         {input('projectId', 'Project ID', bundle.zitadel.projectId)}{input('audience', 'API audience', bundle.zitadel.audience)}
+        <p>Client secret: {bundle.secrets.zitadelClientSecret.configured ? 'configured' : 'missing'}. Leave the replacement blank to keep the saved credential.</p>
+        <label><input type="checkbox" name="replace-zitadelClientSecret" /> Replace Zitadel client secret</label>
+        <label className="grid gap-1 text-sm">New Zitadel client secret<input name="zitadelClientSecret" type="password" autoComplete="new-password" className={fields} /></label>
         <p className="break-all text-sm">Runtime callback: {snapshot.runtimeCallbackUrl}<br />Candidate callback: {snapshot.candidateCallbackUrl}</p>
       </fieldset>
       </TabsContent>
-      <TabsContent data-section="database" value="database" forceMount hidden={section !== 'database'} className={styles.panel}>
+      <TabsContent data-section="mongodb" value="mongodb" forceMount hidden={section !== 'mongodb'} className={styles.panel}>
         <fieldset disabled={busy || snapshot.bindingKind !== 'owner'} className={styles.group}>
           <legend className={styles.legend}>MongoDB connection</legend>
           <p>Update the connection to this instance’s existing database. Librarian verifies the target before activation and updates its protected startup locator with the encrypted settings.</p>
@@ -126,25 +128,37 @@ export function InstanceSettings() {
           <p>Save a draft, then run the Database connection check under Validation. This does not copy data into another database.</p>
         </fieldset>
       </TabsContent>
-      <TabsContent data-section="github" value="github" forceMount hidden={section !== 'github'} className={styles.panel}>
-      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>GitHub Integration</legend>
+      <TabsContent data-section="githubApp" value="githubApp" forceMount hidden={section !== 'githubApp'} className={styles.panel}>
+      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>GitHub App</legend>
         {input('appId', 'GitHub App ID', bundle.github.appId)}
+        <p>Private key: {bundle.secrets.githubPrivateKey.configured ? 'configured' : 'missing'}. Leave the replacement blank to keep the saved credential.</p>
+        <label><input type="checkbox" name="replace-githubPrivateKey" /> Replace GitHub App private key</label>
+        <label className="grid gap-1 text-sm">New GitHub App private key<textarea name="githubPrivateKey" autoComplete="off" rows={5} className={fields} /></label>
+      </fieldset>
+      </TabsContent>
+      <TabsContent data-section="githubWebhook" value="githubWebhook" forceMount hidden={section !== 'githubWebhook'} className={styles.panel}>
+      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>GitHub webhook</legend>
         {input('webhookUrl', 'Webhook URL', bundle.github.webhookUrl ?? snapshot.webhookUrl ?? new URL('/api/webhooks/github', bundle.publicOrigin).href, 'url')}
         <p className={styles.hint}>The public address GitHub sends events to. Point it at this instance’s receiver, then update the GitHub App configuration to match.</p>
+        <p>Signing secret: {bundle.secrets.githubWebhookSecret.configured ? 'configured' : 'missing'}. Leave the replacement blank to keep the saved credential.</p>
+        <label><input type="checkbox" name="replace-githubWebhookSecret" /> Replace GitHub webhook signing secret</label>
+        <label className="grid gap-1 text-sm">New GitHub webhook signing secret<input name="githubWebhookSecret" type="password" autoComplete="new-password" className={fields} /></label>
       </fieldset>
       </TabsContent>
-      <TabsContent data-section="documentation" value="documentation" forceMount hidden={section !== 'documentation'} className={styles.panel}>
-      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>Documentation</legend>
-        {input('docsFolder', 'Default documentation folder', bundle.preferences.docsFolder)}<p className="text-sm">Applies to new catalogs. Existing catalogs retain their own folder, roles and visibility.</p>
+      <TabsContent data-section="runtime" value="runtime" forceMount hidden={section !== 'runtime'} className={styles.panel}>
+      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>Runtime and documentation</legend>
+        {input('displayName', 'Display name', bundle.preferences.displayName)}
+        <label className="grid gap-1 text-sm">Description<textarea name="description" defaultValue={bundle.preferences.description} maxLength={500} className={fields} /></label>
+        {input('publicOrigin', 'Public origin', bundle.publicOrigin, 'url')}
+        {input('docsFolder', 'Default documentation folder', bundle.preferences.docsFolder)}
+        <p>Trust forwarded host: {bundle.runtime?.trustHost ? 'enabled' : 'disabled'}. Background worker: {bundle.runtime?.workerEnabled ? 'enabled' : 'disabled'}.</p>
+        <p>Documentation defaults apply to new catalogs. Existing catalogs keep their own folder, roles and visibility.</p>
       </fieldset>
       </TabsContent>
-      <TabsContent data-section="security" value="security" forceMount hidden={section !== 'security'} className={styles.panel}>
-      <fieldset disabled={busy} className={styles.group}><legend className={styles.legend}>Security</legend>
-        <p className="text-sm">Your instance binding: {snapshot.bindingKind}. Credentials are replaced explicitly and are never revealed. Blank fields retain stored credentials.</p>
-        {Object.entries(secretLabels).map(([key, label]) => <div key={key} className="grid gap-2">
-          <label><input type="checkbox" name={`replace-${key}`} /> Replace {label} ({bundle.secrets[key as keyof typeof secretLabels].configured ? 'configured' : 'missing'})</label>
-          <label className="grid gap-1 text-sm">New {label}{key === 'githubPrivateKey' ? <textarea name={key} autoComplete="off" rows={5} className={fields} /> : <input type="password" name={key} autoComplete="new-password" className={fields} />}</label>
-        </div>)}
+      <TabsContent data-section="host" value="host" forceMount hidden={section !== 'host'} className={styles.panel}>
+      <fieldset className={styles.group}><legend className={styles.legend}>Host prerequisites</legend>
+        <p>Instance binding: {snapshot.bindingKind}. The MongoDB startup locator, encryption keyring, operator authority, content root, outbound policy and publication approvals remain host-managed.</p>
+        <p>Host file locations and root credentials are not returned to the browser. Changes require the host operator and a restart where indicated.</p>
       </fieldset>
       </TabsContent>
       <div className={styles.actions} hidden={['validation', 'audit'].includes(section)}><button disabled={busy || !dirty} className={button}>Save draft</button>

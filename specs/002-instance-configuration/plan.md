@@ -2,7 +2,7 @@
 
 **Git branch**: `main` (unchanged) | **Feature**: `002-instance-configuration` | **Date**: 2026-10-19 | **Spec**: [spec.md](spec.md)
 
-**Status — 2026-10-21**: The original 94 tasks passed local coverage (1,023 tests), browser acceptance (99/99), typecheck, lint, production build, artifact validation, and disposable image/container checks. T085 passed locally using a source-built parent revision in legacy mode and a synthetic consistent restore set. Constitution v4.0.0 now adds T095-T104 for complete encrypted configuration bundles and the authorized additive `librarian_dev` migration; those tasks remain pending. BG-01 workload and production/release gates remain separate.
+**Status — 2026-10-21**: The original 94 tasks passed local coverage (1,023 tests), browser acceptance (99/99), typecheck, lint, production build, artifact validation, and disposable image/container checks. T085 passed locally using a source-built parent revision in legacy mode and a synthetic consistent restore set. Constitution v4.0.0 now adds T095-T105 for complete encrypted configuration bundles, database-first setup acceptance, and the authorized additive `librarian_dev` migration; those tasks remain pending. BG-01 workload and production/release gates remain separate.
 
 ## Summary
 
@@ -16,7 +16,7 @@ Input authority: [constitution v4.0.0](../../.specify/memory/constitution.md), [
 
 **Language/Version**: TypeScript 5.9.3; Node declared `^22.18.0 || ^24.11.0 || >=26.0.0`; existing CI uses Node 22.23.3.
 
-**Primary Dependencies**: Next.js 16.4.0, React/DOM 19.3.0, next-auth 5.0.0-beta.32, Auth MongoDB adapter 3.11.3, MongoDB driver 6.21.0, Fumadocs core/UI 16.15.18, local-md 0.3.5, Zod 4.3.6. Installed peer metadata was inspected during research; no upgrade needed. This is design compatibility, not new runtime/provider acceptance.
+**Primary Dependencies**: Next.js 16.4.1, React/DOM 19.3.0, next-auth 5.0.0-beta.32, Auth MongoDB adapter 3.11.3, MongoDB driver 6.21.0, Fumadocs core/UI 16.15.18, local-md 0.3.5, Zod 4.3.6. Next.js was patched from 16.4.0 after its October 2026 security update; see the implementation research note. This is design compatibility, not new runtime/provider acceptance.
 
 **Storage**: Existing dedicated MongoDB database including standalone support; one bounded atomic instance-control document, expiring setup sessions and bounded audit history. Persistent content snapshots remain outside public; protected host marker/root keys remain outside MongoDB and static bundles.
 

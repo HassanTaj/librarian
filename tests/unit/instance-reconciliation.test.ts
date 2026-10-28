@@ -25,7 +25,8 @@ beforeEach(() => {
   control.gate = { state: 'closing', activationId: id, deadline };
   control.activation = { id, from: 1, to: 2, actor: control.administrators[0].bindingId, phase: 'draining', deadline, fencedCatalogIds: [], result: null };
   selected = [];
-  state.host.mockResolvedValue({ instanceId: control.instanceId, config: { contentRoot: '/synthetic' }, marker: { phase: 'initialized' },
+  state.host.mockResolvedValue({ instanceId: control.instanceId, config: { contentRoot: '/synthetic',
+    mongodbUri: control.active!.runtime!.mongodbUri, mongodbDatabase: control.active!.runtime!.mongodbDatabase }, marker: { phase: 'initialized' },
     keyring: { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1) } } });
   state.connect.mockResolvedValue({ client: { close }, db: { collection: () => ({
     find: () => ({ limit: () => ({ toArray: async () => selected }) }), updateOne: fence, findOne,

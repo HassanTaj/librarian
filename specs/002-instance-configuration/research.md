@@ -102,3 +102,7 @@ Bounds are design acceptance targets, not measured performance. Trusted server/d
 ## Research outcome
 
 All original D1–D3 choices and technical design unknowns have a recorded disposition. Live provider compatibility, workload, restore, previous-image rollback, and deployment remain evidence gates in the spec's BG-01–03; they are not unresolved design choices or a claim of completion. Tasks must implement and prove this design before feature acceptance.
+
+## Security maintenance update — 2026-10-28
+
+The selected Next.js 16.4.0 was included in the affected range for the 2026-10-14 upstream security advisories. Updated only `next` to the official patched 16.4.1 release in `package.json`, `package-lock.json`, and `pnpm-lock.yaml` so the production build and real-Next coverage checks can run. No deployment or live operation occurred. See the [Next.js security update](https://nextjs.org/blog/nextjs-security-update-october-14-2026) and [patched-version advisory](https://github.com/vercel/next.js/security/advisories/GHSA-673q-mjm6-r5xr).

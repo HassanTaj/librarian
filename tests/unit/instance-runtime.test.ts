@@ -18,7 +18,7 @@ vi.mock('../../lib/mongo', async importOriginal => {
   return { ...original, connectMongo: vi.fn(async () => ({ db: {}, client: { close: vi.fn() } })) };
 });
 
-import { loadConfig, loadHostConfig } from '../../lib/config';
+import { instanceRuntimeConfig, instanceRuntimeInputs, loadBootstrapConfig, loadConfig, loadHostConfig } from '../../lib/config';
 import { instanceControl, readyInstance } from '../fixtures/instance';
 import { encryptInstanceSecret } from '../../lib/instance/secrets';
 
@@ -46,6 +46,7 @@ beforeEach(async () => {
     encryption: Buffer.alloc(32, 7).toString('base64') })) await writeFile(join(cwd, name), value + '\n');
   doubles.host = { instanceId, config: await loadHostConfig(env, cwd), setupOrigin: 'https://setup.example.test',
     marker: { instanceId, phase: 'initialized', recoveryEpoch: 1 }, keyring, operator: {}, policy: { origins: [] } };
+  await import('../../lib/instance/bootstrap');
 });
 
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); await rm(cwd, { recursive: true, force: true }); });
@@ -55,6 +56,17 @@ it('validates host prerequisites when the runtime reads its default environment 
   vi.spyOn(process, 'cwd').mockReturnValue(cwd);
   expect((await loadHostConfig()).mongodbDatabase).toBe('librarian');
   await expect(loadHostConfig({ ...env, MONGODB_DATABASE: 'invalid/name' }, cwd)).rejects.toThrow();
+});
+
+it('evaluates bootstrap defaults before rejecting an invalid database name', async () => {
+  vi.stubEnv('MONGODB_DATABASE', 'invalid/name');
+  await expect(loadBootstrapConfig()).rejects.toThrow('MONGODB_DATABASE');
+});
+
+it('rejects a missing runtime and respects the production worker override', () => {
+  expect(() => instanceRuntimeConfig(undefined)).toThrow('instance_configuration_incomplete');
+  const config = (doubles.host as { config: Awaited<ReturnType<typeof loadHostConfig>> }).config;
+  expect(instanceRuntimeInputs(config, { NODE_ENV: 'production', LIBRARIAN_WORKER_ENABLED: '0' }).workerEnabled).toBe(false);
 });
 
 it('rejects weak and non-RSA active App keys without falling back to legacy credentials', async () => {
@@ -83,6 +95,7 @@ it('loads the ready active bundle instead of stale provider environment values',
   const active = control.active!;
   active.runtime!.authSecret = 'active-auth-secret-with-at-least-32-bytes';
   active.runtime!.oauthTokenEncryptionKey = Buffer.alloc(32, 9).toString('base64');
+  active.runtime!.trustHost = false;
   active.runtime!.mongodbUri = 'mongodb://stored-copy.example.test/librarian';
   active.publicOrigin = 'https://active.example.test';
   active.zitadel.clientId = 'active-client';
@@ -93,12 +106,12 @@ it('loads the ready active bundle instead of stale provider environment values',
   doubles.control = control;
   const withoutProviderEnv = { ...env };
   for (const key of ['AUTH_URL', 'AUTH_ZITADEL_ID', 'AUTH_ZITADEL_ISSUER', 'ZITADEL_PROJECT_ID', 'ZITADEL_API_AUDIENCE', 'GITHUB_APP_ID',
-    'AUTH_ZITADEL_SECRET_FILE', 'GITHUB_APP_PRIVATE_KEY_FILE', 'GITHUB_WEBHOOK_SECRET_FILE', 'AUTH_SECRET_FILE', 'OAUTH_TOKEN_ENCRYPTION_KEY_FILE']) delete withoutProviderEnv[key];
+    'AUTH_TRUST_HOST', 'AUTH_ZITADEL_SECRET_FILE', 'GITHUB_APP_PRIVATE_KEY_FILE', 'GITHUB_WEBHOOK_SECRET_FILE', 'AUTH_SECRET_FILE', 'OAUTH_TOKEN_ENCRYPTION_KEY_FILE']) delete withoutProviderEnv[key];
 
   await expect(loadConfig(withoutProviderEnv, cwd)).resolves.toMatchObject({ authUrl: active.publicOrigin, zitadelClientId: 'active-client',
     zitadelIssuer: active.zitadel.issuer, zitadelProjectId: active.zitadel.projectId, zitadelApiAudience: active.zitadel.audience,
     mongodbUri: 'mongodb://127.0.0.1:27018/librarian', authSecret: active.runtime!.authSecret, oauthTokenEncryptionKey: Buffer.from(active.runtime!.oauthTokenEncryptionKey, 'base64'),
-    zitadelSecret: 'active-client-secret', githubAppId: '789', githubPrivateKey: privateKey, githubWebhookSecret: 'active-webhook-secret',
+    trustHost: false, zitadelSecret: 'active-client-secret', githubAppId: '789', githubPrivateKey: privateKey, githubWebhookSecret: 'active-webhook-secret',
     contentRoot: (doubles.host as { config: { contentRoot: string } }).config.contentRoot });
 }, 15_000);
 

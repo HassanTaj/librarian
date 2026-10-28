@@ -122,3 +122,38 @@ it('rejects untrusted origins and remote databases before creating host authorit
     await rm(temp, { recursive: true, force: true });
   }
 }, 120_000);
+
+it('keeps named DEV enrollment opt-in, exact-target-gated and development-only before connecting', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'librarian-operator-dev-'));
+  try {
+    const contentRoot = join(temp, 'content');
+    const prereqRoot = join(temp, 'prerequisites');
+    await Promise.all([mkdir(contentRoot), mkdir(prereqRoot)]);
+    const mongoFile = join(prereqRoot, 'mongo.uri');
+    const authFile = join(prereqRoot, 'auth.key');
+    const oauthFile = join(prereqRoot, 'oauth.key');
+    await Promise.all([
+      writeFile(mongoFile, 'mongodb://127.0.0.1:27018/librarian_dev', { mode: 0o600 }),
+      writeFile(authFile, randomBytes(32).toString('base64url'), { mode: 0o600 }),
+      writeFile(oauthFile, randomBytes(32).toString('base64'), { mode: 0o600 }),
+    ]);
+    const env = { NODE_ENV: 'development', CONTENT_ROOT: contentRoot, MONGODB_DATABASE: 'librarian_dev',
+      MONGODB_URI_FILE: mongoFile, AUTH_SECRET_FILE: authFile, OAUTH_TOKEN_ENCRYPTION_KEY_FILE: oauthFile } as NodeJS.ProcessEnv;
+    const target = { host: '127.0.0.1', database: 'librarian_dev' };
+    const attempt = (name: string, overrides: Partial<NodeJS.ProcessEnv>, mode: 'prepare' | 'enroll' = 'enroll', devTarget = target) =>
+      prepareInstance({ root: join(temp, name), origin: 'https://setup.example.test', env: { ...env, ...overrides }, mode,
+        legacyDrained: true, devTarget });
+
+    await expect(attempt('wrong-host', {}, 'enroll', { ...target, host: 'other.example.test' })).rejects.toThrow('operator_invalid_database');
+    await expect(attempt('wrong-mode', {}, 'prepare')).rejects.toThrow('operator_invalid_arguments');
+    await expect(attempt('wrong-environment', { NODE_ENV: 'test' })).rejects.toThrow('operator_invalid_database');
+    await expect(attempt('wrong-database', { MONGODB_DATABASE: 'other_database' })).rejects.toThrow('operator_invalid_database');
+    await writeFile(mongoFile, 'mongodb+srv://cluster.example.test/librarian_dev');
+    await expect(attempt('srv-target', {}, 'enroll', { ...target, host: 'cluster.example.test' })).rejects.toThrow('operator_invalid_database');
+    await writeFile(mongoFile, 'mongodb://127.0.0.1:27018,127.0.0.1:27019/librarian_dev');
+    await expect(attempt('multi-host-target', {})).rejects.toThrow('operator_invalid_database');
+    for (const name of ['wrong-host', 'wrong-mode', 'wrong-environment', 'wrong-database', 'srv-target', 'multi-host-target']) {
+      await expect(readdir(join(temp, name))).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+  } finally { await rm(temp, { recursive: true, force: true }); }
+}, 30_000);

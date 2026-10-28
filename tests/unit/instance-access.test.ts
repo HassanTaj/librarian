@@ -6,6 +6,9 @@ import { parseInstanceControl } from '../../lib/instance/store';
 import { authorizeInstanceSetup, issueSetupCandidateFlow, issueSetupOwnerProof, readInstanceSetupSession, verifyInstanceAuthority, verifySetupCandidateFlow, verifySetupOwnerProof, verifyInstancePreSessionMutation, instanceCsrfToken, verifyInstanceMutation, instanceErrorResponse, readInstanceJson, consumeInstanceRate, withInstanceProviderCheck } from '../../lib/instance/access';
 import { instanceSnapshot } from '../../lib/instance/store';
 import { issueBootstrapCredential } from '../../lib/instance/bootstrap';
+import { encryptedInstanceDb } from '../fixtures/encrypted-instance-db';
+
+const keyring = { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1) } };
 
 it('requires an active binding and the independent instance role in the current identity/epochs', () => {
   const fixture = readyInstance(); const control = parseInstanceControl(fixture, fixture.instanceId);
@@ -56,9 +59,9 @@ it('releases a reserved setup slot when durable session creation fails and never
   const updateOne = vi.fn().mockResolvedValue({ matchedCount: 1 });
   const insertOne = vi.fn().mockRejectedValue(new Error('SYNTHETIC_DATABASE_URI'));
   const createIndex = vi.fn().mockResolvedValue(undefined);
-  const db = { collection: (name: string) => name === 'instance_configuration'
-    ? { findOne: async () => structuredClone(control), updateOne }
-    : { createIndex, insertOne } } as unknown as Db;
+  const { db } = encryptedInstanceDb(control, keyring, { configuration: { updateOne }, collections: {
+    instance_setup_sessions: { createIndex, insertOne },
+  } });
   await expect(authorizeInstanceSetup(db, control.instanceId, issued.credential, now)).rejects.toThrow('instance_unavailable');
   expect(updateOne).toHaveBeenCalledTimes(2);
   expect(updateOne.mock.calls[1][0]).toMatchObject({ 'bootstrap.sessionSlots.id': insertOne.mock.calls[0][0]._id });
@@ -76,8 +79,7 @@ it('denies setup session reservation races and missing or damaged stored session
   control.bootstrap.verifierHash = issued.verifierHash; control.bootstrap.expiresAt = issued.expiresAt;
   const updateOne = vi.fn().mockResolvedValue({ matchedCount: 0 });
   const sessions = { createIndex: async () => undefined, findOne: vi.fn().mockResolvedValue(null) };
-  const db = { collection: (name: string) => name === 'instance_configuration'
-    ? { findOne: async () => structuredClone(control), updateOne } : sessions } as unknown as Db;
+  const { db } = encryptedInstanceDb(control, keyring, { configuration: { updateOne }, collections: { instance_setup_sessions: sessions } });
   await expect(authorizeInstanceSetup(db, control.instanceId, issued.credential, now)).rejects.toThrow('instance_busy');
   await expect(readInstanceSetupSession(db, control.instanceId, issued.credential, undefined, now)).rejects.toThrow('instance_setup_unauthorized');
   sessions.findOne.mockResolvedValue({ _id: 'damaged' });

@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { hasInstanceRecovery, hasLegacyEnrollment, readInstanceHost, readInstancePreferences, readInstanceSetupStatus } from '../../lib/instance/bootstrap';
 import { closeMongo } from '../../lib/mongo';
-import type { InstanceControl } from '../../lib/instance/store';
+import { serializeInstanceControl, type StoredInstanceControl } from '../../lib/instance/store';
 import { instanceControl } from '../fixtures/instance';
 import { createInstanceHarness, seedReadyInstance } from './instance-harness';
 
@@ -12,7 +12,8 @@ it('keeps host files private and derives enrollment, recovery and public prefere
   try {
     const fixture = await seedReadyInstance(harness);
     for (const [key, value] of Object.entries(harness.env)) vi.stubEnv(key, value);
-    const controls = harness.storage.db.collection<InstanceControl>('instance_configuration');
+    const controls = harness.storage.db.collection<StoredInstanceControl>('instance_configuration');
+    const { keyring } = await readInstanceHost(harness.env);
     const markerText = await readFile(harness.env.INSTANCE_STATE_FILE, 'utf8');
     const operator = JSON.parse(await readFile(harness.env.INSTANCE_OPERATOR_AUTH_FILE, 'utf8'));
     const hidden = join(harness.storage.contentRoot, 'synthetic-host-marker.json'); await writeFile(hidden, markerText);
@@ -37,13 +38,14 @@ it('keeps host files private and derives enrollment, recovery and public prefere
     expect(await hasInstanceRecovery()).toBe(false);
     const legacy = instanceControl(harness.instanceId, fixture.control.createdAt); legacy.lifecycle = 'legacy_migrating';
     legacy.migration = { sourceDigest: 'b'.repeat(64), mode: 'import', at: legacy.createdAt, verificationSummary: ['legacy_drained'] };
-    await controls.replaceOne({ _id: 'instance' }, legacy);
+    await controls.replaceOne({ _id: 'instance' }, await serializeInstanceControl(legacy, harness.instanceId, keyring));
     await writeFile(harness.env.INSTANCE_STATE_FILE, JSON.stringify({ instanceId: harness.instanceId, phase: 'sealed', recoveryEpoch: 1 }));
     await writeFile(harness.env.INSTANCE_OPERATOR_AUTH_FILE, JSON.stringify({ ...operator, purpose: 'bootstrap' }));
     expect(await hasLegacyEnrollment()).toBe(false);
     await writeFile(harness.env.INSTANCE_OPERATOR_AUTH_FILE, JSON.stringify({ ...operator, purpose: 'enroll' })); expect(await hasLegacyEnrollment()).toBe(true);
     await writeFile(harness.env.INSTANCE_STATE_FILE, markerText);
-    await controls.replaceOne({ _id: 'instance' }, { ...fixture.control, migration: legacy.migration }); expect(await hasLegacyEnrollment()).toBe(false);
+    await controls.replaceOne({ _id: 'instance' }, await serializeInstanceControl({ ...fixture.control, migration: legacy.migration }, harness.instanceId, keyring));
+    expect(await hasLegacyEnrollment()).toBe(false);
     await controls.deleteOne({ _id: 'instance' });
     await writeFile(harness.env.INSTANCE_OPERATOR_AUTH_FILE, JSON.stringify({ ...operator, purpose: 'recover' })); expect(await hasInstanceRecovery()).toBe(false);
   } finally { await closeMongo(); vi.unstubAllEnvs(); await harness.close(); }

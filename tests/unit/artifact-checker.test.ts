@@ -142,7 +142,7 @@ async function instanceDocs() {
 
 it('derives the selected instance requirement/task/source/API inventory and rejects broken mappings', async () => {
   const { spec, plan, tasks, contract } = await instanceDocs();
-  expect(validateInstanceTraceability(spec, plan, tasks, contract)).toMatchObject({ requirements: 58, tasks: 94, sources: 66, apiRows: 15 });
+  expect(validateInstanceTraceability(spec, plan, tasks, contract)).toMatchObject({ requirements: 58, tasks: 105, sources: 69, apiRows: 16 });
   for (const [changed, expected] of [
     [tasks.replace('T094 Prepare', 'T093 Prepare'), 'Task inventory'],
     [tasks.replace('| V2-FR-036 |', '| V2-FR-999 |'), 'traceability'],
@@ -172,7 +172,7 @@ it('runs the actual documents CLI successfully and reports missing documents wit
     const invoke = (cwd: string) => spawnSync(process.execPath, [...(cwd === process.cwd() ? capture : []), script, '--documents-only'], { cwd,
       env: process.env, encoding: 'utf8', windowsHide: true, timeout: 30_000 });
     const valid = invoke(process.cwd()); expect(valid.status, valid.stderr).toBe(0);
-    expect(JSON.parse(valid.stdout)).toMatchObject({ requirements: 58, tasks: 94, implementationVerified: false });
+    expect(JSON.parse(valid.stdout)).toMatchObject({ requirements: 58, tasks: 105, implementationVerified: false });
     const missing = invoke(root); expect(missing.status).toBe(1); expect(missing.stderr).toContain('Artifact validation failed');
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -195,7 +195,7 @@ it('validates selected 002 documents without calling them implemented and retain
     await writeFile(join(root, 'AGENTS.md'), 'Synthetic governance link target.');
     await writeFile(join(root, '.specify/feature.json'), JSON.stringify({ feature_directory: 'specs/002-instance-configuration' }));
     const result = await validateFeatureDocuments(root);
-    expect(result).toMatchObject({ feature: 'specs/002-instance-configuration', requirements: 58, tasks: 94, sources: 66, apiRows: 15, implementationVerified: false, original: { requirements: 73, tasks: 92 } });
+    expect(result).toMatchObject({ feature: 'specs/002-instance-configuration', requirements: 58, tasks: 105, sources: 69, apiRows: 16, implementationVerified: false, original: { requirements: 73, tasks: 92 } });
     await expect(validateArtifacts(root)).rejects.toThrow('implementation source');
     const spec = join(root, 'specs/001-librarian-v1-portal/spec.md');
     const original = await readFile(spec, 'utf8');

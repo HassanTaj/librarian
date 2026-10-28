@@ -1,18 +1,18 @@
 import { expect, it } from 'vitest';
 import { createHash, randomUUID } from 'node:crypto';
-import type { Db } from 'mongodb';
 import { beginInstanceActivation, commitInitialInstance, initialFinalizeReplay } from '../../lib/instance/activation';
 import { InstanceDraftPatchSchema, buildInstanceDraft, InstanceControlSchema } from '../../lib/instance/store';
 import { decryptInstanceSecret, rotateInstanceBundles } from '../../lib/instance/secrets';
 import { issueSetupCandidateFlow, issueSetupOwnerProof, readInstanceSetupSession, verifySetupCandidateFlow, type InstanceSetupSession } from '../../lib/instance/access';
 import { instanceControl, readyInstance } from '../fixtures/instance';
+import { encryptedInstanceDb } from '../fixtures/encrypted-instance-db';
 import { LIMITS } from '../../lib/limits';
 
 const keyring = { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1) } };
-function dbFor(control: ReturnType<typeof readyInstance>) {
-  return { collection: () => ({ findOne: async () => structuredClone(control), replaceOne: async (_filter: unknown, next: typeof control) => {
-    Object.assign(control, next); return { matchedCount: 1 };
-  } }) } as unknown as Db;
+function dbFor(control: ReturnType<typeof readyInstance>, session?: InstanceSetupSession) {
+  return encryptedInstanceDb(control, keyring, { collections: session ? {
+    instance_setup_sessions: { findOne: async () => structuredClone(session) },
+  } : undefined });
 }
 
 function checkedCandidate(control: ReturnType<typeof readyInstance>, now: Date) {
@@ -43,14 +43,14 @@ it('rejects missing, failed, stale and future activation evidence while leaving 
     const control = readyInstance(randomUUID(), new Date(now.getTime() - LIMITS.instanceProofMs));
     control.updatedAt = now; const candidate = checkedCandidate(control, now); mutate(control);
     const before = structuredClone(control.active);
-    await expect(beginInstanceActivation(dbFor(control), control.instanceId, control.editRevision, candidate.version,
+    await expect(beginInstanceActivation(dbFor(control).db, control.instanceId, control.editRevision, candidate.version,
       candidate.impact!.confirmationNonce, control.administrators[0].bindingId, now)).rejects.toThrow();
     expect(control.active).toEqual(before); expect(control.gate.state).toBe('open');
   }
   const control = readyInstance(randomUUID(), now); const candidate = checkedCandidate(control, now);
   candidate.checks = candidate.checks.map(check => check.type === 'github_installation' || check.type === 'github_webhook'
     ? { ...check, status: 'warning', code: check.type === 'github_installation' ? 'installation_missing' : 'delivery_unverified' } : check);
-  expect((await beginInstanceActivation(dbFor(control), control.instanceId, control.editRevision, candidate.version,
+  expect((await beginInstanceActivation(dbFor(control).db, control.instanceId, control.editRevision, candidate.version,
     candidate.impact!.confirmationNonce, control.administrators[0].bindingId, now)).activation?.phase).toBe('draining');
 });
 
@@ -66,13 +66,13 @@ it('requires current owner continuity proof for a changed identity boundary', as
     if (mutation === 'future-candidate') { candidate.createdAt = new Date(now.getTime() + 1); control.updatedAt = candidate.createdAt; candidate.checks = candidate.checks.map(check => ({ ...check, at: candidate.createdAt })); }
     if (mutation === 'retired-actor') { control.administrators[0].status = 'retired'; control.administrators.push({ ...control.administrators[0], status: 'active', bindingId: randomUUID(), subject: 'replacement-owner' }); }
     if (mutation === 'wrong-actor') actor = randomUUID();
-    await expect(beginInstanceActivation(dbFor(control), control.instanceId, control.editRevision, candidate.version,
+    await expect(beginInstanceActivation(dbFor(control).db, control.instanceId, control.editRevision, candidate.version,
       candidate.impact!.confirmationNonce, actor, now)).rejects.toThrow();
     expect(control.gate.state).toBe('open');
   }
   const valid = readyInstance(randomUUID(), now); const candidate = checkedCandidate(valid, now);
   candidate.impact!.categories = ['identity']; candidate.impact!.securityEpochIncrement = true;
-  expect((await beginInstanceActivation(dbFor(valid), valid.instanceId, valid.editRevision, candidate.version,
+  expect((await beginInstanceActivation(dbFor(valid).db, valid.instanceId, valid.editRevision, candidate.version,
     candidate.impact!.confirmationNonce, valid.administrators[0].bindingId, now)).gate.state).toBe('closing');
 });
 
@@ -89,13 +89,13 @@ it('finalizes only complete fresh initial evidence and recognizes only the exact
   for (const mutate of mutations) {
     const control = instanceControl(randomUUID(), new Date(now.getTime() - LIMITS.instanceProofMs));
     control.updatedAt = now; const candidate = checkedCandidate(control, now); control.lifecycle = 'awaiting_owner'; mutate(control);
-    await expect(commitInitialInstance(dbFor(control), control.instanceId, control.revision, candidate.version,
+    await expect(commitInitialInstance(dbFor(control).db, control.instanceId, control.revision, candidate.version,
       candidate.impact!.confirmationNonce, now)).rejects.toThrow();
     expect(control.active).toBeNull(); expect(control.bootstrap.consumedAt).toBeNull();
   }
   const control = instanceControl(randomUUID(), now); const candidate = checkedCandidate(control, now); control.lifecycle = 'awaiting_owner';
   const nonce = candidate.impact!.confirmationNonce;
-  const finalized = await commitInitialInstance(dbFor(control), control.instanceId, control.revision, candidate.version, nonce, now);
+  const finalized = await commitInitialInstance(dbFor(control).db, control.instanceId, control.revision, candidate.version, nonce, now);
   expect(finalized).toMatchObject({ lifecycle: 'maintenance', active: { version: candidate.version }, candidate: null,
     gate: { state: 'maintenance' }, activation: { phase: 'adopting', actor: 'bootstrap' }, bootstrap: { consumedAt: now } });
   expect(initialFinalizeReplay(finalized, candidate.version, nonce)).toBe(true);
@@ -149,7 +149,7 @@ it('closes admission for the exact current actor/revision/nonce and rejects stal
     type: type as typeof candidate.checks[number]['type'], candidateVersion: candidate.version, at: now, status: 'passed', code: 'provider_ok',
   }));
   const nonce = candidate.impact!.confirmationNonce;
-  const db = dbFor(control);
+  const db = dbFor(control).db;
   await expect(beginInstanceActivation(db, control.instanceId, control.editRevision + 1, candidate.version, nonce, actor, now)).rejects.toThrow('instance_conflict');
   await expect(beginInstanceActivation(db, control.instanceId, control.editRevision, candidate.version, randomUUID(), actor, now)).rejects.toThrow('instance_conflict');
   await expect(beginInstanceActivation(db, control.instanceId, control.editRevision, candidate.version, nonce, actor, new Date(now.getTime() + 600_000))).rejects.toThrow('instance_conflict');
@@ -176,7 +176,7 @@ it('requires the bound owner to confirm identity and origin continuity impacts',
       status: type === 'github_installation' || type === 'github_webhook' ? 'warning' : 'passed',
       code: type === 'github_installation' ? 'installation_missing' : type === 'github_webhook' ? 'delivery_unverified' : 'provider_ok',
     }));
-    await expect(beginInstanceActivation(dbFor(control), control.instanceId, control.editRevision, candidate.version,
+    await expect(beginInstanceActivation(dbFor(control).db, control.instanceId, control.editRevision, candidate.version,
       candidate.impact!.confirmationNonce, adminId, now)).rejects.toThrow('instance_owner_continuity_required');
     expect(control.gate.state).toBe('open');
   }
@@ -227,7 +227,7 @@ it('keeps recovery sessions narrowly scoped and expires them even when TTL delet
     setupEpoch: control.bootstrap.epoch, recoveryEpoch: control.recoveryEpoch, createdAt: now, expiresAt,
     purgeAt: new Date(expiresAt.getTime() + 3600_000), csrfHash: createHash('sha256').update(csrf).digest('hex'),
     candidateVersion: 0, lastNonceHash: null, purpose: 'recovery' };
-  const db = { collection: (name: string) => ({ findOne: async () => structuredClone(name === 'instance_configuration' ? control : session) }) } as unknown as Db;
+  const storage = dbFor(control, session); const db = storage.db;
   await expect(readInstanceSetupSession(db, control.instanceId, token, csrf, now)).resolves.toMatchObject({ purpose: 'recovery' });
   await expect(readInstanceSetupSession(db, control.instanceId, token, 'wrong', now)).rejects.toThrow('instance_csrf');
   await expect(readInstanceSetupSession(db, control.instanceId, token, csrf, expiresAt)).rejects.toThrow('instance_setup_unauthorized');
@@ -235,7 +235,7 @@ it('keeps recovery sessions narrowly scoped and expires them even when TTL delet
   await expect(readInstanceSetupSession(db, control.instanceId, token, csrf, now)).rejects.toThrow('instance_setup_unauthorized');
   session.recoveryEpoch--; session.purpose = 'bootstrap';
   await expect(readInstanceSetupSession(db, control.instanceId, token, csrf, now)).rejects.toThrow('instance_setup_closed');
-  session.purpose = 'recovery'; control.lifecycle = 'ready'; control.gate.state = 'open';
+  session.purpose = 'recovery'; control.lifecycle = 'ready'; control.gate.state = 'open'; await storage.setControl(control);
   await expect(readInstanceSetupSession(db, control.instanceId, token, csrf, now)).rejects.toThrow('instance_setup_closed');
 });
 

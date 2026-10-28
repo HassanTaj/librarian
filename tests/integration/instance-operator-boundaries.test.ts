@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { expect, it } from 'vitest';
 import { issueSetupOwnerProof } from '../../lib/instance/access';
 import { beginInstanceKeyRotation, serializeInstanceKeyring } from '../../lib/instance/secrets';
-import { readInstance, updateInstance, type InstanceControl } from '../../lib/instance/store';
+import { readInstance, serializeInstanceControl, updateInstance, type InstanceControl, type StoredInstanceControl } from '../../lib/instance/store';
 import { instanceControl } from '../fixtures/instance';
 import { createInstanceHarness, seedReadyInstance } from './instance-harness';
 import { LIMITS } from '../../lib/limits';
@@ -25,7 +25,9 @@ it('fails closed on interrupted or conflicting host maintenance authority before
     const ringText = await readFile(harness.env.INSTANCE_KEYRING_FILE, 'utf8'); const stored = JSON.parse(ringText);
     const ring = { activeKeyId: stored.activeKeyId, keys: Object.fromEntries(Object.entries(stored.keys as Record<string, string>).map(([id, value]) => [id, Buffer.from(value, 'base64')])) };
     const capture = process.env.LIBRARIAN_COVERAGE_PROCESS_DIR ? [`--import=${pathToFileURL(resolve('tests/integration/native-coverage-register.mjs')).href}`] : [];
-    const controls = harness.storage.db.collection<InstanceControl>('instance_configuration');
+    const controls = harness.storage.db.collection<StoredInstanceControl>('instance_configuration');
+    const storeControl = async (control: InstanceControl) => controls.replaceOne({ _id: 'instance' },
+      await serializeInstanceControl(control, harness.instanceId, ring), { upsert: true });
     const invoke = (command: string, extra: string[] = []) => spawnSync(process.execPath, [...capture, resolve('scripts/instance-operator.mjs'), command,
       '--instance-id', harness.instanceId, '--revision', String(base.revision), '--processes-stopped', '--proof-id', candidate.ownerProof!.nonce, ...extra],
     { env: { ...process.env, ...harness.env }, encoding: 'utf8', windowsHide: true, timeout: 30_000 });
@@ -66,14 +68,14 @@ it('fails closed on interrupted or conflicting host maintenance authority before
       if (condition === 'proof-epoch') current.candidate!.ownerProof!.securityEpoch++;
       if (condition === 'proof-issuer') { current.candidate!.zitadel.issuer = 'https://other-identity.example.test'; current.candidate!.ownerProof!.issuer = current.candidate!.zitadel.issuer; }
       if (condition === 'proof-project') { current.candidate!.zitadel.projectId = 'other-project'; current.candidate!.ownerProof!.projectId = 'other-project'; }
-      await controls.replaceOne({ _id: 'instance' }, current, { upsert: true });
+      await storeControl(current);
       if (condition === 'missing') await controls.deleteOne({ _id: 'instance' });
-      if (condition === 'uninitialized') await controls.replaceOne({ _id: 'instance' }, instanceControl(harness.instanceId, base.createdAt));
+      if (condition === 'uninitialized') await storeControl(instanceControl(harness.instanceId, base.createdAt));
       const result = invoke(command, extra);
       expect(result.status, condition).toBe(1); expect(result.stderr, condition).toContain(expected);
       if (!['missing', 'uninitialized'].includes(condition)) expect((await readInstance(harness.storage.db, harness.instanceId))!.active, condition).toEqual(base.active);
     }
-    await controls.replaceOne({ _id: 'instance' }, base); await writeFile(harness.env.INSTANCE_KEYRING_FILE, ringText);
+    await storeControl(base); await writeFile(harness.env.INSTANCE_KEYRING_FILE, ringText);
     await writeFile(harness.env.INSTANCE_STATE_FILE, JSON.stringify({ instanceId: harness.instanceId, phase: 'initialized', recoveryEpoch: 2 }));
     await writeFile(harness.env.INSTANCE_OPERATOR_AUTH_FILE, JSON.stringify({ instanceId: harness.instanceId, epoch: 2, purpose: 'recover',
       credential: randomBytes(32).toString('base64url'), expiresAt: new Date(Date.now() + 3600_000).toISOString() }));

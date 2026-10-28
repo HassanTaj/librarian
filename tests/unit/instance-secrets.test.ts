@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { createCipheriv, randomBytes, randomUUID } from 'node:crypto';
+import { BSON } from 'mongodb';
 import { encryptOAuthToken, decryptOAuthToken } from '../../lib/auth/tokens';
 import { beginInstanceKeyRotation, decryptInstanceBundle, decryptInstanceSecret, encryptInstanceBundle, encryptInstanceSecret, rotateInstanceBundles, serializeInstanceKeyring, verifyInstanceBundles } from '../../lib/instance/secrets';
 import { readyInstance } from '../fixtures/instance';
@@ -67,8 +68,16 @@ it('seals the entire logical configuration bundle and rejects context substituti
   expect(decryptInstanceBundle(envelope, context, keyring)).toEqual(bundle);
   expect(() => decryptInstanceBundle(envelope, { ...context, instanceId: randomUUID() }, keyring)).toThrow('instance_secret_invalid');
   expect(() => decryptInstanceBundle(envelope, { ...context, bundleVersion: bundle.version + 1 }, keyring)).toThrow('instance_secret_invalid');
+  expect(() => decryptInstanceBundle(envelope, context, { activeKeyId: 'root-1', keys: { 'root-1': randomBytes(32) } })).toThrow('instance_secret_invalid');
   const ciphertext = Buffer.from(envelope.ciphertext, 'base64'); ciphertext[0] ^= 1;
   expect(() => decryptInstanceBundle({ ...envelope, ciphertext: ciphertext.toString('base64') }, context, keyring)).toThrow('instance_secret_invalid');
+
+  const nonce = randomBytes(12);
+  const wrongPurpose = createCipheriv('aes-256-gcm', keyring.keys['root-1'], nonce);
+  wrongPurpose.setAAD(Buffer.from(JSON.stringify([2, context.instanceId, 'other_configuration', keyring.activeKeyId, context.bundleVersion])));
+  const wrongPurposeCiphertext = Buffer.concat([wrongPurpose.update(Buffer.from(BSON.EJSON.stringify(bundle))), wrongPurpose.final()]);
+  expect(() => decryptInstanceBundle({ ...envelope, nonce: nonce.toString('base64'), tag: wrongPurpose.getAuthTag().toString('base64'),
+    ciphertext: wrongPurposeCiphertext.toString('base64') }, context, keyring)).toThrow('instance_secret_invalid');
 });
 
 it('rotates every retained provider envelope while preserving old backup keys and resumable rotation metadata', () => {

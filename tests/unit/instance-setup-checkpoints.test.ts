@@ -97,7 +97,7 @@ it('records failed database checks and refuses to invent a missing saved result'
 
 it.each(['missing', 'candidate', 'lifecycle', 'consumed', 'stale', 'version', 'input', 'origin'] as const)('denies %s provider checks before provider work', async condition => {
   let body: unknown = { candidateVersion: 1, type: 'github_structure' }; const headers: Record<string, string> = {}; let status = 503;
-  if (condition === 'missing') state.raw.mockResolvedValue(null);
+  if (condition === 'missing') state.read.mockResolvedValue(null);
   if (condition === 'candidate') control.candidate = null;
   if (condition === 'lifecycle') control.lifecycle = 'maintenance';
   if (condition === 'consumed') control.bootstrap.consumedAt = new Date();

@@ -4,20 +4,18 @@ import { expect, it, vi } from 'vitest';
 import { LIMITS } from '../../lib/limits';
 import { buildInstanceDraft, cleanupInstanceState, drainInstanceAudit, initializeInstance, InstanceDraftPatchSchema, parseInstanceControl, readInstance, recordInstanceCheck, updateInstance, type InstanceControl } from '../../lib/instance/store';
 import { instanceControl, readyInstance } from '../fixtures/instance';
+import { encryptedInstanceDb } from '../fixtures/encrypted-instance-db';
+
+const keyring = { activeKeyId: 'synthetic-root', keys: { 'synthetic-root': Buffer.alloc(32, 1) } };
 
 it('rejects ordinary control writes at a full audit outbox but permits reconciliation of an existing event', async () => {
-  let stored = readyInstance();
+  const stored = readyInstance();
   stored.auditOutbox = Array.from({ length: LIMITS.maxInstanceAuditOutbox }, () => ({
     _id: randomUUID(), instanceId: stored.instanceId, at: stored.createdAt, actor: 'synthetic-operator', operation: 'candidate_saved' as const,
     fromVersion: null, toVersion: null, resultCode: 'accepted', requestId: randomUUID(),
   }));
   let replaceCalls = 0;
-  const db = {
-    collection: () => ({
-      findOne: async () => stored,
-      replaceOne: async (_filter: unknown, next: InstanceControl) => { replaceCalls++; stored = next; return { matchedCount: 1 }; },
-    }),
-  } as unknown as Db;
+  const { db } = encryptedInstanceDb(stored, keyring, { replace: async () => { replaceCalls++; return { matchedCount: 1 }; } });
 
   let mutationCalls = 0;
   await expect(updateInstance(db, stored.instanceId, stored.revision, value => {
@@ -63,11 +61,13 @@ it('keeps provider checks out of closed or saturated state and never acknowledge
   const insert = vi.fn();
   const events = { createIndex: async () => undefined, countDocuments: async () => 0,
     find: () => ({ project: () => ({ toArray: async () => [] }) }), updateOne: insert };
-  const db = { collection: (name: string) => name === 'instance_configuration' ? { findOne: async () => structuredClone(control), replaceOne, updateOne: ack }
-    : name === 'instance_audit_drain_leases' ? { updateOne: claim, deleteOne: release } : events } as unknown as Db;
   control.auditOutbox = Array.from({ length: LIMITS.maxInstanceAuditOutbox }, () => ({ ...event, _id: randomUUID() }));
+  const { db, setControl } = encryptedInstanceDb(control, keyring, { configuration: { updateOne: ack }, replace: async () => { replaceOne(); return { matchedCount: 1 }; }, collections: {
+    instance_audit_drain_leases: { updateOne: claim, deleteOne: release }, instance_audit_events: events,
+  } });
   await expect(recordInstanceCheck(db, control.instanceId, check)).rejects.toThrow('instance_unavailable');
   control.auditOutbox = [event]; control.lifecycle = 'maintenance'; control.gate.state = 'maintenance';
+  await setControl(control);
   await expect(recordInstanceCheck(db, control.instanceId, check)).rejects.toThrow('instance_conflict'); expect(replaceOne).not.toHaveBeenCalled();
   await expect(drainInstanceAudit(db, control.instanceId)).rejects.toThrow('instance_busy'); expect(insert).not.toHaveBeenCalled();
   claim.mockResolvedValue({ matchedCount: 1 });
@@ -102,17 +102,17 @@ it('allows loopback development origins, rejects unsafe origins, and requires op
 it('retires expired rollback and webhook material independently without changing the active generation or edit revision', async () => {
   const now = new Date();
   for (const [previousExpired, webhookExpired] of [[false, false], [true, false], [false, true], [true, true]]) {
-    let stored = readyInstance(randomUUID(), new Date(now.getTime() - 1000));
+    const stored = readyInstance(randomUUID(), new Date(now.getTime() - 1000));
     stored.previous = structuredClone(stored.active);
     stored.previous!.previousUntil = new Date(now.getTime() + (previousExpired ? -1 : 1000));
     stored.active!.secrets.previousWebhook = { envelope: structuredClone(stored.active!.secrets.githubWebhookSecret),
       acceptUntil: new Date(now.getTime() + (webhookExpired ? -1 : 1000)) };
     const original = structuredClone(stored);
     let writes = 0;
-    const db = { collection: () => ({ findOne: async () => structuredClone(stored), replaceOne: async (filter: unknown, next: InstanceControl) => {
+    const { db, setControl } = encryptedInstanceDb(stored, keyring, { replace: async filter => {
       expect(filter).toEqual({ _id: 'instance', instanceId: stored.instanceId, revision: original.revision });
-      writes++; stored = next; return { matchedCount: 1 };
-    } }) } as unknown as Db;
+      writes++; return { matchedCount: 1 };
+    } });
     await cleanupInstanceState(db, stored.instanceId, now);
     expect(writes).toBe(previousExpired || webhookExpired ? 1 : 0);
     expect(stored.previous === null).toBe(previousExpired);
@@ -121,6 +121,7 @@ it('retires expired rollback and webhook material independently without changing
     expect(stored.active!.secrets.githubWebhookSecret).toEqual(original.active!.secrets.githubWebhookSecret);
     expect(stored.editRevision).toBe(original.editRevision);
     stored.lifecycle = 'maintenance'; stored.gate.state = 'maintenance';
+    await setControl(stored);
     await cleanupInstanceState(db, stored.instanceId, new Date(now.getTime() + 2000));
     expect(writes).toBe(previousExpired || webhookExpired ? 1 : 0);
   }
@@ -135,10 +136,11 @@ it('preserves the latest provider proof and fails after bounded concurrent write
     status: 'passed' as const, code: 'database_ok' as const };
   stored.candidate!.checks = [{ ...result, at: now }];
   let writes = 0;
-  const db = { collection: () => ({ findOne: async () => structuredClone(stored), replaceOne: async () => { writes++; return { matchedCount: 0 }; } }) } as unknown as Db;
+  const { db, setControl } = encryptedInstanceDb(stored, keyring, { replace: async () => { writes++; return { matchedCount: 0 }; } });
   expect(await recordInstanceCheck(db, stored.instanceId, result)).toEqual(stored);
   expect(writes).toBe(0);
   stored.candidate!.checks = [];
+  await setControl(stored);
   await expect(recordInstanceCheck(db, stored.instanceId, result)).rejects.toThrow('instance_conflict');
   expect(writes).toBe(3);
   await expect(recordInstanceCheck(db, stored.instanceId, { ...result, at: new Date(Date.now() + 60_000) })).rejects.toThrow('instance_invalid');
@@ -154,7 +156,7 @@ it('rejects regressions of initialized authority, epochs and monotonic bundle ve
     value => ({ ...value, bootstrap: { ...value.bootstrap, consumedAt: new Date(value.bootstrap.consumedAt!.getTime() + 1) } }),
   ];
   let writes = 0;
-  const db = { collection: () => ({ findOne: async () => structuredClone(stored), replaceOne: async () => { writes++; return { matchedCount: 1 }; } }) } as unknown as Db;
+  const { db } = encryptedInstanceDb(stored, keyring, { replace: async () => { writes++; return { matchedCount: 1 }; } });
   for (const mutate of mutations) await expect(updateInstance(db, stored.instanceId, stored.revision, mutate,
     new Date(stored.updatedAt.getTime() + 10))).rejects.toThrow('instance_invalid');
   expect(writes).toBe(0);

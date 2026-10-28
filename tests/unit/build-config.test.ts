@@ -72,6 +72,12 @@ it('uses explicit local browser and Next output paths when configured', async ()
   expect(next.distDir).toBe('scratch/next');
 });
 
+it('leaves browser launch options at Playwright defaults when no local executable is configured', async () => {
+  vi.stubEnv('LIBRARIAN_BROWSER_EXECUTABLE', '');
+  vi.resetModules();
+  expect((await import('../../playwright.config')).default.use?.launchOptions).toBeUndefined();
+});
+
 it('uses the standard Next output directory when no override is configured', async () => {
   const previous = process.env.LIBRARIAN_NEXT_DIST_DIR;
   delete process.env.LIBRARIAN_NEXT_DIST_DIR;

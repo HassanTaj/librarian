@@ -17,7 +17,11 @@ it('atomically persists canonical encrypted drafts, rejects stale/invalid edits,
     };
     const initial = await get();
     expect(initial.snapshot.active.secrets).toMatchObject({ zitadelClientSecret: { configured: true }, githubPrivateKey: { configured: true }, githubWebhookSecret: { configured: true } });
+    expect(initial.snapshot.active.runtime).toMatchObject({ authSecretConfigured: true, oauthTokenEncryptionKeyConfigured: true,
+      mongodbUriConfigured: true, mongodbDatabase: fixture.control.active!.runtime!.mongodbDatabase, trustHost: true, workerEnabled: false });
     expect(JSON.stringify(initial.snapshot)).not.toMatch(/ciphertext|SYNTHETIC_(?:CLIENT|WEBHOOK)_SENTINEL/);
+    for (const value of [fixture.control.active!.runtime!.authSecret, fixture.control.active!.runtime!.oauthTokenEncryptionKey,
+      fixture.control.active!.runtime!.mongodbUri]) expect(JSON.stringify(initial.snapshot)).not.toContain(value);
     const patch = (body: string, etag = initial.response.headers.get('etag')!) => fetch(`${server.origin}/api/instance/settings`, {
       method: 'PATCH', headers: fixture.headers({ 'Content-Type': 'application/json', 'If-Match': etag }), body,
     });

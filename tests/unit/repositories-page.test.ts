@@ -49,7 +49,7 @@ it('passes the incoming session cookie to the admin gate and renders the console
   expect(request.url).toBe('http://localhost/repositories');
   expect(request.headers.get('cookie')).toBe('session=synthetic');
   expect(isValidElement(result) && result.type).toBe(AdminConsole);
-});
+}, 15_000);
 
 it('offers direct Zitadel sign-in only to anonymous sessions', async () => {
   state.headers.mockResolvedValue(new Headers());

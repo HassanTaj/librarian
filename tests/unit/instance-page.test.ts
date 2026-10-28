@@ -3,17 +3,25 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, expect, it, vi } from 'vitest';
 import * as page from '../../app/instance/setup/page';
 
-const state = vi.hoisted(() => ({ status: vi.fn(), reader: vi.fn(), metadata: vi.fn() }));
-vi.mock('../../lib/instance/bootstrap', () => ({ readInstanceSetupStatus: state.status, hasLegacyEnrollment: async () => false, hasInstanceRecovery: async () => false }));
+const state = vi.hoisted(() => ({ status: vi.fn(), needsDatabaseSetup: vi.fn(), reader: vi.fn(), metadata: vi.fn() }));
+vi.mock('../../lib/instance/bootstrap', () => ({ readInstanceSetupStatus: state.status, needsInstanceDatabaseSetup: state.needsDatabaseSetup, hasLegacyEnrollment: async () => false, hasInstanceRecovery: async () => false }));
+vi.mock('../../components/instance-database-setup', () => ({ InstanceDatabaseSetup: () => createElement('p', null, 'Synthetic database form') }));
 vi.mock('../../components/instance-setup', () => ({ InstanceSetup: () => createElement('p', null, 'Synthetic protected wizard') }));
 vi.mock('next-auth/react', () => ({ SessionProvider: ({ children }: { children: ReactNode }) => children }));
 vi.mock('../../app/[repoSlug]/[[...page]]/page', () => ({ default: state.reader, generateMetadata: state.metadata }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  state.needsDatabaseSetup.mockResolvedValue(false);
   state.status.mockResolvedValue({ state: 'setup_required', prerequisitesAvailable: true, namespaceAvailable: true });
   state.reader.mockResolvedValue(createElement('p', null, 'Existing protected catalog route'));
   state.metadata.mockResolvedValue({ title: 'Existing catalog metadata' });
+});
+
+it('shows database setup before the owner wizard for a prepared host', async () => {
+  state.needsDatabaseSetup.mockResolvedValue(true);
+  expect(renderToStaticMarkup(await page.default())).toContain('Synthetic database form');
+  expect(state.status).not.toHaveBeenCalled();
 });
 
 it('requires request-time rendering so a build cannot freeze the setup authorization gate', () => {
