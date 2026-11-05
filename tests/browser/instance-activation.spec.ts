@@ -26,12 +26,17 @@ async function openSettings(page: Page) {
 }
 
 async function saveDraftAndVerifyOwner(page: Page, label: string, clientId?: string) {
+  await page.getByRole('tab', { name: 'Runtime and documentation', exact: true }).click();
   await page.getByLabel('Display name').fill(label);
-  if (clientId) await page.getByLabel('Client ID').fill(clientId);
+  if (clientId) {
+    await page.getByRole('tab', { name: 'Zitadel', exact: true }).click();
+    await page.getByLabel('Client ID').fill(clientId);
+  }
   const saved = page.waitForResponse(response => response.url().endsWith('/api/instance/settings') && response.request().method() === 'PATCH');
   await page.getByRole('button', { name: 'Save draft' }).click();
   expect((await saved).status()).toBe(200);
   await expect(page.getByRole('status')).toContainText('Draft saved. Active settings have not changed.');
+  await page.getByRole('tab', { name: 'Validation', exact: true }).click();
 
   const issuerResponse = await fixture('/setup/provider', 'GET');
   const issuer = (await issuerResponse.json() as { origin: string }).origin;
@@ -39,14 +44,16 @@ async function saveDraftAndVerifyOwner(page: Page, label: string, clientId?: str
   const callback = page.waitForRequest(request => request.url().startsWith(`${setupOrigin}/api/instance/auth/callback/zitadel?`));
   await page.getByRole('button', { name: 'Verify candidate owner' }).click();
   await callback;
+  await page.waitForURL(`${setupOrigin}/instance/settings`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('tab', { name: 'Validation', exact: true }).click();
   await expect(page.getByText(/Verified target proof ID for a protected ownership transfer/)).toBeVisible({ timeout: 30_000 });
 
   await fixture('/settings/reset-check-limits');
-  for (const [index, type] of ['database', 'zitadel_discovery', 'zitadel_owner_login', 'github_structure', 'github_authentication',
-    'github_permissions', 'github_installation', 'github_webhook'].entries()) {
+  for (const [index, check] of ['Database connection', 'Zitadel discovery', 'Owner sign-in', 'Private key format', 'GitHub authentication',
+    'GitHub permissions', 'GitHub installation', 'Webhook delivery'].entries()) {
     if (index === 6) await fixture('/settings/reset-check-limits');
-    await page.getByRole('button', { name: type.replaceAll('_', ' '), exact: true }).click();
-    await expect(page.getByRole('status')).toContainText(`${type}:`, { timeout: 30_000 });
+    await page.getByRole('button', { name: `Run ${check.toLowerCase()} check`, exact: true }).click();
+    await expect(page.getByRole('status')).toContainText(`${check}:`, { timeout: 30_000 });
   }
 }
 
@@ -62,7 +69,9 @@ test('owner applies reviewed settings, reports pending truthfully, and prepares 
   test.setTimeout(240_000);
   await authenticate(page.context());
   await openSettings(page);
-  await expect(page.getByText(/Root keys, database, storage, proxy and outbound policy require a protected host operator and restart/)).toBeVisible();
+  await page.getByRole('tab', { name: 'Host prerequisites', exact: true }).click();
+  await expect(page.getByText(/The MongoDB startup locator, encryption keyring, operator authority, content root, outbound policy and publication approvals remain host-managed/)).toBeVisible();
+  await expect(page.getByText(/Changes require the host operator and a restart where indicated/)).toBeVisible();
   await saveDraftAndVerifyOwner(page, 'Activated synthetic portal');
 
   const administratorContext = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -70,6 +79,7 @@ test('owner applies reviewed settings, reports pending truthfully, and prepares 
     await authenticate(administratorContext, administratorSessionToken);
     const administratorPage = await administratorContext.newPage();
     await openSettings(administratorPage);
+    await administratorPage.getByRole('tab', { name: 'Validation', exact: true }).click();
     const activate = administratorPage.getByRole('button', { name: 'Activate saved draft' });
     await expect(activate).toBeEnabled();
     const settingsResponse = await administratorPage.request.get(`${setupOrigin}/api/instance/settings`);
@@ -84,15 +94,20 @@ test('owner applies reviewed settings, reports pending truthfully, and prepares 
     expect(unchanged.candidateVersion).toBe(2);
   } finally { await administratorContext.close().catch(() => undefined); }
 
+  await page.getByRole('tab', { name: 'Validation', exact: true }).click();
+  const ownerActivate = page.getByRole('button', { name: 'Activate saved draft' });
+  await expect(ownerActivate).toBeEnabled();
   page.once('dialog', dialog => dialog.accept());
   const firstApply = page.waitForResponse(response => response.url().endsWith('/api/instance/settings/activate') && response.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Activate saved draft' }).click();
+  await ownerActivate.click();
   const first = await firstApply;
   expect(first.status()).toBe(202);
   expect(await first.json()).toMatchObject({ status: 'pending', activeVersion: 2, candidateVersion: null });
   await expect(page.getByRole('status')).toContainText('Activation is pending. Check instance health, then refresh.');
+  await page.getByRole('tab', { name: 'Runtime and documentation', exact: true }).click();
   await page.getByRole('button', { name: 'Refresh' }).click();
-  await expect(page.getByText('Active revision 2. No saved draft.')).toBeVisible();
+  await expect(page.getByText('Up to date · v2', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Validation', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Prepare rollback' })).toBeEnabled();
 
   page.once('dialog', dialog => dialog.accept());

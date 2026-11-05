@@ -28,7 +28,7 @@ export function InstanceDatabaseSetup() {
       {error ? <p role="alert" className={styles.feedback}>{error}</p> : null}
       <fieldset disabled={busy} className={styles.group}>
         <label>Setup credential<input name="credential" type="password" autoComplete="off" required className={styles.input} /></label>
-        <label>MongoDB connection URI<input name="mongodbUri" type="password" autoComplete="off" spellCheck={false} required placeholder="mongodb://user:password@host:27017/" className={styles.input} /></label>
+        <label>MongoDB connection URI<input name="mongodbUri" type="password" autoComplete="off" spellCheck={false} required placeholder="mongodb://host:27017/" className={styles.input} /></label>
         <label>Database name<input name="mongodbDatabase" defaultValue="librarian" required pattern="[a-zA-Z][a-zA-Z0-9_\-]{0,62}" className={styles.input} /></label>
       </fieldset>
       <div className={styles.actions}><button className={styles.button} disabled={busy}>{busy ? 'Checking connection…' : 'Connect and continue'}</button></div>
