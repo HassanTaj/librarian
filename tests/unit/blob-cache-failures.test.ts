@@ -39,6 +39,19 @@ async function setup() {
   return { root, id, directory, cache, bytes, sha: blobSha(bytes) };
 }
 
+it('treats Linux ENOTDIR during cache discovery as an empty cache', async () => {
+  const f = await setup();
+  vi.mocked(fs.lstat).mockRejectedValueOnce(Object.assign(new Error('Not a directory'), { code: 'ENOTDIR' }));
+  await expect(trimBlobCache(f.root, f.id, 1, 50)).resolves.toBe(0);
+});
+
+it.each(['EACCES', 'EIO'])('preserves %s errors during cache discovery', async code => {
+  const f = await setup();
+  const error = Object.assign(new Error('Storage failure'), { code });
+  vi.mocked(fs.lstat).mockRejectedValueOnce(error);
+  await expect(trimBlobCache(f.root, f.id, 1, 50)).rejects.toBe(error);
+});
+
 it('falls back on unavailable cache reads and directory creation', async () => {
   const f = await setup();
   vi.mocked(fs.realpath).mockRejectedValueOnce(denied);

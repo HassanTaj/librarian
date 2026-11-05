@@ -95,7 +95,7 @@ export async function trimBlobCache(contentRoot: string, catalogId: string, revi
   const budget = Math.max(0, Math.min(LIMITS.maxSnapshotBytes, maximum));
   let directory: string;
   try { directory = await cacheDirectory(contentRoot, catalogId, false); }
-  catch (error) { if (missing(error)) return 0; throw error; }
+  catch (error) { if (missing(error) || (error as NodeJS.ErrnoException).code === 'ENOTDIR') return 0; throw error; }
   await recoverLock(directory);
   const trimmed = await withLock(directory, signal, () => prune(directory, revision, budget));
   if (trimmed !== undefined) return trimmed;
