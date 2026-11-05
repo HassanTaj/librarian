@@ -172,7 +172,7 @@ it('runs the actual documents CLI successfully and reports missing documents wit
     const invoke = (cwd: string) => spawnSync(process.execPath, [...(cwd === process.cwd() ? capture : []), script, '--documents-only'], { cwd,
       env: process.env, encoding: 'utf8', windowsHide: true, timeout: 30_000 });
     const valid = invoke(process.cwd()); expect(valid.status, valid.stderr).toBe(0);
-    expect(JSON.parse(valid.stdout)).toMatchObject({ requirements: 58, tasks: 105, implementationVerified: false });
+    expect(JSON.parse(valid.stdout)).toEqual(await validateFeatureDocuments(process.cwd()));
     const missing = invoke(root); expect(missing.status).toBe(1); expect(missing.stderr).toContain('Artifact validation failed');
   } finally { await rm(root, { recursive: true, force: true }); }
 });

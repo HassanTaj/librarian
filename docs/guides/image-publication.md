@@ -16,6 +16,20 @@ publication scope before pushing or running the workflow.
 `deploy/feed` runs its verification job, then builds and pushes the image if those
 checks pass. It publishes an image; deploying a running service is a separate step.
 
+Verification first builds the app and validates feature documents without requiring
+coverage evidence. Browser engines are installed before the test and coverage
+steps, because coverage includes browser execution. Full artifact validation runs
+after coverage and end-to-end tests, when the required evidence and reports exist;
+missing evidence, failed coverage gates, and sensitive artifacts still block
+publication. A clean checkout must generate this evidence rather than reuse local
+reports. The ignored `.specify/feature.json` selector is local checkout state;
+document CLI checks follow the selected feature or the default v1 feature.
+
+Browser fixtures refresh synthetic role-cache timestamps before scenarios that
+require current authorization. This keeps long serial engine runs independent of
+fixture age without relaxing the application's 15-minute fail-closed deadline or
+changing the fixture's role grants and deliberately expired sessions.
+
 `.github/workflows/ci.yml` (**Application checks**) is manual-only. Automatic `push`
 and `pull_request` triggers are disabled to conserve private-repository Actions
 usage and avoid overlapping checks on publication pushes. To run it, open

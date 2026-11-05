@@ -1,6 +1,8 @@
 import { expect, test, type Locator } from '@playwright/test';
+import { refreshAdminAuthorization } from './admin-fixture';
 
 test.use({ viewport: { width: 390, height: 844 } });
+test.beforeEach(refreshAdminAuthorization);
 
 test('the former /admin UI route is not registered', async ({ page }) => {
   await page.goto('/admin');

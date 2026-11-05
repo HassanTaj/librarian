@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { MongoClient } from 'mongodb';
 import { expect, test } from '@playwright/test';
+import { refreshAdminAuthorization } from './admin-fixture';
 
 const readerCookie = (browser: string) => ({ name: 'authjs.session-token', value: `synthetic-browser-reader-${browser}-session`, url: 'http://127.0.0.1:3100' });
 const adminCookie = { name: 'authjs.session-token', value: 'synthetic-browser-admin-session', url: 'http://127.0.0.1:3100' };
@@ -9,6 +10,7 @@ const wrongProjectCookie = { name: 'authjs.session-token', value: 'synthetic-bro
 const expiredCookie = { name: 'authjs.session-token', value: 'synthetic-browser-expired-session', url: 'http://127.0.0.1:3100' };
 
 test.beforeEach(async () => {
+  await refreshAdminAuthorization();
   const { dbName } = JSON.parse(await readFile('.local/browser-state.json', 'utf8')) as { dbName: string };
   const client = new MongoClient(`mongodb://127.0.0.1:27018/${dbName}`);
   await client.connect();

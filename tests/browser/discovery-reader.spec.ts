@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
+import { refreshAdminAuthorization } from './admin-fixture';
 
 test.use({ viewport: { width: 1280, height: 850 } });
+test.beforeEach(refreshAdminAuthorization);
 
 test('directory links to the protected repositories page', async ({ page }) => {
   await page.goto('/');
