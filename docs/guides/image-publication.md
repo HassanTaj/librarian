@@ -17,32 +17,35 @@ and variables → Actions → Secrets**. All examples below are synthetic placeh
 
 | Secret | Required value | Example format |
 | --- | --- | --- |
-| `REGISTRY_URL` | Registry host used for Docker login; no scheme or path. An explicit port is allowed. | `registry.example.com` |
-| `REGISTRY_IMAGE` | Full image name using the same host, including namespace and repository; no tag or digest. | `registry.example.com/namespace/repository` |
+| `REGISTRY_HOST` | Registry host used for Docker login; no scheme or path. An explicit port is allowed. | `registry.example.com` |
+| `REGISTRY_NAMESPACE` | One image namespace path component, without slashes or a tag. | `namespace` |
+| `IMAGE_NAME` | One image repository path component, without slashes or a tag. | `repository` |
 | `REGISTRY_USERNAME` | Registry login username with permission to publish the target image. | `<registry-user>` |
 | `REGISTRY_PASSWORD` | Registry password or token with permission to publish the target image. | `<registry-token>` |
 
-Registry configuration comes exclusively from `secrets`, with no `vars` lookup or
-fallback. The validation step's `env` mapping passes secrets into its shell process;
-it does not read GitHub Actions Variables or a local `.env` file. Never put actual
-credentials in tracked files, documentation, logs or chat.
+Registry host, namespace, image name, and login credentials come exclusively from
+`secrets`, with no `vars` lookup or fallback. The publish job maps the three image
+name secrets to environment variables and validates them before login/build. It does
+not read GitHub Actions Variables or a local `.env` file. Never put actual credentials
+in tracked files, documentation, logs or chat.
 
-If an older setup stored `REGISTRY_URL` as an Actions variable, provision the secret
-of the same name before running this workflow. The variable is no longer read.
-Provision `REGISTRY_IMAGE` as well; the namespace and repository are no longer
-hardcoded in the workflow.
+If an older setup used `REGISTRY_URL` and `REGISTRY_IMAGE`, split the former host and
+image path into `REGISTRY_HOST`, `REGISTRY_NAMESPACE`, and `IMAGE_NAME`. The old names
+are no longer read by this workflow.
 
 ## Image tags and validation
 
-The workflow logs in using `REGISTRY_URL`, then appends these tags to `REGISTRY_IMAGE`:
+The workflow composes the image path as
+`REGISTRY_HOST/REGISTRY_NAMESPACE/IMAGE_NAME`, logs in using `REGISTRY_HOST`, and
+publishes these tags:
 
 - `latest`
 - The full `${{ github.sha }}` commit identifier
 - `v1.0.${{ github.run_number }}`
 
 Registry validation fails before login/build when the host is empty or includes a
-scheme or path, or when the image name does not use that host, has an empty path,
-ends in `/`, or contains whitespace, a tag or a digest. Missing or invalid login
+scheme, path, user, digest, or whitespace, or when the namespace or image name is
+empty, contains a slash, whitespace, tag, or digest. Missing or invalid login
 credentials prevent registry authentication. Do not print secret values to diagnose
 configuration failures.
 

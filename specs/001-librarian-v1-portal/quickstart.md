@@ -33,13 +33,14 @@ in GitHub Actions is disposable test infrastructure for database integration tes
 secret files are mounted from scoped Swarm secrets and `CONTENT_ROOT` is set to the persistent volume.
 
 GitHub Actions CI uses synthetic fixtures and no live provider credentials. The image-publish workflow
-requires the GitHub Actions repository secrets `REGISTRY_URL`, `REGISTRY_IMAGE`, `REGISTRY_USERNAME`, and
-`REGISTRY_PASSWORD`. `REGISTRY_URL` must contain the registry host only, without a scheme or path.
-`REGISTRY_IMAGE` must contain the full image name (`registry.example.com/namespace/repository`),
-using the same host as `REGISTRY_URL`, without a tag or digest; the workflow appends the tags.
-The workflow reads registry configuration exclusively from secrets, with no repository-variable fallback.
-See the [image publication guide](../../docs/guides/image-publication.md) for secret provisioning,
-the previous-variable migration, generated tags and publication boundaries.
+requires the repository secrets `REGISTRY_HOST`, `REGISTRY_NAMESPACE`, `IMAGE_NAME`,
+`REGISTRY_USERNAME`, and `REGISTRY_PASSWORD`. `REGISTRY_HOST` contains only the registry host,
+without a scheme or path; `REGISTRY_NAMESPACE` and `IMAGE_NAME` each contain one image path component.
+The workflow composes `REGISTRY_HOST/REGISTRY_NAMESPACE/IMAGE_NAME` and publishes `latest`, the
+commit SHA, and `v1.0.<run number>` tags. Registry configuration comes exclusively from secrets, with
+no repository-variable fallback. See the
+[image publication guide](../../docs/guides/image-publication.md) for secret provisioning,
+tag details and publication boundaries.
 Deployed application credentials are provisioned through scoped Swarm secrets, as required
 by the project; they are never baked into a .env file, Docker build context or client-visible variable.
 

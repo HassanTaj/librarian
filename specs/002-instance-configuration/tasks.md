@@ -510,8 +510,8 @@ The owner approved constitution v4.0.0 on 2026-10-21: all application configurat
 - [X] T100 [US6] Add a protected, additive legacy-import path for a named DEV database that preserves existing records. It must reject unexpected targets, an existing instance-control record, namespace collision, missing recovery inputs, non-writable/unsupported Mongo, or a changed legacy source digest; the old loopback-only guard is not bypassed. Document exact rollback (remove only newly created instance state and restore the pre-migration host file set before activation). References: V2-FR-006, V2-FR-027, V2-FR-028, V2-FR-031, V2-FR-035.
 - [X] T101 [US6] Add the required `.env.example` and local `.env.local` comments marking each remaining bootstrap/storage/security-policy reference `ABSOLUTELY REQUIRED`. Retire migrated application keys/references from `.env.local` only after encrypted readback, application restart, Settings verification, and OAuth/session/provider continuity; preserve the original values in a protected rollback copy until that evidence passes. References: V2-FR-002, V2-FR-029, V2-FR-035.
 - [X] T102 [US6] Run focused codec, configuration, import, settings, auth continuity, operator-boundary, and protected-route acceptance tests. Update C7 evidence and ensure raw-Mongo ciphertext/tamper assertions pass; run all four independent global and C1-C7 95% gates, typecheck, lint and production build. References: V2-QG-002, V2-QG-003, V2-QG-004, V2-QG-005, V2-QG-007.
-- [ ] T103 [US6] Revalidate `librarian_dev` immediately before migration, prepare a protected consistent recovery point for MongoDB plus current host bootstrap files/content root, verify the exact no-delete rollback, and record sanitized target/collection counts without values or private bodies. Do not run production, provider-side, publication, or deployment actions. References: V2-FR-028, V2-FR-031, V2-FR-035, V2-QG-007.
-- [ ] T104 [US6] Execute only the owner-authorized additive DEV import into the verified current instance, activate through the existing protected owner flow, restart the local app, and verify `/instance/settings`, existing catalog/auth/job state, provider wiring, exact OAuth token decryption, health, and ciphertext-only persistence. Remove migrated file references/values only after all checks pass; keep `.env.local` host-required entries commented `ABSOLUTELY REQUIRED`. If the owner role, backup, target, provider continuity, or rollback proof is unavailable, leave the legacy runtime intact and report that exact blocker. References: V2-FR-027, V2-FR-028, V2-FR-029, V2-FR-031, V2-SC-004, V2-SC-008, V2-SC-009, V2-SC-012.
+- [X] T103 [US6] Revalidate `librarian_dev` immediately before migration, prepare a protected consistent recovery point for MongoDB plus current host bootstrap files/content root, verify the exact no-delete rollback, and record sanitized target/collection counts without values or private bodies. Do not run production, provider-side, publication, or deployment actions. References: V2-FR-028, V2-FR-031, V2-FR-035, V2-QG-007.
+- [X] T104 [US6] Execute only the owner-authorized additive DEV import into the verified current instance, activate through the existing protected owner flow, restart the local app, and verify `/instance/settings`, existing catalog/auth/job state, provider wiring, exact OAuth token decryption, health, and ciphertext-only persistence. Remove migrated file references/values only after all checks pass; keep `.env.local` host-required entries commented `ABSOLUTELY REQUIRED`. If the owner role, backup, target, provider continuity, or rollback proof is unavailable, leave the legacy runtime intact and report that exact blocker. References: V2-FR-027, V2-FR-028, V2-FR-029, V2-FR-031, V2-SC-004, V2-SC-008, V2-SC-009, V2-SC-012.
 
 - [X] T105 [US6] Complete acceptance and C7 coverage for `lib/instance/database.ts`, `components/instance-database-setup.tsx`, and `app/api/instance/database/route.ts`: prepared-host credential/origin boundaries, initial empty database, populated database refusal, write-only owner Settings edits, current-instance nonce verification, encrypted activation, atomic startup locator, restart and recovery. No data migration to a different database/server is authorized. References: V2-FR-002, V2-FR-004, V2-FR-018, V2-QG-003, V2-QG-004.
 
@@ -556,3 +556,37 @@ The full elevated `npm run test:coverage` run collected 1,071 tests: 1,070 passe
 T097 now uses synthetic `.local/secrets` files and the real `loadConfig` path before the protected import handler; an oversized unreferenced secret remains outside the imported candidate. The focused migration integration tests pass 3/3. T095-T102 and T105 are checked (103/105 tasks); only T103/T104 remain open for current shared-DEV recovery and owner-authorized import/activation.
 
 The refreshed `npm run test:coverage` passed 1,073/1,073 tests with no failures or skips. Global statement/branch/function/line coverage is 96.39% (7,089/7,355), 95.21% (6,365/6,685), 97.24% (1,163/1,196), and 98.36% (5,506/5,598). Every C1-C7 metric also meets 95%; the narrowest is C6 branches at 95.01% (933/982). Typecheck, lint, and the production build pass. Artifact document validation remains `implementationVerified:false` until T103/T104 are completed. The loopback-only disposable Mongo test container was stopped after testing without deleting its data. No shared-DEV, production, provider-side, publication, or deployment operation occurred.
+
+### Shared DEV cutover verification, 2026-11-05 (T103/T104)
+
+The approved target was already migrated when revalidated: `librarian_dev` is a writable standalone primary; its instance control is `ready`, the gate is open, bootstrap is consumed, and active bundle version 1 is present. Import metadata records `import` on 2026-10-21. The recovery archive and live state align with that pre-enrollment cutover. The import and activation were not replayed.
+
+For T103, `.local/recovery-dev-2026-10-21T12-12-31-288Z` records database `librarian_dev` and phase `before-instance-enrollment`. Its 11 BSON EJSON collection snapshots match all manifest row counts and contain index definitions. The content copy has 405 files (2,791,342 bytes). ACL inspection covered every file and directory: the current Windows user owns them, has full control, and no broad allow entries were found. The documented pre-activation rollback in `docs/guides/instance-upgrade.md` was checked: restore only the protected legacy environment file and referenced secrets, remove only the exact newly-created instance singleton and matching sealed marker, and leave catalogs/auth/jobs/receipts/snapshots/content untouched. Rollback was not executed because the instance is already active; after activation, use validated v2 rollback or a consistent restore.
+
+Sanitized collection counts (the six instance collections did not exist before import):
+
+| Collection | Before import | Current |
+| --- | ---: | ---: |
+| accounts | 1 | 1 |
+| catalogs | 3 | 3 |
+| controlReceipts | 0 | 0 |
+| delete_me | 0 | 0 |
+| identity_authorizations | 1 | 1 |
+| instance_audit_drain_leases | 0 | 0 |
+| instance_audit_events | 0 | 1 |
+| instance_check_leases | 0 | 0 |
+| instance_configuration | 0 | 1 |
+| instance_rate_buckets | 0 | 0 |
+| instance_setup_sessions | 0 | 0 |
+| quotas | 1 | 1 |
+| sessions | 1 | 1 |
+| syncJobs | 53 | 54 |
+| syncWorkerStatus | 1 | 2 |
+| users | 1 | 1 |
+| verification_tokens | 0 | 0 |
+
+All 53 pre-import sync job IDs and the original account, catalog, authorization, user, and quota IDs remain. Current job states are 25 failed and 29 succeeded; no queued or running jobs exist. The pre-import session has expired; the preserved account has a current session after the successful owner SSO sign-in used for Settings verification.
+
+For T104, `node .local/dev-cutover-verification.mjs` passed after restart: the expected single-host DEV target and local origin matched, migrated application environment variables were absent, all three OAuth token envelopes decrypted with the existing key, and raw active configuration remained ciphertext-only. The local app returned `200 ok` from `/api/health`; `/api/auth/providers` returned the Zitadel OIDC provider. The authenticated `/instance/settings` page rendered the active v1 form. Persisted provider checks passed for owner login, database, Zitadel discovery, GitHub structure/authentication/permissions/installation; GitHub webhook delivery remains `delivery_unverified`. `.env.local` host-required references were not changed. The local dev process was stopped after verification.
+
+No production or provider configuration changes, publication, image push, or deployment occurred. This closes T103/T104; the broader BG-02 live delivery, signed-sync, logout/role-removal, and rollback exercises remain unverified.
