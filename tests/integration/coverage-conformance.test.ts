@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest';
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { chromium } from '@playwright/test';
@@ -11,7 +12,7 @@ import { capabilityScopes, mergeReports, sourceInventory } from '../../scripts/c
 import { startNextHarness } from './http-harness';
 
 it('keeps new instance runtime sources visible to the real inventory and C7 boundary', async () => {
-  const root = await mkdtemp(join(process.cwd(), '.local/instance-coverage-'));
+  const root = await mkdtemp(join(tmpdir(), 'librarian-instance-coverage-'));
   try {
     await mkdir(join(root, 'lib/instance'), { recursive: true });
     const source = join(root, 'lib/instance/access.ts');
