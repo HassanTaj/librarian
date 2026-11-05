@@ -45,6 +45,32 @@ see [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product
 Disabling the separate CI workflow reduces usage, but does not remove any steps
 from the publication workflow or guarantee a faster image push.
 
+## MongoDB CI compatibility
+
+Both workflows and the isolated local Compose example pin the official image
+`mongo:8.0.34-noble@sha256:3c64937121b9437095921c4bb2569911084c05f7b88e4a263d62a8959d2b2399`.
+The multi-platform digest was verified against Docker Hub on 2026-11-05. Both
+verification jobs use `ubuntu-22.04` and expose the disposable database on host port
+`27018`, matching the integration and browser test harnesses.
+
+The previous publication run failed during service startup after `ubuntu-latest`
+resolved to Ubuntu 26.04.1. MongoDB rejects affected host kernels before any tests
+can run. Containers share the host kernel, so changing the image's Ubuntu base
+does not resolve that restriction.
+
+As checked on 2026-11-05, MongoDB's Ubuntu kernel-detection fix
+[SERVER-131779](https://jira.mongodb.org/browse/SERVER-131779) is assigned to the
+upcoming 8.0.37 release. The published 8.0.34 patch still needs a compatible host
+kernel. GitHub's Ubuntu 22.04 image currently uses Linux 6.8; retain this runner pin
+until a replacement image and runner combination has passed verification. See
+[MongoDB 8.0 release notes](https://www.mongodb.com/docs/v8.0/release-notes/8.0/) and
+[GitHub's Ubuntu 22.04 runner image](https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md).
+
+This pin applies to disposable CI and local DEV databases. Production database
+upgrades require separate infrastructure planning and approval. When changing a
+pin, verify the official tag and digest, test startup and database access, and run
+the required application checks before claiming compatibility on a new runner.
+
 ## GitHub Actions secrets
 
 Before the first run, provision these repository secrets under **Settings → Secrets
