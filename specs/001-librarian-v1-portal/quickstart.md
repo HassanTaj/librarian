@@ -81,9 +81,13 @@ It is separate from the current application integration/browser results below.
   repository to be selected for that installation. The importer reads the configured docs subtree and
   supported blobs by SHA; it does not clone the repository or fetch unrelated regular file types.
 
-Public official image digests verified read-only on 2026-10-11:
-- Planned app base: node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
-- Disposable local DB: mongo:8.0@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c
+Public official image digests verified read-only (verification date per image):
+
+- Planned app base (2026-10-11): node:22.23.3-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+- Disposable local DB (2026-11-05): mongo:8.0.34-noble@sha256:3c64937121b9437095921c4bb2569911084c05f7b88e4a263d62a8959d2b2399
+
+Use a compatible host kernel for the database image; see the
+[MongoDB CI compatibility guidance](../../docs/guides/image-publication.md#mongodb-ci-compatibility).
 
 These multi-platform digests identify the selected base/test images, not a live infrastructure image.
 The locally built Librarian image used for current container acceptance is
@@ -91,7 +95,7 @@ The locally built Librarian image used for current container acceptance is
 It has not been published. Recheck base-image security/architecture before a future build. Use only a
 separate disposable loopback test database; never connect these commands to live infrastructure data.
 
-    docker run --rm --name librarian-test-mongo -p 127.0.0.1:27018:27017 mongo:8.0@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c
+    docker run --rm --name librarian-test-mongo -p 127.0.0.1:27018:27017 mongo:8.0.34-noble@sha256:3c64937121b9437095921c4bb2569911084c05f7b88e4a263d62a8959d2b2399
 
 Use a separate isolated test database on that local service; no real connection strings in this guide.
 Stop only that disposable container after its tests; do not prune or remove shared data.

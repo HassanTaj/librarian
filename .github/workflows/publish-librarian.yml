@@ -14,13 +14,14 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    # MongoDB 8.0.34 needs a compatible host kernel; see the image publication guide.
+    runs-on: ubuntu-22.04
     services:
       # Disposable CI database for integration tests; production uses the existing MongoDB service.
       mongodb:
-        image: mongo:8.0@sha256:d0d926f94df099bff534b7ee5b5986458131a22489dfff8664509af0c1e2ca9c
+        image: mongo:8.0.34-noble@sha256:3c64937121b9437095921c4bb2569911084c05f7b88e4a263d62a8959d2b2399
         ports:
-          - 27017:27017
+          - 27018:27017
         options: >-
           --health-cmd "mongosh --quiet --eval 'quit(db.runCommand({ping: 1}).ok ? 0 : 1)'"
           --health-interval 5s
