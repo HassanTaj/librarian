@@ -1,8 +1,7 @@
 name: Application checks
 
 on:
-  push:
-  pull_request:
+  # Opt in manually to conserve private-repository Actions usage; see docs/guides/image-publication.md.
   workflow_dispatch:
 
 permissions:

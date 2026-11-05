@@ -10,6 +10,41 @@ to `deploy/feed`. Its `publish` job requires the `verify` job to succeed first.
 Pushing that branch can publish images; obtain explicit approval for the concrete
 publication scope before pushing or running the workflow.
 
+## Workflow roles and optional application checks
+
+`publish-librarian.yml` is the primary automatic publication workflow. A push to
+`deploy/feed` runs its verification job, then builds and pushes the image if those
+checks pass. It publishes an image; deploying a running service is a separate step.
+
+`.github/workflows/ci.yml` (**Application checks**) is manual-only. Automatic `push`
+and `pull_request` triggers are disabled to conserve private-repository Actions
+usage and avoid overlapping checks on publication pushes. To run it, open
+**Actions → Application checks → Run workflow**, select the branch, and confirm the
+run. This workflow runs checks without publishing an image.
+
+Application checks includes container acceptance and a previous-revision image
+rollback check that the publication workflow does not run. Obtain that evidence
+through a manual run or the equivalent required local checks before declaring a
+release complete. Manual-only CI does not waive the project's test, coverage, or
+release gates.
+
+Contributors who want automatic CI can restore these triggers in `ci.yml`:
+
+```yaml
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+```
+
+If a branch protection rule requires the `application` check, align that rule with
+the chosen CI triggers; a manual-only workflow does not automatically report a PR
+check. Standard GitHub-hosted runners are free for public repositories. Private
+repositories consume the owner's included usage and may incur charges beyond it;
+see [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+Disabling the separate CI workflow reduces usage, but does not remove any steps
+from the publication workflow or guarantee a faster image push.
+
 ## GitHub Actions secrets
 
 Before the first run, provision these repository secrets under **Settings → Secrets
