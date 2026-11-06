@@ -69,7 +69,17 @@ jobs:
           npm run coverage:check
 
       - name: Run browser tests
+        id: browser-tests
         run: npm run test:e2e
+
+      - name: Retain failed browser diagnostics
+        if: failure() && steps.browser-tests.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 3
 
       - name: Validate generated feature artifacts
         run: npm run validate:artifacts
