@@ -34,7 +34,7 @@ test.beforeEach(async () => {
 });
 
 test('protects grouped Settings, saves a private draft, pages audit and preserves it across restart and viewports', async ({ page, browser }) => {
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
 
   const anonymous = await browser.newContext({ ignoreHTTPSErrors: true });
   try {

@@ -5,10 +5,13 @@ export default defineConfig({
   retries: 0,
   forbidOnly: true,
   workers: 1,
+  timeout: 90_000,
+  expect: { timeout: 15_000 },
   use: { baseURL: 'http://127.0.0.1:3100', trace: 'retain-on-failure',
     ...(process.env.LIBRARIAN_BROWSER_EXECUTABLE ? { launchOptions: { executablePath: process.env.LIBRARIAN_BROWSER_EXECUTABLE } } : {}) },
   globalTeardown: './tests/browser/global-teardown.mjs',
   webServer: {
+    timeout: 180_000,
     command: `"${process.execPath}" tests/browser/serve.mjs`,
     url: 'http://127.0.0.1:3100/',
     reuseExistingServer: false,

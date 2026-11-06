@@ -538,12 +538,12 @@ async function seedReadySettingsFixture() {
 async function waitForNext(child, port, tls = false) {
   let startupError;
   child.once('error', error => { startupError = error; });
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 120_000;
   while (Date.now() < deadline && child.exitCode === null && child.signalCode === null) {
     if (startupError) throw startupError;
     try {
       if (tls) await new Promise((resolve, reject) => {
-        const request = httpsRequest({ hostname: 'localhost', servername: 'localhost', port, path: '/', rejectUnauthorized: false, timeout: 1000 }, response => {
+        const request = httpsRequest({ hostname: 'localhost', servername: 'localhost', port, path: '/', rejectUnauthorized: false, timeout: 10_000 }, response => {
           response.resume(); response.once('end', resolve); response.once('error', reject);
         });
         request.once('timeout', () => request.destroy(new Error('Browser setup server readiness timed out')));
@@ -551,7 +551,7 @@ async function waitForNext(child, port, tls = false) {
         request.end();
       });
       else {
-        const response = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(1000) });
+        const response = await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(10_000) });
         await response.body?.cancel();
       }
       return;

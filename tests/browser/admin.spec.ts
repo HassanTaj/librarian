@@ -19,7 +19,7 @@ async function expectCircularButton(button: Locator, size: number) {
 }
 
 test('administrator can review configured repositories and save safe settings across viewports', async ({ page, browser }) => {
-  await page.setExtraHTTPHeaders({ cookie: 'authjs.session-token=synthetic-browser-admin-session' });
+  await page.context().addCookies([{ name: 'authjs.session-token', value: 'synthetic-browser-admin-session', url: 'http://127.0.0.1:3100' }]);
   await page.goto('/repositories');
   await expect(page.getByRole('heading', { name: 'Configured Repositories' })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
@@ -144,7 +144,7 @@ test('administrator can review configured repositories and save safe settings ac
   const desktopContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   try {
     const desktop = await desktopContext.newPage();
-    await desktop.setExtraHTTPHeaders({ cookie: 'authjs.session-token=synthetic-browser-admin-session' });
+    await desktopContext.addCookies([{ name: 'authjs.session-token', value: 'synthetic-browser-admin-session', url: 'http://127.0.0.1:3100' }]);
     await desktop.goto('/repositories');
     await expect(desktop.getByRole('heading', { name: 'Configured Repositories' })).toBeVisible();
     await expect(desktop.getByRole('link', { name: 'Repositories' })).toHaveAttribute('href', '/repositories');
