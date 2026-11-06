@@ -42,6 +42,15 @@ through a manual run or the equivalent required local checks before declaring a
 release complete. Manual-only CI does not waive the project's test, coverage, or
 release gates.
 
+Both verification jobs have a 120-minute total limit. The serial three-engine
+browser suite has taken 31–41 minutes in Actions, so the former 25-minute limit
+on manual application checks could cancel a healthy run before it finished.
+Browser installation has a separate 45-minute limit: Ubuntu APT dependencies are
+installed before the browser downloads, and a slow package mirror can dominate
+this step. Exceeding either limit fails verification and blocks publication;
+these limits do not skip tests, retry failures, or relax coverage thresholds.
+Workflow changes apply to new runs after merge, not a job already executing.
+
 Contributors who want automatic CI can restore these triggers in `ci.yml`:
 
 ```yaml
@@ -93,8 +102,8 @@ and variables → Actions → Secrets**. All examples below are synthetic placeh
 | Secret | Required value | Example format |
 | --- | --- | --- |
 | `REGISTRY_HOST` | Registry host used for Docker login; no scheme or path. An explicit port is allowed. | `registry.example.com` |
-| `REGISTRY_NAMESPACE` | One image namespace path component, without slashes or a tag. | `namespace` |
-| `IMAGE_NAME` | One image repository path component, without slashes or a tag. | `repository` |
+| `REGISTRY_NAMESPACE` | One lowercase Docker image namespace component, without slashes or a tag. | `namespace` |
+| `IMAGE_NAME` | One lowercase Docker image repository component, without slashes or a tag. | `repository` |
 | `REGISTRY_USERNAME` | Registry login username with permission to publish the target image. | `<registry-user>` |
 | `REGISTRY_PASSWORD` | Registry password or token with permission to publish the target image. | `<registry-token>` |
 
@@ -103,6 +112,11 @@ Registry host, namespace, image name, and login credentials come exclusively fro
 name secrets to environment variables and validates them before login/build. It does
 not read GitHub Actions Variables or a local `.env` file. Never put actual credentials
 in tracked files, documentation, logs or chat.
+
+Image components must start and end with a lowercase letter or digit. Between
+alphanumeric groups, Docker permits a single dot, one or two underscores, or one
+or more hyphens. Uppercase letters, repeated dots, and leading/trailing separators
+are rejected before login or build; secret values are never printed.
 
 If an older setup used `REGISTRY_URL` and `REGISTRY_IMAGE`, split the former host and
 image path into `REGISTRY_HOST`, `REGISTRY_NAMESPACE`, and `IMAGE_NAME`. The old names
