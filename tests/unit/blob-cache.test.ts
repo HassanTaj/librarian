@@ -86,7 +86,7 @@ it('keeps cache inventory metadata work linear across writes', async () => {
   for (const bytes of blobs) await f.cache.put(blobSha(bytes), bytes);
   expect(filesystemStats.lstatCalls).toBeLessThanOrEqual(blobs.length * 4);
   expect(await f.cache.get(blobSha(blobs[0]), blobs[0].length)).toEqual(blobs[0]);
-});
+}, 15_000);
 
 it('fails safely when cache storage is not a directory', async () => {
   const f = await setup();

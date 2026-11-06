@@ -89,9 +89,10 @@ jobs:
             echo "::error::Set repository secret REGISTRY_HOST to a registry host without a scheme or path."
             exit 1
           fi
+          image_component_pattern='^[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*$'
           for component in "$REGISTRY_NAMESPACE" "$IMAGE_NAME"; do
-            if [[ -z "$component" || "$component" == */* || "$component" == *":"* || "$component" == *"@"* || "$component" == *[[:space:]]* ]]; then
-              echo "::error::Set repository secrets REGISTRY_NAMESPACE and IMAGE_NAME to single image path components without a tag or digest."
+            if [[ ! "$component" =~ $image_component_pattern ]]; then
+              echo "::error::Set repository secrets REGISTRY_NAMESPACE and IMAGE_NAME to lowercase Docker image path components without a tag or digest."
               exit 1
             fi
           done

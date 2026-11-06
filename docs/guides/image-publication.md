@@ -93,8 +93,8 @@ and variables → Actions → Secrets**. All examples below are synthetic placeh
 | Secret | Required value | Example format |
 | --- | --- | --- |
 | `REGISTRY_HOST` | Registry host used for Docker login; no scheme or path. An explicit port is allowed. | `registry.example.com` |
-| `REGISTRY_NAMESPACE` | One image namespace path component, without slashes or a tag. | `namespace` |
-| `IMAGE_NAME` | One image repository path component, without slashes or a tag. | `repository` |
+| `REGISTRY_NAMESPACE` | One lowercase Docker image namespace component, without slashes or a tag. | `namespace` |
+| `IMAGE_NAME` | One lowercase Docker image repository component, without slashes or a tag. | `repository` |
 | `REGISTRY_USERNAME` | Registry login username with permission to publish the target image. | `<registry-user>` |
 | `REGISTRY_PASSWORD` | Registry password or token with permission to publish the target image. | `<registry-token>` |
 
@@ -103,6 +103,11 @@ Registry host, namespace, image name, and login credentials come exclusively fro
 name secrets to environment variables and validates them before login/build. It does
 not read GitHub Actions Variables or a local `.env` file. Never put actual credentials
 in tracked files, documentation, logs or chat.
+
+Image components must start and end with a lowercase letter or digit. Between
+alphanumeric groups, Docker permits a single dot, one or two underscores, or one
+or more hyphens. Uppercase letters, repeated dots, and leading/trailing separators
+are rejected before login or build; secret values are never printed.
 
 If an older setup used `REGISTRY_URL` and `REGISTRY_IMAGE`, split the former host and
 image path into `REGISTRY_HOST`, `REGISTRY_NAMESPACE`, and `IMAGE_NAME`. The old names
