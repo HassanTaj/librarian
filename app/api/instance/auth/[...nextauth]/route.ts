@@ -3,7 +3,7 @@ import { createCandidateAuth } from '@/auth';
 import { readInstanceHost } from '@/lib/instance/bootstrap';
 import { instanceErrorResponse, issueSetupCandidateFlow, readInstanceSetupSession, verifySetupCandidateFlow } from '@/lib/instance/access';
 import { readInstance } from '@/lib/instance/store';
-import type { NextRequest } from 'next/server';
+import { NextRequest } from 'next/server';
 import { createHash } from 'node:crypto';
 import { requireInstanceAdmin } from '@/lib/instance/access';
 
@@ -55,12 +55,24 @@ async function handle(request: NextRequest, method: 'GET' | 'POST') {
       if (recovery && host.operator.purpose !== 'recover') throw new Error('instance_forbidden');
       expiresAt = session.expiresAt;
     }
-    if (new URL(request.url).origin !== host.setupOrigin) throw new Error('instance_origin');
+    const authUrl = new URL(request.url);
+    const forwardedProtocol = request.headers.get('x-forwarded-proto');
+    const forwardedHost = request.headers.get('x-forwarded-host');
+    if (host.config.trustHost && (forwardedProtocol || forwardedHost)) {
+      // Standalone Next.js uses its container address; accept only the configured proxy origin.
+      const expected = new URL(host.setupOrigin);
+      if (forwardedProtocol !== expected.protocol.slice(0, -1) ||
+          (forwardedHost ?? request.headers.get('host')) !== expected.host) throw new Error('instance_origin');
+      authUrl.protocol = expected.protocol;
+      authUrl.host = expected.host;
+      authUrl.port = expected.port;
+    }
+    if (authUrl.origin !== host.setupOrigin) throw new Error('instance_origin');
     if (control.candidate.publicOrigin !== host.setupOrigin) throw new Error('instance_operator_required');
     const flow = verifySetupCandidateFlow(host.config.authSecret, cookie(request, flowCookieName), control, setupToken);
     const server = await createCandidateAuth(host, storage.db, control.candidate, flow);
     const handler = method === 'GET' ? server.handlers.GET : server.handlers.POST;
-    const response = await handler(request);
+    const response = await handler(new NextRequest(authUrl, request));
     const path = new URL(request.url).pathname;
     if (path.endsWith('/signin/zitadel') && response.headers.has('Location')) {
       const maxAge = Math.min(600, Math.floor((expiresAt.getTime() - Date.now()) / 1000));

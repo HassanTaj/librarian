@@ -590,3 +590,20 @@ All 53 pre-import sync job IDs and the original account, catalog, authorization,
 For T104, `node .local/dev-cutover-verification.mjs` passed after restart: the expected single-host DEV target and local origin matched, migrated application environment variables were absent, all three OAuth token envelopes decrypted with the existing key, and raw active configuration remained ciphertext-only. The local app returned `200 ok` from `/api/health`; `/api/auth/providers` returned the Zitadel OIDC provider. The authenticated `/instance/settings` page rendered the active v1 form. Persisted provider checks passed for owner login, database, Zitadel discovery, GitHub structure/authentication/permissions/installation; GitHub webhook delivery remains `delivery_unverified`. `.env.local` host-required references were not changed. The local dev process was stopped after verification.
 
 No production or provider configuration changes, publication, image push, or deployment occurred. This closes T103/T104; the broader BG-02 live delivery, signed-sync, logout/role-removal, and rollback exercises remain unverified.
+
+### Production owner verification behind Traefik, 2026-11-06
+
+The deployed v1.0.10 setup reaches `origin_rejected` before Zitadel owner login.
+The candidate auth route compared Next.js's standalone container URL directly
+with the configured public origin. The local correction accepts forwarded
+protocol/host only with host-managed proxy trust and an exact configured-origin
+match, then passes the canonical public request to Auth.js without losing its
+method, query, cookies, or POST body. Wrong/missing proxy inputs still fail closed.
+
+The new proxied GET/POST regressions failed with HTTP 403 before the correction.
+After it, all 19 candidate-auth route tests pass, including rejection cases;
+typecheck, targeted ESLint, `git diff --check`, and the production build pass.
+The initial sandbox build compiled but failed standalone file copies with Windows
+EPERM; the build outside the sandbox completed. Full coverage and broader release
+checks have not been rerun. This fix is local and uncommitted; image publication,
+production rollout, and successful live owner verification remain pending.

@@ -12,7 +12,7 @@ vi.mock('../../lib/mongo', () => ({ connectMongo: state.connect }));
 vi.mock('../../auth', () => ({ createCandidateAuth: state.auth }));
 vi.mock('../../lib/instance/store', async original => ({ ...await original<typeof import('../../lib/instance/store')>(), readInstance: state.read }));
 vi.mock('../../lib/instance/access', async original => ({ ...await original<typeof import('../../lib/instance/access')>(), requireInstanceAdmin: state.admin, readInstanceSetupSession: state.session }));
-let control: InstanceControl; let host: { instanceId: string; setupOrigin: string; config: { authSecret: string }; operator: { purpose: string } };
+let control: InstanceControl; let host: { instanceId: string; setupOrigin: string; config: { authSecret: string; trustHost?: boolean }; operator: { purpose: string } };
 const token = Buffer.alloc(32, 8).toString('base64url');
 const request = (path = 'signin/zitadel', cookie = `__Host-librarian_setup=${token}`, origin = host.setupOrigin) => new NextRequest(`${origin}/api/instance/auth/${path}`, { headers: { cookie } });
 beforeEach(() => {
@@ -47,6 +47,38 @@ it.each(['no redirect', 'expired session'])('does not mint a flow cookie for %s'
   else state.session.mockResolvedValue({ purpose: 'bootstrap', expiresAt: new Date(Date.now() - 1000) });
   expect((await GET(request())).headers.get('set-cookie')).toBeNull(); expect(state.close).toHaveBeenCalledOnce();
 });
+
+it.each(['GET', 'POST'] as const)('uses the exact trusted public origin behind a proxy for %s', async method => {
+  host.config.trustHost = true;
+  const url = new URL(host.setupOrigin);
+  const input = new NextRequest('http://0.0.0.0:3000/api/instance/auth/signin/zitadel?step=owner', {
+    method, headers: { cookie: `__Host-librarian_setup=${token}`, host: url.host,
+      'x-forwarded-host': url.host, 'x-forwarded-proto': url.protocol.slice(0, -1),
+      'content-type': 'application/x-www-form-urlencoded' },
+    ...(method === 'POST' ? { body: 'csrfToken=synthetic&callbackUrl=%2Finstance%2Fsetup' } : {}),
+  });
+  const response = await (method === 'GET' ? GET : POST)(input);
+  expect(response.status).toBe(302);
+  const forwarded = (method === 'GET' ? state.get : state.post).mock.calls[0][0] as NextRequest;
+  expect(forwarded.url).toBe(`${host.setupOrigin}/api/instance/auth/signin/zitadel?step=owner`);
+  expect(forwarded.headers.get('cookie')).toBe(`__Host-librarian_setup=${token}`);
+  if (method === 'POST') expect(await forwarded.text()).toBe('csrfToken=synthetic&callbackUrl=%2Finstance%2Fsetup');
+});
+
+it.each(['untrusted proxy', 'wrong host', 'wrong protocol', 'host chain', 'missing protocol', 'missing host'] as const)(
+  'rejects forwarded origins with %s', async condition => {
+    host.config.trustHost = condition !== 'untrusted proxy';
+    const url = new URL(host.setupOrigin);
+    const headers = new Headers({ cookie: `__Host-librarian_setup=${token}`,
+      'x-forwarded-host': url.host, 'x-forwarded-proto': url.protocol.slice(0, -1) });
+    if (condition === 'wrong host') headers.set('x-forwarded-host', 'attacker.example.test');
+    if (condition === 'wrong protocol') headers.set('x-forwarded-proto', 'http');
+    if (condition === 'host chain') headers.set('x-forwarded-host', `${url.host}, attacker.example.test`);
+    if (condition === 'missing protocol') headers.delete('x-forwarded-proto');
+    if (condition === 'missing host') headers.delete('x-forwarded-host');
+    expect((await GET(new NextRequest('http://0.0.0.0:3000/api/instance/auth/signin/zitadel', { headers }))).status).toBe(403);
+    expect(state.auth).not.toHaveBeenCalled();
+  });
 
 it.each(['secure', 'local'] as const)('binds owner continuity to the hash of the %s runtime session', async mode => {
   const ready = readyInstance(control.instanceId, control.createdAt); ready.candidate = control.candidate; control = ready;
