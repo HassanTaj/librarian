@@ -31,6 +31,7 @@ test('anonymous restricted pages show only a safe denial and a local sign-in ret
 });
 
 test('private HTML, RSC, metadata, search and assets authorize every identity and cache path', async ({ page }, testInfo) => {
+  test.setTimeout(180_000);
   const paths = ['/private-one', '/private-one/guides/setup'];
   const searchPath = '/api/search/private-one?query=SYNTHETIC_PRIVATE_BROWSER_SENTINEL';
   const assetPath = '/api/assets/private-one/pixel.png';

@@ -143,7 +143,7 @@ test('missing reader pages show a safe not-found outcome', async ({ page }) => {
 });
 
 test('directory selection is circular, sync controls are buttons, and statuses sit at card bottoms', async ({ page }) => {
-  await page.setExtraHTTPHeaders({ cookie: 'authjs.session-token=synthetic-browser-admin-session' });
+  await page.context().addCookies([{ name: 'authjs.session-token', value: 'synthetic-browser-admin-session', url: 'http://127.0.0.1:3100' }]);
   await page.goto('/');
 
   const toolbar = page.getByRole('toolbar', { name: 'Documentation directory tools' });

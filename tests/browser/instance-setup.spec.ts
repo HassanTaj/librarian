@@ -206,7 +206,12 @@ test.describe('mobile fresh setup', () => {
       const finalize = page.getByRole('button', { name: /complete setup|finish setup|confirm and finish/i });
       const competingFinalize = second.getByRole('button', { name: /complete setup|finish setup|confirm and finish/i });
       await expect(competingFinalize).toBeEnabled();
-      await Promise.allSettled([finalize.click(), competingFinalize.click()]);
+      const finalization = page.waitForResponse(response => response.url().endsWith('/api/instance/setup/finalize') && response.request().method() === 'POST');
+      const competingFinalization = second.waitForResponse(response => response.url().endsWith('/api/instance/setup/finalize') && response.request().method() === 'POST');
+      await Promise.all([finalize.click(), competingFinalize.click()]);
+      const responses = await Promise.all([finalization, competingFinalization]);
+      expect(responses.some(response => response.ok())).toBe(true);
+      for (const response of responses) expect([200, 202, 409]).toContain(response.status());
     } finally { await second.close(); }
 
     await expect.poll(async () => (await setupState()).lifecycle).toBe('ready');
