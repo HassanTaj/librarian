@@ -212,12 +212,12 @@ test.describe('mobile fresh setup', () => {
       const responses = await Promise.all([finalization, competingFinalization]);
       expect(responses.some(response => response.ok())).toBe(true);
       for (const response of responses) expect([200, 202, 409]).toContain(response.status());
+      const completed = responses[0].ok() ? page : second;
+      await expect.poll(async () => (await setupState()).lifecycle).toBe('ready');
+      expect(await setupState()).toMatchObject({ lifecycle: 'ready', ownerCount: 1 });
+      await expect(completed.getByRole('heading', { name: 'Setup is complete' })).toBeVisible();
+      await expect(completed.getByLabel(/bootstrap credential/i)).toHaveCount(0);
     } finally { await second.close(); }
-
-    await expect.poll(async () => (await setupState()).lifecycle).toBe('ready');
-    expect(await setupState()).toMatchObject({ lifecycle: 'ready', ownerCount: 1 });
-    await expect(page.getByRole('heading', { name: 'Setup is complete' })).toBeVisible();
-    await expect(page.getByLabel(/bootstrap credential/i)).toHaveCount(0);
 
     const status = await page.request.get(`${setupOrigin}/api/instance/status`);
     const csrf = /__Host-librarian_pre_csrf=([^;]+)/.exec(status.headers()['set-cookie'] ?? '')?.[1];
