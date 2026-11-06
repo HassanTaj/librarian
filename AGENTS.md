@@ -70,6 +70,20 @@ or plan does not authorize implementing the application or deploying it.
 - Do not create Git branches, commits, pushes, or releases unless explicitly requested.
   Creating a Spec Kit feature directory does not itself authorize a Git branch or commit.
 
+## Release Branch Review
+
+- Make application, workflow, and documentation changes locally on `main` and push
+  them to `main` when authorized.
+- Always open a pull request with **head `main`** and **base `deploy/feed`** for a
+  release. Leave it open for the owner's review before publication CI starts.
+- Never push directly to `deploy/feed`, including merge commits, fast-forwards,
+  or force-pushes. Do not merge the release PR or enable auto-merge without the
+  owner's explicit approval after review.
+- General publication or deployment approval does not waive this PR review step.
+  The publication workflow runs after the reviewed PR is merged into `deploy/feed`.
+- When branch reconciliation is requested, bring existing deployment commits into
+  `main` without rewriting history; do not use reconciliation to publish new changes.
+
 ## Inspect Before Editing and Finish the Scoped Work
 
 Keep synchronization status badges at the bottom left of homepage and repositories

@@ -7,8 +7,20 @@ description: Configure GitHub Actions secrets and publish versioned Librarian im
 
 The repository's `.github/workflows/publish-librarian.yml` workflow runs on pushes
 to `deploy/feed`. Its `publish` job requires the `verify` job to succeed first.
-Pushing that branch can publish images; obtain explicit approval for the concrete
-publication scope before pushing or running the workflow.
+Merging into that branch can publish images; obtain explicit approval for the
+concrete publication scope before merging or running the workflow.
+
+## Required release review flow
+
+1. Make and commit changes locally on `main`, then push `main` when authorized.
+2. Open a pull request from `main` to `deploy/feed` and leave it open for owner review.
+3. Merge that PR only after the owner explicitly approves the reviewed release.
+   The merge starts the publication workflow.
+
+Never push directly to `deploy/feed`, even to publish an already approved fix.
+Do not enable auto-merge or treat general deployment approval as release-PR approval.
+Existing deployment commits may be synchronized back into `main` without rewriting
+history; that reconciliation must not introduce new changes into `deploy/feed`.
 
 ## Workflow roles and optional application checks
 
