@@ -135,12 +135,24 @@ test('owner applies reviewed settings, reports pending truthfully, and prepares 
   expect(session === null, `session endpoint exposed keys: ${Object.keys(session ?? {}).join(', ')}`).toBe(true);
 });
 
-test('a draining request keeps Apply pending without reporting the draft active', async ({ page }) => {
+test('a draining request keeps Apply pending across restart without reporting the draft active', async ({ page }) => {
   test.setTimeout(180_000);
+  const hmrConnections: string[] = [];
+  let preserveDocument = false;
+  // A dev-server refresh would replace this page while the real activation gate is closed.
+  await page.routeWebSocket(/\/_next\/hmr(?:\?|$)/, socket => {
+    hmrConnections.push(socket.url());
+    const upstream = socket.connectToServer();
+    socket.onMessage(message => { if (!preserveDocument) upstream.send(message); });
+    upstream.onMessage(message => { if (!preserveDocument) socket.send(message); });
+    upstream.onClose((code, reason) => { if (!preserveDocument) socket.close({ code, reason }); });
+  });
   await authenticate(page.context());
   await openSettings(page);
   await saveDraftAndVerifyOwner(page, 'Pending adoption portal');
   await fixture('/settings/add-request-pin');
+  const documentStartedAt = await page.evaluate(() => performance.timeOrigin);
+  preserveDocument = true;
 
   page.once('dialog', dialog => dialog.accept());
   const apply = page.waitForResponse(response => response.url().endsWith('/api/instance/settings/activate') && response.request().method() === 'POST');
@@ -149,7 +161,10 @@ test('a draining request keeps Apply pending without reporting the draft active'
   const body = await response.text();
   expect(response.status(), body).toBe(202);
   expect(JSON.parse(body)).toMatchObject({ status: 'pending', state: 'ready', activeVersion: 1, candidateVersion: 2 });
+  await fixture('/setup/restart');
   await expect(page.getByRole('status')).toContainText('Activation is pending. Check instance health, then refresh.');
+  expect(hmrConnections.length).toBeGreaterThan(0);
+  expect(await page.evaluate(() => performance.timeOrigin)).toBe(documentStartedAt);
   const state = await (await fixture('/settings/state', 'GET')).json();
   expect(state).toMatchObject({ state: 'ready', activeVersion: 1, candidateVersion: 2, activationPhase: 'draining', gate: 'closing' });
   const health = await page.request.get(`${setupOrigin}/api/health`);

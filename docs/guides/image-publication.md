@@ -30,6 +30,19 @@ require current authorization. This keeps long serial engine runs independent of
 fixture age without relaxing the application's 15-minute fail-closed deadline or
 changing the fixture's role grants and deliberately expired sessions.
 
+The pending-activation scenario proxies Next.js's development HMR WebSocket,
+forwarding traffic normally through authentication and validation. It then holds
+that development channel during activation and a server restart, so a development
+refresh cannot replace Settings while its real activation gate is closed. The test still uses real HTTP
+requests, checks the pending UI and database/health state, and verifies that its
+document did not reload. Synthetic provider endpoint overrides remain restricted
+to development; production security policy is unchanged.
+
+On a browser-test failure, the publication workflow retains `test-results/`
+(including Playwright traces and page snapshots from synthetic fixtures) as an
+access-controlled Actions artifact for three days. Inspect that artifact when a
+failure cannot be reproduced locally; ordinary successful runs upload nothing.
+
 `.github/workflows/ci.yml` (**Application checks**) is manual-only. Automatic `push`
 and `pull_request` triggers are disabled to conserve private-repository Actions
 usage and avoid overlapping checks on publication pushes. To run it, open
