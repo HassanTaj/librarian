@@ -42,6 +42,15 @@ through a manual run or the equivalent required local checks before declaring a
 release complete. Manual-only CI does not waive the project's test, coverage, or
 release gates.
 
+Both verification jobs have a 120-minute total limit. The serial three-engine
+browser suite has taken 31–41 minutes in Actions, so the former 25-minute limit
+on manual application checks could cancel a healthy run before it finished.
+Browser installation has a separate 45-minute limit: Ubuntu APT dependencies are
+installed before the browser downloads, and a slow package mirror can dominate
+this step. Exceeding either limit fails verification and blocks publication;
+these limits do not skip tests, retry failures, or relax coverage thresholds.
+Workflow changes apply to new runs after merge, not a job already executing.
+
 Contributors who want automatic CI can restore these triggers in `ci.yml`:
 
 ```yaml

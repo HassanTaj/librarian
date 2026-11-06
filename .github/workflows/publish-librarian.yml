@@ -16,6 +16,7 @@ jobs:
   verify:
     # MongoDB 8.0.34 needs a compatible host kernel; see the image publication guide.
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
     services:
       # Disposable CI database for integration tests; production uses the existing MongoDB service.
       mongodb:
@@ -54,6 +55,7 @@ jobs:
         run: npm run lint
 
       - name: Install browser engines
+        timeout-minutes: 45
         run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Run unit and integration tests
