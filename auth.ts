@@ -204,8 +204,9 @@ async function handleRuntimeAuth(request: NextRequest, method: 'GET' | 'POST') {
         authUrl.host = expected.host;
         authUrl.port = expected.port;
       }
-      if (authUrl.origin !== new NextRequest(expected).nextUrl.origin) return instanceErrorResponse(new Error('instance_origin'));
-      return server.handlers[method](new NextRequest(authUrl, request));
+      const authRequest = new NextRequest(authUrl, request);
+      if (authRequest.nextUrl.origin !== new NextRequest(expected).nextUrl.origin) return instanceErrorResponse(new Error('instance_origin'));
+      return server.handlers[method](authRequest);
     });
   } catch { return Response.json({ error: { code: 'authentication_unavailable', message: 'Authentication is temporarily unavailable.' } },
     { status: 503, headers: { 'Cache-Control': 'private, no-store' } }); }

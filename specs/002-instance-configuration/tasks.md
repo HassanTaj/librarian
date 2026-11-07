@@ -634,3 +634,30 @@ were resolved by running the same checks outside the sandbox; no tests were skip
 Changes are prepared for the required `main` to `deploy/feed` review PR. Production
 runtime login remains blocked until the reviewed release is published/deployed;
 no production provider setting or deployment was changed for this fix.
+
+### Proxied loopback logout regression, 2026-11-07
+
+Publication run `42320903301` passed build, static checks, unit/integration tests
+and coverage, then failed cross-tab private-reader sign-out in all three browser
+engines. The runtime origin check compared the reconstructed raw loopback URL
+(`127.0.0.1`) with Next.js's normalized configured URL (`localhost`), rejecting
+the CSRF request before session deletion.
+
+Both origins are now compared through `NextRequest.nextUrl` before handing that
+same canonical request to Auth.js. The existing exact forwarded-host/protocol and
+proxy-trust checks remain in place. Two new real-Auth.js regressions reproduce
+HTTP 403 before the correction and exercise CSRF plus POST sign-out afterward,
+including the Host-header fallback. The existing cross-tab browser test also
+asserts HTTP 200 for its actual CSRF response while retaining its redirect,
+private-content removal, peer-tab and server-denial assertions.
+
+Full coverage passes 1,133/1,133 tests with zero failures or skips. All global and
+C1-C7 thresholds meet 95%: global statements 7,112/7,379, branches 6,390/6,711,
+functions 1,163/1,196, and lines 5,530/5,622. The production build and all 35 focused
+runtime/candidate auth regressions pass. Complete browser acceptance passes all
+99 tests across Chromium, Firefox and WebKit, including all three previously
+failing cross-tab sign-out cases. No assertions, security checks or coverage
+thresholds were relaxed. Publication and deployment await the reviewed release PR.
+Typecheck, lint, full generated-artifact validation and diff checks pass. The
+disposable loopback MongoDB container was stopped after validation; no shared
+database, provider configuration or production deployment changed.

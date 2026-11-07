@@ -97,6 +97,24 @@ it('preserves direct loopback development when Next.js normalizes its IP to loca
   expect((await handlers.GET(new NextRequest(`${config.authUrl}/api/auth/providers`))).status).toBe(200);
 });
 
+it.each(['forwarded host', 'Host fallback'])('accepts browser CSRF and sign-out on a loopback proxy with %s', async mode => {
+  config.authUrl = 'http://127.0.0.1:3100';
+  const { handlers } = await import('../../auth');
+  const headers = new Headers({ host: '127.0.0.1:3100', 'x-forwarded-proto': 'http' });
+  if (mode === 'forwarded host') headers.set('x-forwarded-host', '127.0.0.1:3100');
+  const csrf = await handlers.GET(new NextRequest(`${config.authUrl}/api/auth/csrf`, { headers }));
+  expect(csrf.status).toBe(200);
+  const { csrfToken } = await csrf.json() as { csrfToken: string };
+  headers.set('cookie', csrf.headers.getSetCookie().map(value => value.split(';')[0]).join('; '));
+  headers.set('content-type', 'application/x-www-form-urlencoded');
+  headers.set('X-Auth-Return-Redirect', '1');
+  const response = await handlers.POST(new NextRequest(`${config.authUrl}/api/auth/signout`, {
+    method: 'POST', headers, body: new URLSearchParams({ csrfToken, callbackUrl: '/' }),
+  }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ url: 'http://localhost:3100/' });
+});
+
 it('keeps runtime configuration failures private and unavailable', async () => {
   state.config.mockRejectedValue(new Error('SYNTHETIC_PRIVATE_CONFIGURATION'));
   const { handlers } = await import('../../auth');
