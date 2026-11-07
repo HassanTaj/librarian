@@ -4,7 +4,7 @@ import ZITADEL, { type ZitadelProfile } from 'next-auth/providers/zitadel';
 import { createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { Db, MongoClient } from 'mongodb';
-import type { NextRequest } from 'next/server';
+import { NextRequest } from 'next/server';
 import { createLibrarianAdapter, persistOAuthSignInTokens } from './lib/auth/adapter';
 import { getVerifiedRoles } from './lib/auth/roles';
 import { loadConfig } from './lib/config';
@@ -189,8 +189,24 @@ export const handlers = {
 async function handleRuntimeAuth(request: NextRequest, method: 'GET' | 'POST') {
   try {
     const { db } = await getMongo();
-    const { withRuntimeInstanceAdmission } = await import('./lib/instance/access');
-    return await withRuntimeInstanceAdmission(db, 'request', async () => (await getServerAuth()).server.handlers[method](request));
+    const { withRuntimeInstanceAdmission, instanceErrorResponse } = await import('./lib/instance/access');
+    return await withRuntimeInstanceAdmission(db, 'request', async () => {
+      const { config, server } = await getServerAuth();
+      const authUrl = new URL(request.url);
+      const expected = new URL(config.authUrl);
+      const forwardedProtocol = request.headers.get('x-forwarded-proto');
+      const forwardedHost = request.headers.get('x-forwarded-host');
+      if (config.trustHost && (forwardedProtocol || forwardedHost)) {
+        // Standalone Next.js exposes its container URL; trust only the configured proxy origin.
+        if (forwardedProtocol !== expected.protocol.slice(0, -1) ||
+            (forwardedHost ?? request.headers.get('host')) !== expected.host) return instanceErrorResponse(new Error('instance_origin'));
+        authUrl.protocol = expected.protocol;
+        authUrl.host = expected.host;
+        authUrl.port = expected.port;
+      }
+      if (authUrl.origin !== new NextRequest(expected).nextUrl.origin) return instanceErrorResponse(new Error('instance_origin'));
+      return server.handlers[method](new NextRequest(authUrl, request));
+    });
   } catch { return Response.json({ error: { code: 'authentication_unavailable', message: 'Authentication is temporarily unavailable.' } },
     { status: 503, headers: { 'Cache-Control': 'private, no-store' } }); }
 }

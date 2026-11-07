@@ -197,15 +197,16 @@ it('maps raw actual-Next execution back to original application sources', async 
       browserCoverage = Object.fromEntries(browserMap.files().map(file => [file, browserMap.fileCoverageFor(file).toJSON()]));
     } finally { await browser.close(); }
 
-    const csrf = await fetch(`${server.origin}/api/auth/csrf`);
+    const proxyHeaders = { 'x-forwarded-host': new URL(env.AUTH_URL).host, 'x-forwarded-proto': 'https' };
+    const csrf = await fetch(`${server.origin}/api/auth/csrf`, { headers: proxyHeaders });
     expect(csrf.status).toBe(200);
     const csrfToken = (await csrf.json() as { csrfToken: string }).csrfToken;
     const csrfCookies = csrf.headers.getSetCookie().map(cookie => cookie.split(';')[0]).join('; ');
     const signout = await fetch(`${server.origin}/api/auth/signout`, { method: 'POST', redirect: 'manual',
-      headers: { cookie: `${privateAuth.cookie}; ${csrfCookies}`, 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { ...proxyHeaders, cookie: `${privateAuth.cookie}; ${csrfCookies}`, 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ csrfToken, callbackUrl: '/' }) });
     expect(signout.status).toBe(302);
-    const loggedOut = await fetch(`${server.origin}/api/auth/session`, { headers: { cookie: privateAuth.cookie } });
+    const loggedOut = await fetch(`${server.origin}/api/auth/session`, { headers: { ...proxyHeaders, cookie: privateAuth.cookie } });
     expect(await loggedOut.json()).toBeNull();
   } finally {
     if (server) await server.close();

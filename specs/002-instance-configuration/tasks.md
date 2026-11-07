@@ -607,3 +607,30 @@ The initial sandbox build compiled but failed standalone file copies with Window
 EPERM; the build outside the sandbox completed. Full coverage and broader release
 checks have not been rerun. This fix is local and uncommitted; image publication,
 production rollout, and successful live owner verification remain pending.
+
+### Runtime Zitadel callbacks behind Traefik, 2026-11-07
+
+Production instance setup completed after saving a fresh candidate, repeating the
+owner/provider checks, and accepting a signed GitHub ping. Normal runtime sign-in
+then exposed the same standalone-container origin issue in `/api/auth`: Auth.js
+generated a callback using `0.0.0.0:3000` instead of the configured public origin.
+
+The runtime GET/POST handler now validates trusted forwarded protocol/host against
+the configured origin and gives Auth.js a canonical request, retaining its path,
+query, cookies, and POST body. Mismatched/untrusted origins fail closed. Direct
+loopback DEV remains compatible with Next.js's IP-to-localhost normalization. The
+actual-Next coverage fixture now supplies its synthetic public proxy headers when
+calling auth endpoints. No provider allowlist or stored credential was changed.
+
+New real-Auth.js regression tests reproduced the container callback before the
+fix. Final full coverage passed 1,131/1,131 tests with no failures or skips:
+statements 96.38% (7,111/7,378), branches 95.22% (6,390/6,711), functions 97.24%
+(1,163/1,196), and lines 98.36% (5,529/5,621). All C1-C7 metrics pass 95%, and the
+separate coverage checker passes. The 33 existing directory/sign-in browser checks
+pass across Chromium, Firefox and WebKit. Typecheck, lint, the production build,
+document validation and diff checks pass. Windows sandbox junction/build failures
+were resolved by running the same checks outside the sandbox; no tests were skipped.
+
+Changes are prepared for the required `main` to `deploy/feed` review PR. Production
+runtime login remains blocked until the reviewed release is published/deployed;
+no production provider setting or deployment was changed for this fix.
