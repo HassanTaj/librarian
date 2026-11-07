@@ -121,7 +121,9 @@ test('authorized private readers lose protected content after cross-tab sign-out
   await sibling.goto('/private-one');
   await expect(sibling.getByRole('heading', { name: 'SYNTHETIC_PRIVATE_BROWSER_SENTINEL' })).toBeVisible();
 
+  const csrfResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/csrf');
   await page.getByRole('button', { name: 'Sign out' }).click();
+  expect((await csrfResponse).status()).toBe(200);
   await expect(page).toHaveURL('http://127.0.0.1:3100/');
   await expect(sibling).toHaveURL('http://127.0.0.1:3100/');
   await expect(page.getByText('SYNTHETIC_PRIVATE_BROWSER_SENTINEL')).toHaveCount(0);
