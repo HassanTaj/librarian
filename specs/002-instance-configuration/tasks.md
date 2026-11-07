@@ -679,3 +679,23 @@ Suspense reference. This can delay route content beyond network completion; it i
 not removed by the request-concurrency change. The reported application-wide delay
 still needs production timing evidence and a supported routing solution. Do not
 claim it resolved or weaken the coverage gate. Release/publication remain pending.
+
+### Reader navigation clarification, 2026-11-08
+
+- [ ] T107 Complete the clarified reader-loading correction in `app/[repoSlug]/layout.tsx`, `app/[repoSlug]/skeleton.tsx` and `tests/browser/discovery-reader.spec.ts`, replacing the per-document `app/[repoSlug]/[[...page]]/loading.tsx` boundary. Prove that same-repository navigation preserves the displayed article while awaiting the next authorized response; preserve initial repository loading, error/denial behavior and the private-content expiry/logout guards. Run the held-response browser regression, applicable reader/security acceptance and coverage, typecheck, lint and production build. References: V2-FR-033, V2-QG-002, V2-QG-003, V2-QG-004, V2-QG-005.
+
+An isolated real Next.js/Chromium fixture reproduced the original full skeleton
+on a synthetic delayed document navigation. The same fixture using the new
+repository layout kept the old document visible during the delay and rendered
+the new document afterward. This proves the boundary-placement correction without
+connecting to a database; it is separate from full application/browser/live proof.
+The prior T106 note about unresolved shared routing predates this correction.
+The framework throttle itself is unchanged; the correction avoids repeatedly
+entering a fresh fallback between articles. Full database-backed coverage and
+browser acceptance remain pending while the isolated MongoDB fixture is unavailable.
+
+For this correction, typecheck, lint, production build, document validation and
+diff checks pass. Reader-page/source-inventory unit checks pass 29/29; Windows
+junction permissions required the same checks outside the sandbox. The isolated
+Next/Chromium proof passed both original and corrected behavior assertions. The
+new full-application browser regression is authored but has not run without MongoDB.

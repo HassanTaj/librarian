@@ -135,6 +135,30 @@ test('a directory storage error is announced without exposing catalog data', asy
   }
 });
 
+test('keeps the current document visible while navigating within a repository', async ({ page }) => {
+  await page.goto('/public-project');
+  const heading = page.getByRole('heading', { name: 'Synthetic Portal', exact: true });
+  await expect(heading).toBeVisible();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let requested!: () => void;
+  const started = new Promise<void>(resolve => { requested = resolve; });
+  await page.route('**/public-project/guides/setup?*', async route => {
+    requested();
+    await held;
+    await route.continue();
+  });
+  try {
+    await page.getByRole('link', { name: 'setup guide', exact: true }).click();
+    await started;
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(heading).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading documentation', exact: true })).toHaveCount(0);
+  } finally { release(); }
+  await expect(page).toHaveURL(/\/public-project\/guides\/setup\?g=/);
+  await expect(page.getByRole('heading', { name: 'Setup', exact: true })).toBeVisible();
+});
+
 test('missing reader pages show a safe not-found outcome', async ({ page }) => {
   await page.goto('/public-project/missing-guide');
   await expect(page.getByRole('heading', { name: 'Page unavailable' })).toBeVisible();
