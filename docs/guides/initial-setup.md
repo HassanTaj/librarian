@@ -3,7 +3,7 @@
 This guide prepares a Windows developer checkout for Librarian. Provider consoles
 and configuration fields were checked on 2026-10-12. Recheck them when their UI changes.
 The application is still under implementation; credentials alone do not enable login or ingestion.
-See the [current validation status](../../specs/001-librarian-v1-portal/quickstart.md).
+See the [current validation status](https://github.com/HassanTaj/librarian/blob/main/specs/001-librarian-v1-portal/quickstart.md).
 
 ## 1. Keep configuration and credentials separate
 
@@ -35,7 +35,7 @@ need private local storage. Production uses scoped Swarm secrets, not these DEV 
 
 ## 2. Map every configuration value
 
-Copy the names from [`.env.example`](../../.env.example). The runtime loader requires every
+Copy the names from [`.env.example`](https://github.com/HassanTaj/librarian/blob/main/.env.example). The runtime loader requires every
 setting except the optional public approval manifest path. Application entry points read the
 validated configuration at runtime; production build does not need provider credentials.
 
