@@ -9,9 +9,9 @@
 - [Publish the application image](guides/image-publication.md): GitHub Actions registry secrets,
   image naming, version tags and publication boundaries.
 - [Product requirements](requirements/v1-requirements.md): agreed v1 scope and deployment boundaries.
-- [Implementation and validation status](../specs/001-librarian-v1-portal/quickstart.md):
+- [Implementation and validation status](https://github.com/HassanTaj/librarian/blob/main/specs/001-librarian-v1-portal/quickstart.md):
   available checks and remaining gates.
-- [Adopted constitution](../.specify/memory/constitution.md): governing security and quality requirements.
+- [Adopted constitution](https://github.com/HassanTaj/librarian/blob/main/.specify/memory/constitution.md): governing security and quality requirements.
 
 The constitution draft under `planning/` is historical preparation material.
 Provider provisioning prepares the application; it does not prove that unfinished
