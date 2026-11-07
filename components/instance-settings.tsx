@@ -5,6 +5,7 @@ import type { instanceSnapshot } from '@/lib/instance/store';
 import { signIn } from 'next-auth/react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from 'fumadocs-ui/components/ui/tabs';
 import styles from './instance-settings.module.css';
+import { InstanceSettingsSkeleton, settingsSections } from './instance-settings-skeleton';
 
 type Snapshot = ReturnType<typeof instanceSnapshot> & {
   csrfToken?: string; bindingKind?: string; previousVersion?: number | null;
@@ -67,14 +68,14 @@ export function InstanceSettings() {
     return { response, data };
   }
   const bundle = snapshot?.candidate ?? snapshot?.active;
-  if (!snapshot || !bundle) return <p role={error ? 'alert' : 'status'} className="mt-5">{error || 'Loading instance settings…'}</p>;
+  if (!snapshot || !bundle) return error ? <p role="alert" className="mt-5">{error}</p> : <InstanceSettingsSkeleton />;
   const input = (name: string, label: string, value: string, type = 'text') => <label className="grid gap-1 text-sm">{label}<input name={name} type={type} defaultValue={value} required className={fields} /></label>;
 
   return <Tabs value={section} onValueChange={setSection} className={styles.settings} aria-busy={busy}>
     <div className={styles.overview}><div><h2>Configuration</h2><p>Manage this instance’s providers, credentials and documentation defaults.</p></div>
       <span className={styles.badge}>{snapshot.candidate ? 'Draft saved' : 'Up to date'} · v{snapshot.activeVersion}</span></div>
     <TabsList className={styles.tabList} aria-label="Settings sections">
-      {Object.entries({ auth: 'Auth', zitadel: 'Zitadel', mongodb: 'MongoDB', githubApp: 'GitHub App', githubWebhook: 'GitHub webhook', runtime: 'Runtime and documentation', host: 'Host prerequisites', validation: 'Validation', audit: 'Audit' }).map(([value, label]) => <TabsTrigger key={value} value={value} className={styles.tab}>{label}</TabsTrigger>)}
+      {Object.entries(settingsSections).map(([value, label]) => <TabsTrigger key={value} value={value} className={styles.tab}>{label}</TabsTrigger>)}
     </TabsList>
     <p className={styles.feedback} ref={feedback} tabIndex={-1} role={error ? 'alert' : 'status'}>{error || message}</p>
     <form onInvalid={event => {

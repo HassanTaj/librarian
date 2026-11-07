@@ -129,8 +129,10 @@ lib/instance/activation.ts
 components/instance-setup.tsx
 components/instance-database-setup.tsx
 components/instance-settings.tsx
+components/instance-settings-skeleton.tsx
 app/instance/setup/page.tsx
 app/instance/settings/page.tsx
+app/instance/settings/loading.tsx
 app/api/instance/status/route.ts
 app/api/instance/database/route.ts
 app/api/instance/setup/authorize/route.ts

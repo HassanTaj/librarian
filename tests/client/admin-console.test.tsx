@@ -161,6 +161,24 @@ it('keeps repository controls and copy out of the skeleton while the list is pen
   expect(container.textContent).not.toContain('Last successful sync');
 });
 
+it('starts catalog loading without waiting for CSRF and removes the skeleton as soon as both responses are ready', async () => {
+  let resolveCsrf!: (response: Response) => void;
+  let resolveCatalogs!: (response: Response) => void;
+  const csrf = new Promise<Response>(resolve => { resolveCsrf = resolve; });
+  const catalogs = new Promise<Response>(resolve => { resolveCatalogs = resolve; });
+  const fetchMock = vi.fn((url: string) => url === '/api/admin/csrf' ? csrf : catalogs);
+  vi.stubGlobal('fetch', fetchMock);
+  await render();
+  expect(fetchMock).toHaveBeenCalledWith('/api/admin/repos', { cache: 'no-store' });
+  expect(container.querySelector('[aria-label="Loading configured repositories"]')).not.toBeNull();
+  await act(async () => { resolveCatalogs({ ok: true, json: async () => ({ catalogs: [catalog()] }) } as Response); });
+  await act(async () => {
+    resolveCsrf({ ok: true, json: async () => ({ csrfToken: 'csrf-synthetic' }) } as Response);
+  });
+  expect(container.querySelector('[aria-label="Loading configured repositories"]')).toBeNull();
+  expect(container.textContent).toContain('Synthetic docs');
+});
+
 it('fails closed when CSRF or catalog status cannot be loaded', async () => {
   const failedCsrf = vi.fn().mockResolvedValueOnce(new Response('invalid', { status: 503 }));
   vi.stubGlobal('fetch', failedCsrf);

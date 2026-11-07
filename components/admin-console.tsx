@@ -127,10 +127,12 @@ export function AdminConsole({ defaultDocsFolder = 'docs', showInstanceSettings 
   async function reload() {
     setError('');
     try {
-      const csrf = await fetch('/api/admin/csrf', { cache: 'no-store' });
+      const [csrf, response] = await Promise.all([
+        fetch('/api/admin/csrf', { cache: 'no-store' }),
+        fetch('/api/admin/repos', { cache: 'no-store' }),
+      ]);
       if (!csrf.ok) throw new Error(await responseError(csrf));
       const csrfBody = await csrf.json() as { csrfToken: string };
-      const response = await fetch('/api/admin/repos', { cache: 'no-store' });
       if (!response.ok) throw new Error(await responseError(response));
       const body = await response.json() as { catalogs: CatalogRow[] };
       setToken(csrfBody.csrfToken);

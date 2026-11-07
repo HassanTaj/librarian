@@ -661,3 +661,21 @@ thresholds were relaxed. Publication and deployment await the reviewed release P
 Typecheck, lint, full generated-artifact validation and diff checks pass. The
 disposable loopback MongoDB container was stopped after validation; no shared
 database, provider configuration or production deployment changed.
+
+### Settings skeleton and loading follow-up, 2026-11-08
+
+- [ ] T106 Complete the loading follow-up in `components/instance-settings-skeleton.tsx`, `app/instance/settings/loading.tsx`, `components/instance-settings.tsx` and `components/admin-console.tsx`. Reuse the Settings layout for its route and API fallbacks; start independent CSRF/catalog requests concurrently. Preserve authorization, fail-closed errors and existing directory/repository skeleton placement. Run the regression in `tests/client/admin-console.test.tsx`, affected client acceptance, global/C1-C7 coverage, typecheck, lint and production build before marking the functional work complete. References: V2-QG-002, V2-QG-003, V2-QG-004, V2-QG-005.
+
+Local evidence: the new concurrency regression failed on the original sequential
+implementation; all 45 focused admin/settings client tests and seven settings
+page/API unit tests pass with the fix. Typecheck, lint and diff checks pass. The
+initial build hit Windows sandbox EPERM; the identical build passes outside the sandbox. Full coverage and browser acceptance require the isolated
+loopback MongoDB fixture on port 27018; Docker Desktop's Linux engine is unavailable.
+No shared database or production setting was changed.
+
+The application has no minimum skeleton timer. The installed Next.js React DOM
+bundle contains a 300 ms Suspense reveal throttle, also documented in the React
+Suspense reference. This can delay route content beyond network completion; it is
+not removed by the request-concurrency change. The reported application-wide delay
+still needs production timing evidence and a supported routing solution. Do not
+claim it resolved or weaken the coverage gate. Release/publication remain pending.
