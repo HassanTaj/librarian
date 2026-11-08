@@ -8,7 +8,7 @@ function Paragraph() {
   return <div className={styles.rows}><Block /><Block width="92%" /><Block width="75%" /></div>;
 }
 
-export default function Loading() {
+export default function DocumentationSkeleton() {
   return <main role="status" aria-label="Loading documentation" aria-busy="true">
     <span className="sr-only">Loading documentation…</span>
     <div aria-hidden="true" className={styles.layout}>

@@ -129,8 +129,10 @@ lib/instance/activation.ts
 components/instance-setup.tsx
 components/instance-database-setup.tsx
 components/instance-settings.tsx
+components/instance-settings-skeleton.tsx
 app/instance/setup/page.tsx
 app/instance/settings/page.tsx
+app/instance/settings/loading.tsx
 app/api/instance/status/route.ts
 app/api/instance/database/route.ts
 app/api/instance/setup/authorize/route.ts
@@ -286,3 +288,26 @@ encrypted readback, OAuth continuity, local restart with retired environment val
 Edge Settings/setup, focused synthetic unit/client checks, typecheck, lint and an
 isolated local production build. Full coverage/release gates remain separately
 pending until their reports exist. No production/provider configuration mutation.
+
+### Reader navigation boundary correction, 2026-11-08
+
+Scope: the owner clarified that the delay is repeated documentation-page loading
+while reading. The catch-all route's `loading.tsx` recreated a full-reader fallback
+for each document navigation. Move that unchanged presentation to
+`app/[repoSlug]/skeleton.tsx` and wrap children in a persistent Suspense boundary in
+`app/[repoSlug]/layout.tsx`. Input remains the nested route; output is the initial
+repository skeleton or the authorized reader page. No data, authorization, cache,
+provider, dependency, or content-rendering interface changes. The existing private
+content guard remains mounted with its role-expiry and logout handling while a
+navigation is pending. Repository changes get a separate layout instance.
+
+Acceptance: entering a repository may show its skeleton; navigation between its
+articles keeps the previous document visible until the next authorized response
+is ready. The next document, denied/not-found state, or error must still replace
+it. Add the held-response browser regression in
+`tests/browser/discovery-reader.spec.ts`. Files are already in the broad C1/C2/C3
+reader coverage scope. Validate that regression and reader/private/logout browser
+journeys, all applicable coverage gates, typecheck, lint and production build.
+An isolated Next/Chromium fixture can demonstrate the boundary behavior without
+accessing MongoDB; it does not replace database-backed acceptance or live timing.
+Rollback is restoring the leaf loading convention and removing the new layout.
