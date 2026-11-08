@@ -142,7 +142,7 @@ async function instanceDocs() {
 
 it('derives the selected instance requirement/task/source/API inventory and rejects broken mappings', async () => {
   const { spec, plan, tasks, contract } = await instanceDocs();
-  expect(validateInstanceTraceability(spec, plan, tasks, contract)).toMatchObject({ requirements: 58, tasks: 105, sources: 69, apiRows: 16 });
+  expect(validateInstanceTraceability(spec, plan, tasks, contract)).toMatchObject({ requirements: 58, tasks: 107, sources: 71, apiRows: 16 });
   for (const [changed, expected] of [
     [tasks.replace('T094 Prepare', 'T093 Prepare'), 'Task inventory'],
     [tasks.replace('| V2-FR-036 |', '| V2-FR-999 |'), 'traceability'],
@@ -195,7 +195,7 @@ it('validates selected 002 documents without calling them implemented and retain
     await writeFile(join(root, 'AGENTS.md'), 'Synthetic governance link target.');
     await writeFile(join(root, '.specify/feature.json'), JSON.stringify({ feature_directory: 'specs/002-instance-configuration' }));
     const result = await validateFeatureDocuments(root);
-    expect(result).toMatchObject({ feature: 'specs/002-instance-configuration', requirements: 58, tasks: 105, sources: 69, apiRows: 16, implementationVerified: false, original: { requirements: 73, tasks: 92 } });
+    expect(result).toMatchObject({ feature: 'specs/002-instance-configuration', requirements: 58, tasks: 107, sources: 71, apiRows: 16, implementationVerified: false, original: { requirements: 73, tasks: 92 } });
     await expect(validateArtifacts(root)).rejects.toThrow('implementation source');
     const spec = join(root, 'specs/001-librarian-v1-portal/spec.md');
     const original = await readFile(spec, 'utf8');

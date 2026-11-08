@@ -288,7 +288,8 @@ function startControlServer() {
       try {
         const expiredAt = new Date(Date.now() - 1000);
         const result = await setupDb.collection('instance_setup_sessions').updateMany({}, {
-          $set: { expiresAt: expiredAt, purgeAt: new Date(expiredAt.getTime() + 60 * 60_000) },
+          // Keep a valid lifetime even when setup completes in less than one second.
+          $set: { createdAt: new Date(expiredAt.getTime() - 30 * 60_000), expiresAt: expiredAt, purgeAt: new Date(expiredAt.getTime() + 60 * 60_000) },
         });
         response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify({ expired: result.modifiedCount }));
       } catch { response.writeHead(500).end(); }
