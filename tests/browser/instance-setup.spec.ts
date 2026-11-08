@@ -234,9 +234,11 @@ test.describe('mobile fresh setup', () => {
 test('expires a setup session without losing the durable draft and requires a new authorization', async ({ page }) => {
   await authorize(page);
   await fillDraft(page, false);
-  await fixture('/setup/expire-sessions');
+  const expired = await fixture('/setup/expire-sessions');
+  expect((await expired.json() as { expired: number }).expired).toBeGreaterThan(0);
   const denied = await page.request.get(`${setupOrigin}/api/instance/setup`);
   expect(denied.status()).toBe(401);
+  expect(await denied.json()).toMatchObject({ error: { code: 'setup_unauthorized' } });
   const expiredSetup = page.waitForResponse(response => response.url().endsWith('/api/instance/setup') && response.request().method() === 'GET');
   await page.reload();
   expect((await expiredSetup).status()).toBe(401);

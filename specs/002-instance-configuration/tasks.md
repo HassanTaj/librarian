@@ -664,7 +664,7 @@ database, provider configuration or production deployment changed.
 
 ### Settings skeleton and loading follow-up, 2026-11-08
 
-- [ ] T106 Complete the loading follow-up in `components/instance-settings-skeleton.tsx`, `app/instance/settings/loading.tsx`, `components/instance-settings.tsx` and `components/admin-console.tsx`. Reuse the Settings layout for its route and API fallbacks; start independent CSRF/catalog requests concurrently. Preserve authorization, fail-closed errors and existing directory/repository skeleton placement. Run the regression in `tests/client/admin-console.test.tsx`, affected client acceptance, global/C1-C7 coverage, typecheck, lint and production build before marking the functional work complete. References: V2-QG-002, V2-QG-003, V2-QG-004, V2-QG-005.
+- [x] T106 Complete the loading follow-up in `components/instance-settings-skeleton.tsx`, `app/instance/settings/loading.tsx`, `components/instance-settings.tsx` and `components/admin-console.tsx`. Reuse the Settings layout for its route and API fallbacks; start independent CSRF/catalog requests concurrently. Preserve authorization, fail-closed errors and existing directory/repository skeleton placement. Run the regression in `tests/client/admin-console.test.tsx`, affected client acceptance, global/C1-C7 coverage, typecheck, lint and production build before marking the functional work complete. References: V2-QG-002, V2-QG-003, V2-QG-004, V2-QG-005.
 
 Local evidence: the new concurrency regression failed on the original sequential
 implementation; all 45 focused admin/settings client tests and seven settings
@@ -682,7 +682,7 @@ claim it resolved or weaken the coverage gate. Release/publication remain pendin
 
 ### Reader navigation clarification, 2026-11-08
 
-- [ ] T107 Complete the clarified reader-loading correction in `app/[repoSlug]/layout.tsx`, `app/[repoSlug]/skeleton.tsx` and `tests/browser/discovery-reader.spec.ts`, replacing the per-document `app/[repoSlug]/[[...page]]/loading.tsx` boundary. Prove that same-repository navigation preserves the displayed article while awaiting the next authorized response; preserve initial repository loading, error/denial behavior and the private-content expiry/logout guards. Run the held-response browser regression, applicable reader/security acceptance and coverage, typecheck, lint and production build. References: V2-FR-033, V2-QG-002, V2-QG-003, V2-QG-004, V2-QG-005.
+- [x] T107 Complete the clarified reader-loading correction in `app/[repoSlug]/layout.tsx`, `app/[repoSlug]/skeleton.tsx` and `tests/browser/discovery-reader.spec.ts`, replacing the per-document `app/[repoSlug]/[[...page]]/loading.tsx` boundary. Prove that same-repository navigation preserves the displayed article while awaiting the next authorized response; preserve initial repository loading, error/denial behavior and the private-content expiry/logout guards. Run the held-response browser regression, applicable reader/security acceptance and coverage, typecheck, lint and production build. References: V2-FR-033, V2-QG-002, V2-QG-003, V2-QG-004, V2-QG-005.
 
 An isolated real Next.js/Chromium fixture reproduced the original full skeleton
 on a synthetic delayed document navigation. The same fixture using the new
@@ -699,3 +699,33 @@ diff checks pass. Reader-page/source-inventory unit checks pass 29/29; Windows
 junction permissions required the same checks outside the sandbox. The isolated
 Next/Chromium proof passed both original and corrected behavior assertions. The
 new full-application browser regression is authored but has not run without MongoDB.
+
+### CI regression fixes and loading acceptance, 2026-11-09
+
+Publication run #16 failed because the artifact-checker tests still expected
+105 tasks and 69 C7 source files. T106/T107 and their planned files bring the
+current inventory to 107 tasks and 71 files; both exact assertions now match it.
+The checker still rejects broken requirement, task, source and API mappings.
+
+Run #15 failed the setup-session expiry browser scenario with HTTP 503 rather
+than 401. Its saved synthetic trace shows only 930 ms between authorization and
+the denied request. The expiry fixture subtracted one second from expiry without
+moving creation time, producing a malformed lifetime on fast runs. It now
+backdates creation consistently with the 30-minute session lifetime and retains
+the one-hour purge delay. The browser test also requires an affected session and
+the exact `setup_unauthorized` response; runtime validation is unchanged.
+
+Local validation passes: 1,134/1,134 unit/integration/client tests with no failures
+or skips; global and every C1-C7 four-metric coverage gate; separate coverage check;
+typecheck; lint; production build; full artifact/privacy validation; and all
+102/102 Chromium/Firefox/WebKit browser cases. The browser suite includes the
+held-response reader regression, setup expiry/draft continuity, Settings, and
+private delivery/logout/cache isolation. Global statement/branch/function/line
+coverage is 7,120/7,387, 6,392/6,713, 1,171/1,204 and 5,538/5,630 respectively.
+
+This closes the local acceptance gaps for T106/T107 (105/107 tasks checked).
+T103/T104 remain open for shared-DEV recovery and owner-authorized migration.
+Container/previous-image acceptance and live provider/infrastructure checks were
+not run here. No image publication, shared-DEV change or production deployment
+occurred. Existing `deploy/feed` history was fast-forwarded into `main` without
+changing its files or writing to the release branch.
