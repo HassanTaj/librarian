@@ -59,6 +59,7 @@ test.describe('mobile reader actions', () => {
     await page.goto('/public-project');
 
     await expect(page.locator('#nd-subnav').getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+    await expect(page.locator('#nd-sidebar')).toHaveCount(0);
     await page.getByRole('button', { name: 'Open Sidebar' }).click();
 
     const drawer = page.locator('#nd-sidebar-mobile');

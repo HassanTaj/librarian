@@ -316,6 +316,8 @@ test.describe('mobile reader navigation', () => {
     const dimensions = await header.evaluate(element => ({ clientWidth: element.clientWidth, scrollWidth: element.scrollWidth }));
     expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1);
 
+    // Fumadocs removes the server-rendered desktop sidebar once the mobile media query is active.
+    await expect(page.locator('#nd-sidebar')).toHaveCount(0);
     await page.getByRole('button', { name: 'Open Sidebar' }).click();
     const drawer = page.locator('#nd-sidebar-mobile');
     await expect(drawer.locator('summary[aria-label^="Select project"]')).toHaveCount(0);
