@@ -760,3 +760,18 @@ no skips. All global/C1–C7 coverage thresholds passed. Global statement, branc
 function and line counts are 7,117/7,383, 6,392/6,713, 1,171/1,204 and 5,536/5,628.
 No assertions or coverage thresholds changed. No image was published or
 deployed in this work.
+
+### Mobile reader browser readiness, 2026-11-09
+
+Publication run #18 passed build, typecheck, lint, unit/integration and coverage,
+then failed one Firefox mobile navigation case (104 other browser cases passed).
+The saved trace shows a sidebar click before the client switched to drawer mode;
+the drawer remained closed. Fumadocs initially renders the desktop sidebar and
+removes it when the mobile media query becomes active. The three mobile drawer
+tests now wait for that removal before clicking. Home, search and drawer checks
+remain in place, with no click retries or application changes.
+
+The final targeted run passed 12/12 cases across Chromium, Firefox and WebKit,
+including the failing journey. An initial cold local run hit Chromium's overall
+test deadline; the final run included the existing reader case first to warm the
+route, as the full CI suite does. Typecheck, lint, document and diff checks passed.

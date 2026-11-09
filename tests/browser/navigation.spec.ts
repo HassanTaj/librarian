@@ -53,7 +53,10 @@ test.describe('mobile sidebar search', () => {
 
   test('mobile sidebar search opens a focused dialog within the viewport', async ({ page }) => {
     await page.goto('/public-project');
-    await page.getByRole('button', { name: 'Open Sidebar' }).click();
+    const openSidebar = page.getByRole('button', { name: 'Open Sidebar' });
+    await expect(openSidebar).toBeVisible();
+    await expect(page.locator('#nd-sidebar')).toHaveCount(0);
+    await openSidebar.click();
 
     const drawer = page.locator('#nd-sidebar-mobile');
     await drawer.getByRole('button', { name: 'Close Sidebar' }).click();
