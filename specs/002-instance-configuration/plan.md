@@ -311,3 +311,23 @@ journeys, all applicable coverage gates, typecheck, lint and production build.
 An isolated Next/Chromium fixture can demonstrate the boundary behavior without
 accessing MongoDB; it does not replace database-backed acceptance or live timing.
 Rollback is restoring the leaf loading convention and removing the new layout.
+
+### Reader response latency follow-up, 2026-11-09
+
+In `app/[repoSlug]/[[...page]]/page.tsx`, share the guarded reader result with
+`generateMetadata` using React's per-render cache. Key it by repository,
+generation and individual route segments. The article and title must come from
+one selected generation, with authorization, pinning, and final checks before
+either is returned. A new request must repeat those checks. Keep the existing
+reader fallback and private expiry/logout guard; no shared response cache or
+change to generation retention, provider settings, or deployment is needed.
+
+The browser regression in `tests/browser/discovery-reader.spec.ts` observes
+exactly one generation pin on each of two real requests, records response and
+article visibility timings, and checks that same-repository navigation never
+flashes the full skeleton. Re-run private HTML/RSC/metadata/assets, logout and
+generation-switch browser journeys, global/C1–C7 coverage, typecheck, lint,
+production build and artifact validation. The coverage test that owns a cold
+instrumented build, browser execution and source-map verification has a bounded
+six-minute deadline; other test deadlines and coverage thresholds are unchanged.
+Rollback is reverting the reader change; it requires no database migration.

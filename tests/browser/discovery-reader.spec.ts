@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { MongoClient } from 'mongodb';
 import { refreshAdminAuthorization } from './admin-fixture';
 
 test.use({ viewport: { width: 1280, height: 850 } });
@@ -135,10 +137,55 @@ test('a directory storage error is announced without exposing catalog data', asy
   }
 });
 
+test('loads the article and its metadata with one guarded generation read per request', async ({ page }, testInfo) => {
+  const { dbName } = JSON.parse(await readFile('.local/browser-state.json', 'utf8')) as { dbName: string };
+  if (!/^librarian_browser_[a-f0-9]{32}$/.test(dbName)) throw new Error('Disposable browser fixture database required');
+  const client = new MongoClient(`mongodb://127.0.0.1:27018/${dbName}`);
+  const db = client.db(dbName);
+  const pins = db.collection('system.profile');
+  const pinFilter = { 'command.findAndModify': 'catalogs' };
+  await page.addInitScript(() => {
+    const observer = new MutationObserver(() => {
+      if (!document.querySelector('#nd-page h1')?.getClientRects().length) return;
+      performance.mark('reader-visible');
+      observer.disconnect();
+    });
+    observer.observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'style'] });
+  });
+  try {
+    await db.command({ profile: 2, filter: pinFilter });
+    const visits = [];
+    for (let index = 0; index < 2; index++) {
+      const before = await pins.countDocuments(pinFilter);
+      const response = index === 0 ? await page.goto('/public-project/guides/setup') : await page.reload();
+      expect(response?.status()).toBe(200);
+      await expect(page.getByRole('heading', { name: 'Setup', exact: true })).toBeVisible();
+      await expect(page).toHaveTitle('Setup');
+      const timing = await page.evaluate(() => {
+        const [navigation] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+        return { headers: Math.round(navigation.responseStart), responseEnd: Math.round(navigation.responseEnd),
+          articleVisible: Math.round(performance.getEntriesByName('reader-visible')[0].startTime) };
+      });
+      visits.push({ ...timing, pins: (await pins.countDocuments(pinFilter)) - before });
+    }
+    await testInfo.attach('reader-timing.json', { body: JSON.stringify(visits), contentType: 'application/json' });
+    expect(visits.map(visit => visit.pins)).toEqual([1, 1]);
+  } finally {
+    try { await db.command({ profile: 0, filter: 'unset' }); } finally { await client.close(); }
+  }
+});
+
 test('keeps the current document visible while navigating within a repository', async ({ page }) => {
   await page.goto('/public-project');
   const heading = page.getByRole('heading', { name: 'Synthetic Portal', exact: true });
   await expect(heading).toBeVisible();
+  const loading = await page.evaluateHandle(() => {
+    const skeleton = () => document.querySelector('main[aria-label="Loading documentation"]');
+    let seen = !!skeleton();
+    const observer = new MutationObserver(() => { seen ||= !!skeleton(); });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return { stop: () => { observer.disconnect(); return seen; } };
+  });
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
   let requested!: () => void;
@@ -157,6 +204,8 @@ test('keeps the current document visible while navigating within a repository', 
   } finally { release(); }
   await expect(page).toHaveURL(/\/public-project\/guides\/setup\?g=/);
   await expect(page.getByRole('heading', { name: 'Setup', exact: true })).toBeVisible();
+  expect(await loading.evaluate(tracker => tracker.stop())).toBe(false);
+  await loading.dispose();
 });
 
 test('missing reader pages show a safe not-found outcome', async ({ page }) => {

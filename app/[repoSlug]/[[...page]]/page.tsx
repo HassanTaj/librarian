@@ -1,4 +1,4 @@
-import type { ComponentProps, ComponentType, ReactNode } from 'react';
+import { cache, type ComponentProps, type ComponentType, type ReactNode } from 'react';
 import { Home } from 'lucide-react';
 import Link from 'next/link';
 import { DocsLayout } from 'fumadocs-ui/layouts/docs';
@@ -73,17 +73,14 @@ function repositoryComponents(slug: string, generation: string, path: string) {
   });
 }
 
-export default async function Reader({ params, searchParams }: RouteProps) {
-  const [{ repoSlug }, query] = await Promise.all([params, searchParams]);
-  if (!isCatalogSlug(repoSlug)) notFound();
-  const generationId = requestedGeneration(query.g);
-  const localReturn = returnTo(repoSlug, (await params).page, generationId);
-  const { db, contentRoot } = await getMongo();
-  if (!contentRoot) throw new Error('storage_unavailable');
-  try {
-    return await withRuntimeContent(db, contentRoot, repoSlug, generationId, async ({ loader, manifest }, signal, authorization) => {
+// The article and its metadata must share the same authorized generation in this render.
+const loadReader = cache(
+  async (repoSlug: string, generationId: string | undefined, ...slugs: string[]) => {
+    const { db, contentRoot } = await getMongo();
+    if (!contentRoot) throw new Error('storage_unavailable');
+    return withRuntimeContent(db, contentRoot, repoSlug, generationId, async ({ loader, manifest }, signal, authorization) => {
       signal.throwIfAborted();
-      const page = loader.getPage(pageSlugs((await params).page));
+      const page = loader.getPage(slugs);
       if (!page) notFound();
       const rendered = await page.data.load().then(renderer => renderer.render(repositoryComponents(repoSlug, generationId ?? manifest.generationId, page.path)));
       signal.throwIfAborted();
@@ -138,12 +135,23 @@ export default async function Reader({ params, searchParams }: RouteProps) {
         </DocsLayout>
         </ProjectSearchProvider>
       );
-      if (!authorization.privateContent) return layout;
+      const metadata = { title: page.data.title, description: page.data.description };
+      if (!authorization.privateContent) return { layout, metadata };
       if (authorization.roleVerifiedAt === null) throw new Error('unauthorized');
-      return <PrivateContentGuard verifiedAt={authorization.roleVerifiedAt}>{layout}</PrivateContentGuard>;
+      return { layout: <PrivateContentGuard verifiedAt={authorization.roleVerifiedAt}>{layout}</PrivateContentGuard>, metadata };
     });
+  },
+);
+
+export default async function Reader({ params, searchParams }: RouteProps) {
+  const [{ repoSlug, page }, query] = await Promise.all([params, searchParams]);
+  if (!isCatalogSlug(repoSlug)) notFound();
+  const generationId = requestedGeneration(query.g);
+  try {
+    return (await loadReader(repoSlug, generationId, ...(pageSlugs(page) ?? []))).layout;
   } catch (error) {
     if (error instanceof Error && error.message === 'unauthorized') {
+      const localReturn = returnTo(repoSlug, page, generationId);
       let showSignIn = true;
       try { showSignIn = !(await auth())?.user?.id; } catch { /* Keep sign-in available when session lookup is unavailable. */ }
       return (
@@ -159,17 +167,11 @@ export default async function Reader({ params, searchParams }: RouteProps) {
 }
 
 export async function generateMetadata({ params, searchParams }: RouteProps) {
-  const [{ repoSlug }, query] = await Promise.all([params, searchParams]);
+  const [{ repoSlug, page }, query] = await Promise.all([params, searchParams]);
   if (!isCatalogSlug(repoSlug)) notFound();
   const generationId = requestedGeneration(query.g);
-  const { db, contentRoot } = await getMongo();
-  if (!contentRoot) throw new Error('storage_unavailable');
   try {
-    return await withRuntimeContent(db, contentRoot, repoSlug, generationId, async ({ loader }) => {
-      const page = loader.getPage(pageSlugs((await params).page));
-      if (!page) notFound();
-      return { title: page.data.title, description: page.data.description };
-    });
+    return (await loadReader(repoSlug, generationId, ...(pageSlugs(page) ?? []))).metadata;
   } catch (error) {
     if (error instanceof Error && error.message === 'unauthorized') return { title: 'Restricted project', description: 'Sign in to request access.' };
     renderUnavailable(error);

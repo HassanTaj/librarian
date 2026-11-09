@@ -729,3 +729,34 @@ Container/previous-image acceptance and live provider/infrastructure checks were
 not run here. No image publication, shared-DEV change or production deployment
 occurred. Existing `deploy/feed` history was fast-forwarded into `main` without
 changing its files or writing to the release branch.
+
+### Reader response latency follow-up to T107, 2026-11-09
+
+Edge reproduced the full reader skeleton on the live sidebar transition from
+the authoring guide to Initial local DEV setup. In one sample it appeared at
+669 ms and the new article appeared at 2.7 s. A separate full RSC request for
+the same article returned about 99 KB and took 5.5 s to finish; the screenshot's
+62-byte router response was not the article payload. Read-only Swarm inspection
+matched the running image to publication run #14. Run #17 published a different
+digest containing the T107 layout fix, which was not serving the live page.
+
+`page.tsx` now shares the same request-scoped, authorized reader result between
+the article and metadata. The browser regression failed before the change with
+two generation pins per request; afterwards both visits used one pin in each of
+Chromium, Firefox, and WebKit. The held-navigation test now observes the whole
+transition for any full skeleton. The local production build's Chromium sidebar
+probe displayed the synthetic next article in 459 ms without a skeleton. This
+is a local measurement, with different content and resources from production.
+
+The reader browser subset had 71 passes and one Firefox dev-bundle parse error
+before the private content could hydrate. The trace identified the development
+`layout.js` bundle; the server returned the authorized page. The same Firefox
+logout scenario passed in isolation with its original assertions. Typecheck,
+lint and the production build passed. Earlier coverage attempts were blocked by
+build timeouts, an override that bypassed integration ordering, and a unit import
+timeout. The cold instrumented build test now has a bounded six-minute deadline.
+Running with one worker and no overlapping builds passed 1,134/1,134 tests with
+no skips. All global/C1–C7 coverage thresholds passed. Global statement, branch,
+function and line counts are 7,117/7,383, 6,392/6,713, 1,171/1,204 and 5,536/5,628.
+No assertions or coverage thresholds changed. No image was published or
+deployed in this work.
