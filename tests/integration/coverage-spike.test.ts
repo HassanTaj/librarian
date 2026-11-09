@@ -111,6 +111,7 @@ async function runtimeEnvironment(storage: Awaited<ReturnType<typeof seedRuntime
   };
 }
 
+// This test owns the cold instrumented build as well as the server/browser checks.
 it('maps raw actual-Next execution back to original application sources', async () => {
   const root = process.cwd();
   const directory = resolve(root, 'coverage/next-spike');
@@ -253,4 +254,4 @@ it('maps raw actual-Next execution back to original application sources', async 
     server: { exited: true, mapsVerified: true, captures: captures.map(file => relative(root, join(directory, file))) },
     browser: { exited: true, captured: true, originalSourceFiles: Object.keys(client).length },
   }));
-});
+}, 360_000);
